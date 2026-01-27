@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARCTIVATE | Habits</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        arc: {
+                            bg: '#0f0f11',
+                            card: '#1e1e24',
+                            accent: '#ff4d00',
+                            text: '#e4e4e7',
+                            muted: '#71717a',
+                            success: '#22c55e'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+        body { background-color: #0f0f11; color: #e4e4e7; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: rgba(30, 30, 36, 0.95); border: 1px solid rgba(255,255,255,0.05); }
+        
+        /* Custom Checkbox */
+        .habit-checkbox { appearance: none; width: 24px; height: 24px; border: 2px solid #3f3f46; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+        .habit-checkbox:checked { background-color: #ff4d00; border-color: #ff4d00; }
+        .habit-checkbox:checked::after { content: '✓'; color: white; font-weight: 900; font-size: 14px; }
+
+        /* Progress Ring */
+        .progress-ring__circle { transition: stroke-dashoffset 0.35s; transform: rotate(-90deg); transform-origin: 50% 50%; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col max-w-md mx-auto relative overflow-x-hidden pb-20">
+
+    <!-- HEADER -->
+    <header class="p-6 flex justify-between items-center border-b border-white/5 bg-arc-bg/90 backdrop-blur sticky top-0 z-10">
+        <h1 class="text-xl font-black tracking-tighter italic">HABITS</h1>
+        <div class="flex items-center gap-1">
+            <span class="text-orange-500 text-sm">🔥</span>
+            <span class="font-mono font-bold text-sm">12 Day Streak</span>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 p-6 space-y-8">
+
+        <!-- DAILY PROGRESS -->
+        <section class="glass-panel p-6 rounded-2xl flex items-center justify-between">
+            <div>
+                <h2 class="text-xs font-bold text-arc-muted uppercase tracking-widest mb-1">Daily Grind</h2>
+                <div class="text-3xl font-black italic" id="progress-text">0/5</div>
+                <div class="text-xs text-arc-muted mt-1">Tasks Completed</div>
+            </div>
+            
+            <!-- Radial Progress -->
+            <div class="relative w-20 h-20">
+                <svg class="w-full h-full" viewBox="0 0 100 100">
+                    <circle class="text-gray-800 stroke-current" stroke-width="8" cx="50" cy="50" r="40" fill="transparent"></circle>
+                    <circle id="progress-ring" class="text-arc-accent progress-ring__circle stroke-current" stroke-width="8" stroke-linecap="round" cx="50" cy="50" r="40" fill="transparent" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center font-bold text-xs" id="percent-text">0%</div>
+            </div>
+        </section>
+
+        <!-- HABIT LIST -->
+        <section class="space-y-4">
+            <h3 class="text-xs font-bold text-arc-muted uppercase tracking-widest">Today's Protocol</h3>
+            
+            <!-- Habit Item 1 -->
+            <label class="glass-panel p-4 rounded-xl flex items-center justify-between cursor-pointer group hover:border-white/10 transition">
+                <div class="flex items-center gap-4">
+                    <input type="checkbox" class="habit-checkbox" onchange="toggleHabit(this)">
+                    <div>
+                        <div class="font-bold text-sm">No Sugar</div>
+                        <div class="text-xs text-arc-muted">Nutrition • 10 pts</div>
+                    </div>
+                </div>
+            </label>
+
+            <!-- Habit Item 2 -->
+            <label class="glass-panel p-4 rounded-xl flex items-center justify-between cursor-pointer group hover:border-white/10 transition">
+                <div class="flex items-center gap-4">
+                    <input type="checkbox" class="habit-checkbox" onchange="toggleHabit(this)">
+                    <div>
+                        <div class="font-bold text-sm">Gallon of Water</div>
+                        <div class="text-xs text-arc-muted">Hydration • 10 pts</div>
+                    </div>
+                </div>
+            </label>
+
+            <!-- Habit Item 3 -->
+            <label class="glass-panel p-4 rounded-xl flex items-center justify-between cursor-pointer group hover:border-white/10 transition">
+                <div class="flex items-center gap-4">
+                    <input type="checkbox" class="habit-checkbox" onchange="toggleHabit(this)">
+                    <div>
+                        <div class="font-bold text-sm">Read 10 Pages</div>
+                        <div class="text-xs text-arc-muted">Mindset • 10 pts</div>
+                    </div>
+                </div>
+            </label>
+
+            <!-- Habit Item 4 -->
+            <label class="glass-panel p-4 rounded-xl flex items-center justify-between cursor-pointer group hover:border-white/10 transition">
+                <div class="flex items-center gap-4">
+                    <input type="checkbox" class="habit-checkbox" onchange="toggleHabit(this)">
+                    <div>
+                        <div class="font-bold text-sm">Cold Plunge / Shower</div>
+                        <div class="text-xs text-arc-muted">Recovery • 10 pts</div>
+                    </div>
+                </div>
+            </label>
+
+            <!-- Habit Item 5 -->
+            <label class="glass-panel p-4 rounded-xl flex items-center justify-between cursor-pointer group hover:border-white/10 transition">
+                <div class="flex items-center gap-4">
+                    <input type="checkbox" class="habit-checkbox" onchange="toggleHabit(this)">
+                    <div>
+                        <div class="font-bold text-sm">Visualise Goals</div>
+                        <div class="text-xs text-arc-muted">Mindset • 10 pts</div>
+                    </div>
+                </div>
+            </label>
+
+        </section>
+
+    </main>
+
+    <!-- NAVIGATION (Mock) -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/5 p-4 flex justify-around text-xs font-bold text-arc-muted">
+        <a href="prototype.html" class="flex flex-col items-center gap-1 hover:text-white transition">
+            <span>💪</span>
+            <span>Train</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 text-arc-accent">
+            <span>✅</span>
+            <span>Habits</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 hover:text-white transition">
+            <span>🥗</span>
+            <span>Food</span>
+        </a>
+    </nav>
+
+    <script>
+        const totalHabits = 5;
+        const circle = document.getElementById('progress-ring');
+        const radius = circle.r.baseVal.value;
+        const circumference = radius * 2 * Math.PI;
+
+        circle.style.strokeDasharray = `${circumference} ${circumference}`;
+        circle.style.strokeDashoffset = circumference;
+
+        function setProgress(percent) {
+            const offset = circumference - percent / 100 * circumference;
+            circle.style.strokeDashoffset = offset;
+        }
+
+        function toggleHabit(checkbox) {
+            // Find parent label to dim/undim
+            const label = checkbox.closest('label');
+            if(checkbox.checked) {
+                label.classList.add('opacity-50');
+            } else {
+                label.classList.remove('opacity-50');
+            }
+            updateStats();
+        }
+
+        function updateStats() {
+            const checked = document.querySelectorAll('.habit-checkbox:checked').length;
+            const percent = (checked / totalHabits) * 100;
+            
+            document.getElementById('progress-text').innerText = `${checked}/${totalHabits}`;
+            document.getElementById('percent-text').innerText = `${Math.round(percent)}%`;
+            setProgress(percent);
+
+            if(checked === totalHabits) {
+                // Celebration logic could go here
+                document.getElementById('progress-text').classList.add('text-arc-success');
+                document.getElementById('progress-ring').classList.replace('text-arc-accent', 'text-arc-success');
+            } else {
+                document.getElementById('progress-text').classList.remove('text-arc-success');
+                document.getElementById('progress-ring').classList.replace('text-arc-success', 'text-arc-accent');
+            }
+        }
+    </script>
+</body>
+</html>

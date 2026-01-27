@@ -12,9 +12,14 @@
 ## Phase 1 Roadmap status
 - [x] Specs Defined
 - [x] Database Schema Design (In Progress)
+- [x] Core UI (Habits & Workout Logger)
 - [ ] Authentication Setup
-- [ ] Core UI (Habits & Workout Logger)
 - [ ] Gamification Engine (Points Logic)
+
+## Feature Demos
+- **Workout Logger:** `/prototype.html`
+- **Habit Tracker:** `/habits.html`
+
 
 ## Gamification Rules
 - **Habit:** +10 pts
