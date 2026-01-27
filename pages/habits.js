@@ -11,14 +11,78 @@ export default function Habits() {
   const [habits, setHabits] = useState([])
   const [logs, setLogs] = useState(new Set()) // Set of habit_ids completed today
   const [loading, setLoading] = useState(true)
-  const [isAdding, setIsAdding] = useState(false)
-  const [customHabit, setCustomHabit] = useState('')
-  
-  // Challenge State
-  const [challengeDay, setChallengeDay] = useState(1)
-  const [challengeGoal, setChallengeGoal] = useState(75)
+  const [isEditingGoal, setIsEditingGoal] = useState(false)
+  const [newGoal, setNewGoal] = useState(75)
 
-  // Load Data
+  // ... (fetchData remains same)
+
+  const updateGoal = async () => {
+    const goal = parseInt(newGoal)
+    if (goal > 0) {
+        setChallengeGoal(goal)
+        setNewGoal(goal)
+        const { data: { user } } = await supabase.auth.getUser()
+        await supabase.from('profiles').update({ challenge_days_goal: goal }).eq('id', user.id)
+        setIsEditingGoal(false)
+    }
+  }
+
+  // ... (rest of logic)
+
+  return (
+    // ...
+            {/* Challenge Progress */}
+            <section className="relative pt-2">
+                 <div className="flex justify-between items-end mb-2 px-1">
+                    <div>
+                        <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Challenge Phase 1</span>
+                        <div className="text-2xl font-black italic flex items-baseline gap-2">
+                            DAY {challengeDay} 
+                            <button onClick={() => setIsEditingGoal(true)} className="text-white/20 text-lg hover:text-white transition-colors border-b border-transparent hover:border-white/20">
+                                / {challengeGoal}
+                            </button>
+                        </div>
+                    </div>
+    // ...
+    
+        {/* Edit Goal Sheet */}
+        <AnimatePresence>
+            {isEditingGoal && (
+                <>
+                    <motion.div 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setIsEditingGoal(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div 
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <h2 className="text-xl font-black italic tracking-tighter text-center">SET CHALLENGE GOAL</h2>
+                        
+                        <div>
+                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Duration (Days)</label>
+                            <input 
+                                type="number" 
+                                value={newGoal}
+                                onChange={(e) => setNewGoal(e.target.value)}
+                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl"
+                                autoFocus
+                            />
+                        </div>
+
+                        <button 
+                            onClick={updateGoal}
+                            className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                        >
+                            UPDATE GOAL
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
   useEffect(() => {
     fetchData()
   }, [])
@@ -134,7 +198,12 @@ export default function Habits() {
                  <div className="flex justify-between items-end mb-2 px-1">
                     <div>
                         <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Challenge Phase 1</span>
-                        <div className="text-2xl font-black italic">DAY {challengeDay} <span className="text-white/20 text-lg">/ {challengeGoal}</span></div>
+                        <div className="text-2xl font-black italic flex items-baseline gap-2">
+                            DAY {challengeDay} 
+                            <button onClick={() => setIsEditingGoal(true)} className="text-white/20 text-lg hover:text-white transition-colors border-b border-transparent hover:border-white/20">
+                                / {challengeGoal}
+                            </button>
+                        </div>
                     </div>
                     <div className="text-right">
                         <div className="text-xs font-mono font-bold text-arc-accent">{Math.round(challengeProgress)}%</div>
@@ -253,6 +322,45 @@ export default function Habits() {
                             className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
                         >
                             SAVE HABIT
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Edit Goal Sheet */}
+        <AnimatePresence>
+            {isEditingGoal && (
+                <>
+                    <motion.div 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setIsEditingGoal(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div 
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <h2 className="text-xl font-black italic tracking-tighter text-center">SET CHALLENGE GOAL</h2>
+                        
+                        <div>
+                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Duration (Days)</label>
+                            <input 
+                                type="number" 
+                                value={newGoal}
+                                onChange={(e) => setNewGoal(e.target.value)}
+                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl"
+                                autoFocus
+                            />
+                        </div>
+
+                        <button 
+                            onClick={updateGoal}
+                            className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                        >
+                            UPDATE GOAL
                         </button>
                     </motion.div>
                 </>
