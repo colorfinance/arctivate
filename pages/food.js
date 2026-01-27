@@ -1,28 +1,63 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Nav from '../components/Nav'
+import { supabase } from '../lib/supabaseClient'
 
 export default function Food() {
   const [scanning, setScanning] = useState(false)
   const [result, setResult] = useState(null)
+  const fileInputRef = useRef(null)
 
-  const simulateScan = () => {
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
     setScanning(true)
-    setTimeout(() => {
-        setScanning(false)
-        setResult({
-            name: "Quest Bar",
-            desc: "Chocolate Chip Cookie Dough",
-            cals: 190,
-            p: 21,
-            c: 22,
-            f: 9
-        })
-    }, 1500)
+    setResult(null)
+
+    // Convert to Base64
+    const reader = new FileReader()
+    reader.onloadend = async () => {
+      const base64Image = reader.result
+      await analyzeImage(base64Image)
+    }
+    reader.readAsDataURL(file)
   }
 
-  const addToLog = () => {
-      setResult(null)
-      alert("Logged 190 calories!")
+  const analyzeImage = async (base64Image) => {
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image }),
+      })
+
+      if (!res.ok) throw new Error('Analysis failed')
+
+      const data = await res.json()
+      setResult(data)
+    } catch (error) {
+      console.error(error)
+      alert("Failed to identify food. Check your API Key.")
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const addToLog = async () => {
+    if(!result) return
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if(user) {
+        await supabase.from('food_logs').insert({
+            user_id: user.id,
+            item_name: result.name,
+            calories: result.cals,
+            macros: { p: result.p, c: result.c, f: result.f }
+        })
+        
+        alert(`Logged ${result.cals} calories!`)
+        setResult(null)
+    }
   }
 
   return (
@@ -32,7 +67,7 @@ export default function Food() {
             <h1 className="text-xl font-black tracking-tighter italic drop-shadow-md">NUTRITION</h1>
             <div className="glass-panel px-3 py-1 rounded-full text-xs font-mono">
                 <span className="text-arc-muted">Daily:</span> 
-                <span className="text-white font-bold">1,250 / 2,800</span>
+                <span className="text-white font-bold">-- / 2,800</span>
             </div>
         </header>
 
@@ -48,29 +83,42 @@ export default function Food() {
                 <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-arc-accent rounded-bl-xl"></div>
                 <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-arc-accent rounded-br-xl"></div>
                 
-                {/* Laser Animation */}
-                <div className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#ff4d00] animate-[scan_2s_infinite_linear]"></div>
+                {scanning && (
+                    <div className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#ff4d00] animate-[scan_2s_infinite_linear]"></div>
+                )}
                 
-                <p className="text-xs text-white/70 font-bold mt-32 tracking-widest uppercase">Align Barcode</p>
+                {!scanning && !result && (
+                    <p className="text-xs text-white/70 font-bold mt-32 tracking-widest uppercase">Tap to Snap</p>
+                )}
             </div>
+
+            {/* Hidden File Input */}
+            <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment" 
+                ref={fileInputRef} 
+                className="hidden" 
+                onChange={handleFileSelect}
+            />
 
             {/* Controls */}
             <div className="absolute bottom-24 w-full px-8 flex justify-between items-center z-20">
-                <button className="bg-white/10 p-3 rounded-full backdrop-blur hover:bg-white/20">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> 
-                </button>
+                <div className="w-12"></div> {/* Spacer */}
                 
-                <button onClick={simulateScan} className={`bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition ${scanning ? 'animate-pulse' : ''}`}>
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+                <button 
+                    onClick={() => fileInputRef.current?.click()} 
+                    disabled={scanning}
+                    className={`bg-arc-accent w-20 h-20 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
+                >
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                 </button>
 
-                <button className="bg-white/10 p-3 rounded-full backdrop-blur hover:bg-white/20">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
+                <div className="w-12"></div> {/* Spacer */}
             </div>
         </main>
 
-        {/* Modal */}
+        {/* Result Modal */}
         <div className={`fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl transform transition-transform duration-300 z-30 border-t border-white/10 ${result ? 'translate-y-0' : 'translate-y-full'}`}>
             <div className="p-6 pb-24">
                 <div className="w-12 h-1 bg-gray-700 rounded-full mx-auto mb-6" onClick={() => setResult(null)}></div>
@@ -82,8 +130,8 @@ export default function Food() {
                             <h2 className="text-xl font-bold">{result.name}</h2>
                             <p className="text-arc-muted text-sm">{result.desc}</p>
                         </div>
-                        <div className="bg-green-500/10 text-green-500 text-xs font-bold px-2 py-1 rounded">
-                            Verified
+                        <div className="bg-blue-500/10 text-blue-500 text-xs font-bold px-2 py-1 rounded">
+                            AI Analyzed
                         </div>
                     </div>
 
@@ -98,7 +146,7 @@ export default function Food() {
                         </div>
                         <div className="bg-black/30 p-3 rounded-xl border border-white/5">
                             <div className="text-xs text-arc-muted mb-1">Carb</div>
-                            <div className="font-bold text-lg">{result.c.g}</div>
+                            <div className="font-bold text-lg">{result.c}g</div>
                         </div>
                         <div className="bg-black/30 p-3 rounded-xl border border-white/5">
                             <div className="text-xs text-arc-muted mb-1">Fat</div>
@@ -115,7 +163,6 @@ export default function Food() {
         </div>
 
         <Nav />
-
         <style jsx global>{`
             @keyframes scan {
                 0% { top: 10%; opacity: 0; }
