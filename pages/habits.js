@@ -1,179 +1,264 @@
 import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import confetti from 'canvas-confetti'
+
+// Helper for dates
+const getTodayStr = () => new Date().toISOString().split('T')[0]
 
 export default function Habits() {
   const [habits, setHabits] = useState([])
+  const [logs, setLogs] = useState(new Set()) // Set of habit_ids completed today
   const [loading, setLoading] = useState(true)
+  const [isAdding, setIsAdding] = useState(false)
   const [customHabit, setCustomHabit] = useState('')
-  const [streak, setStreak] = useState(0)
+  
+  // Challenge State
+  const [challengeDay, setChallengeDay] = useState(1)
+  const [challengeGoal, setChallengeGoal] = useState(75)
 
-  // Fetch initial habits from DB
+  // Load Data
   useEffect(() => {
-    fetchHabits()
-    fetchStreak()
+    fetchData()
   }, [])
 
-  async function fetchStreak() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if(!user) return
-    const { data } = await supabase.from('profiles').select('current_streak').eq('id', user.id).single()
-    if(data) setStreak(data.current_streak)
-  }
-
-  async function fetchHabits() {
+  async function fetchData() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      // Fetch only active habits for this user
-      const { data, error } = await supabase
-        .from('habits')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
+    if (!user) return
 
-      if (data && data.length > 0) {
-        setHabits(data.map(h => ({ ...h, checked: false })))
-      } else {
-        // First time user? Seed defaults.
-        const defaults = [
-          { title: 'No Sugar', points_reward: 10 },
-          { title: 'Gallon of Water', points_reward: 10 },
-          { title: 'Read 10 Pages', points_reward: 10 },
-          { title: 'Cold Plunge / Shower', points_reward: 10 },
-          { title: 'Visualise Goals', points_reward: 10 }
-        ]
-        
-        for (const d of defaults) {
-           await supabase.from('habits').insert({ ...d, user_id: user.id })
-        }
-        // Refetch after seeding
-        const { data: refreshed } = await supabase.from('habits').select('*').eq('user_id', user.id)
-        setHabits(refreshed.map(h => ({ ...h, checked: false })))
-      }
+    // 1. Fetch Challenge Info
+    const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal').eq('id', user.id).single()
+    if (profile) {
+        const start = new Date(profile.challenge_start_date)
+        const now = new Date()
+        const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1
+        setChallengeDay(Math.max(1, diff))
+        setChallengeGoal(profile.challenge_days_goal || 75)
     }
+
+    // 2. Fetch Habits
+    const { data: habitsData } = await supabase
+      .from('habits')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+    
+    // 3. Fetch Today's Logs
+    const today = getTodayStr()
+    const { data: logsData } = await supabase
+      .from('habit_logs')
+      .select('habit_id')
+      .eq('user_id', user.id)
+      .eq('date', today)
+
+    // Set State
+    setHabits(habitsData || [])
+    setLogs(new Set(logsData?.map(l => l.habit_id) || []))
     setLoading(false)
+  }
+
+  const toggleHabit = async (habitId) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const today = getTodayStr()
+    
+    // Optimistic Update
+    const isCompleted = logs.has(habitId)
+    const newLogs = new Set(logs)
+    
+    if (isCompleted) {
+        newLogs.delete(habitId)
+        // Remove from DB
+        await supabase.from('habit_logs').delete().match({ user_id: user.id, habit_id: habitId, date: today })
+    } else {
+        newLogs.add(habitId)
+        // Add to DB
+        await supabase.from('habit_logs').insert({ user_id: user.id, habit_id: habitId, date: today })
+        
+        // Mini celebration if all done
+        if (newLogs.size === habits.length) {
+            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+        }
+    }
+    
+    setLogs(newLogs)
   }
 
   const addCustom = async () => {
     if(!customHabit) return
     const { data: { user } } = await supabase.auth.getUser()
-    if(user) {
-        const { data, error } = await supabase.from('habits').insert({
-            user_id: user.id,
-            title: customHabit,
-            points_reward: 10
-        }).select().single()
-        
-        if(data) setHabits([...habits, { ...data, checked: false }])
+    
+    const { data, error } = await supabase.from('habits').insert({
+        user_id: user.id,
+        title: customHabit,
+        points_reward: 10
+    }).select().single()
+    
+    if(data) {
+        setHabits([...habits, data])
         setCustomHabit('')
+        setIsAdding(false)
     }
   }
 
   const deleteHabit = async (id) => {
-    // Optimistic update
+    if(!confirm("Delete this habit?")) return
     setHabits(habits.filter(h => h.id !== id))
     await supabase.from('habits').delete().eq('id', id)
   }
 
   // Calc progress
-  const completedCount = habits.filter(h => h.checked).length
+  const completedCount = logs.size
   const totalCount = habits.length
   const progressPercent = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100)
-  
-  // Radial Progress Props
-  const radius = 40
-  const circumference = radius * 2 * Math.PI
-  const strokeDashoffset = circumference - (progressPercent / 100) * circumference
+  const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
 
   return (
-    <div className="min-h-screen flex flex-col pb-20">
-        <header className="p-6 flex justify-between items-center border-b border-white/5 bg-arc-bg/90 backdrop-blur sticky top-0 z-10">
-            <h1 className="text-xl font-black tracking-tighter italic">HABITS</h1>
-            <div className="flex items-center gap-1">
-                <span className="text-orange-500 text-sm">🔥</span>
-                <span className="font-mono font-bold text-sm">{streak} Day Streak</span>
-            </div>
+    <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent selection:text-white">
+        
+        {/* Header */}
+        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-6 flex justify-between items-center">
+            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                PROTOCOL
+            </h1>
+            <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
+                + Add Habit
+            </button>
         </header>
 
-        <main className="flex-1 p-6 space-y-8">
-
-            {/* Daily Progress */}
-            <section className="glass-panel p-6 rounded-2xl flex items-center justify-between">
-                <div>
-                    <h2 className="text-xs font-bold text-arc-muted uppercase tracking-widest mb-1">Daily Grind</h2>
-                    <div className={`text-3xl font-black italic ${completedCount === totalCount && totalCount > 0 ? 'text-arc-success' : ''}`}>
-                        {completedCount}/{totalCount}
+        <main className="pt-28 px-6 space-y-8 max-w-lg mx-auto">
+            
+            {/* Challenge Progress */}
+            <section className="relative pt-2">
+                 <div className="flex justify-between items-end mb-2 px-1">
+                    <div>
+                        <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Challenge Phase 1</span>
+                        <div className="text-2xl font-black italic">DAY {challengeDay} <span className="text-white/20 text-lg">/ {challengeGoal}</span></div>
                     </div>
-                    <div className="text-xs text-arc-muted mt-1">Tasks Completed</div>
-                </div>
+                    <div className="text-right">
+                        <div className="text-xs font-mono font-bold text-arc-accent">{Math.round(challengeProgress)}%</div>
+                    </div>
+                 </div>
+                 
+                 {/* Progress Bar */}
+                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                    <motion.div 
+                        initial={{ width: 0 }} 
+                        animate={{ width: `${challengeProgress}%` }} 
+                        className="h-full bg-gradient-to-r from-arc-accent to-orange-400"
+                    />
+                 </div>
+            </section>
+
+            {/* Daily Grind Circle */}
+            <section className="bg-glass-gradient border border-white/5 p-6 rounded-[2rem] flex items-center justify-between relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 blur-3xl rounded-full pointer-events-none" />
                 
-                {/* Radial Chart */}
+                <div>
+                    <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Daily Grind</h2>
+                    <div className="text-4xl font-black italic tracking-tighter">
+                        <span className={completedCount === totalCount && totalCount > 0 ? "text-green-500" : "text-white"}>
+                            {completedCount}
+                        </span>
+                        <span className="text-white/20">/{totalCount}</span>
+                    </div>
+                    <div className="text-[10px] text-arc-muted font-bold mt-1 uppercase">Tasks Complete</div>
+                </div>
+
+                {/* Ring Chart */}
                 <div className="relative w-20 h-20">
-                    <svg className="w-full h-full" viewBox="0 0 100 100">
-                        <circle className="text-gray-800 stroke-current" strokeWidth="8" cx="50" cy="50" r="40" fill="transparent"></circle>
-                        <circle 
-                            className={`progress-ring__circle stroke-current transition-all duration-300 ${completedCount === totalCount && totalCount > 0 ? 'text-arc-success' : 'text-arc-accent'}`}
+                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                        <circle className="text-white/5 stroke-current" strokeWidth="8" cx="50" cy="50" r="40" fill="transparent"></circle>
+                        <motion.circle 
+                            initial={{ pathLength: 0 }}
+                            animate={{ pathLength: progressPercent / 100 }}
+                            transition={{ duration: 1, ease: "easeOut" }}
+                            className={`${completedCount === totalCount ? 'text-green-500' : 'text-arc-accent'} stroke-current drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]`}
                             strokeWidth="8" 
                             strokeLinecap="round" 
                             cx="50" cy="50" r="40" 
-                            fill="transparent" 
-                            strokeDasharray={`${circumference} ${circumference}`} 
-                            style={{ strokeDashoffset }}
-                            transform="rotate(-90 50 50)"
-                        ></circle>
+                            fill="transparent"
+                        ></motion.circle>
                     </svg>
-                    <div className="absolute inset-0 flex items-center justify-center font-bold text-xs">
-                        {progressPercent}%
-                    </div>
                 </div>
             </section>
 
-            {/* Add Custom */}
-            <section className="glass-panel p-4 rounded-xl flex items-center gap-2">
-                <input 
-                    type="text" 
-                    placeholder="Add custom habit..." 
-                    className="bg-transparent border-none outline-none text-white w-full placeholder-gray-600 font-bold text-sm"
-                    value={customHabit}
-                    onChange={(e) => setCustomHabit(e.target.value)}
-                />
-                <button onClick={addCustom} className="bg-arc-accent text-white rounded-lg p-2 hover:bg-orange-600 transition">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                </button>
-            </section>
-
-            {/* List */}
-            <section className="space-y-4">
-                <h3 className="text-xs font-bold text-arc-muted uppercase tracking-widest">Today's Protocol</h3>
-                
-                {loading && <div className="text-center text-arc-muted text-xs">Loading habits...</div>}
-
-                {habits.map(habit => (
-                    <label key={habit.id} className={`glass-panel p-4 rounded-xl flex items-center justify-between cursor-pointer group hover:border-white/10 transition ${habit.checked ? 'opacity-50' : ''}`}>
-                        <div className="flex items-center gap-4">
-                            <input 
-                                type="checkbox" 
-                                className="appearance-none w-6 h-6 border-2 border-[#3f3f46] rounded-md checked:bg-arc-accent checked:border-arc-accent transition cursor-pointer relative"
-                                checked={habit.checked}
-                                onChange={() => toggleHabit(habit.id)}
-                            />
-                            <div>
-                                <div className="font-bold text-sm">{habit.title}</div>
-                                <div className="text-xs text-arc-muted">10 pts</div>
+            {/* Habit List */}
+            <section className="space-y-3 pb-12">
+                {habits.map(habit => {
+                    const isDone = logs.has(habit.id)
+                    return (
+                        <motion.div 
+                            key={habit.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            onClick={() => toggleHabit(habit.id)}
+                            className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 ${isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
+                        >
+                            <div className="flex items-center gap-4 z-10">
+                                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-white/20 group-hover:border-white/40'}`}>
+                                    {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></motion.svg>}
+                                </div>
+                                <div>
+                                    <div className={`font-bold text-sm transition-colors ${isDone ? 'text-green-500 line-through decoration-2 opacity-70' : 'text-white'}`}>{habit.title}</div>
+                                    <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">10 PTS</div>
+                                </div>
                             </div>
-                        </div>
-                        <button onClick={(e) => { e.preventDefault(); deleteHabit(habit.id); }} className="text-gray-600 hover:text-red-500 text-xs uppercase font-bold px-2 py-1">
-                            Del
-                        </button>
-                    </label>
-                ))}
+                            
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); deleteHabit(habit.id); }}
+                                className="z-10 text-white/20 hover:text-red-500 transition-colors p-2"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            </button>
+                        </motion.div>
+                    )
+                })}
+                
+                {habits.length === 0 && !loading && (
+                    <div className="text-center py-10 opacity-50 text-sm">No habits set. Add one!</div>
+                )}
             </section>
-
         </main>
+
+        {/* Add Habit Sheet */}
+        <AnimatePresence>
+            {isAdding && (
+                <>
+                    <motion.div 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setIsAdding(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div 
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <h2 className="text-xl font-black italic tracking-tighter text-center">ADD HABIT</h2>
+                        
+                        <input 
+                            type="text" 
+                            value={customHabit}
+                            onChange={(e) => setCustomHabit(e.target.value)}
+                            placeholder="e.g. Read 10 Pages"
+                            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                            autoFocus
+                        />
+
+                        <button 
+                            onClick={addCustom}
+                            className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                        >
+                            SAVE HABIT
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
         <Nav />
     </div>
   )
