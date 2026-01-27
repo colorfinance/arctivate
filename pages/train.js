@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import confetti from 'canvas-confetti'
 
 export default function Train() {
   const [exercise, setExercise] = useState('bench_press')
@@ -9,12 +10,12 @@ export default function Train() {
   const [logs, setLogs] = useState([])
   const [points, setPoints] = useState(0)
   const [streak, setStreak] = useState(0)
-  const [notif, setNotif] = useState(false)
 
   // Load Data
   useEffect(() => {
     fetchProfile()
     fetchPB(exercise)
+    // Also fetch recent logs for this session if we wanted
   }, [exercise])
 
   async function fetchProfile() {
@@ -29,26 +30,56 @@ export default function Train() {
   }
 
   async function fetchPB(exName) {
-    // In real app, we'd join with 'exercises' table. For MVP, we mock or query directly if we inserted exercises.
-    // Simplifying: we'll just check local state or a simplified DB query for now to save time setting up Exercise seed data.
-    // TODO: Connect to real DB for PBs
-    setCurrentPB(100) // Mock
+    // Mock PB for now (100 for bench, 140 for deadlift, 25 for run)
+    const mocks = { bench_press: 100, deadlift: 140, '5k_run': 25 }
+    setCurrentPB(mocks[exName] || 0)
   }
 
   const handleLog = async () => {
     if (!value) return
+    const valNum = parseFloat(value)
     
+    // Check PB Logic
+    let isPB = false
+    let pointsEarned = 50
+
+    // For runs, lower is usually better, but keeping simple "Higher is better" logic for MVP demo
+    // or specifically handling run:
+    if (exercise === '5k_run') {
+        if (valNum < currentPB && currentPB > 0) isPB = true
+    } else {
+        if (valNum > currentPB) isPB = true
+    }
+
+    if (isPB) {
+        pointsEarned += 100
+        triggerCelebration()
+        setCurrentPB(valNum) // Update local PB instantly
+    }
+    
+    // Formatted Date
+    const now = new Date()
+    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const dateString = now.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    const fullTimestamp = `${dateString} at ${timeString}`
+
     // Optimistic UI Update
-    const pointsEarned = 50
     setPoints(prev => prev + pointsEarned)
-    setLogs(prev => [{ name: exercise, val: value, points: pointsEarned, time: 'Just now' }, ...prev])
+    setLogs(prev => [{ 
+        name: exercise, 
+        val: valNum, 
+        points: pointsEarned, 
+        time: fullTimestamp,
+        isPB: isPB
+    }, ...prev])
     
-    // Save to DB (Fire & Forget for prototype speed)
+    // Save to DB
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
         await supabase.from('workout_logs').insert({
             user_id: user.id,
-            value: value,
+            value: valNum,
+            is_new_pb: isPB,
             points_awarded: pointsEarned
         })
         
@@ -57,6 +88,27 @@ export default function Train() {
     }
 
     setValue('')
+  }
+
+  const triggerCelebration = () => {
+    const duration = 3 * 1000
+    const animationEnd = Date.now() + duration
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 }
+
+    const randomInRange = (min, max) => Math.random() * (max - min) + min
+
+    const interval = setInterval(function() {
+      const timeLeft = animationEnd - Date.now()
+
+      if (timeLeft <= 0) {
+        return clearInterval(interval)
+      }
+
+      const particleCount = 50 * (timeLeft / duration)
+      // since particles fall down, start a bit higher than random
+      confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } })
+      confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } })
+    }, 250)
   }
 
   return (
@@ -79,7 +131,7 @@ export default function Train() {
                 </div>
                 <div className="glass-panel p-4 rounded-xl flex flex-col items-center justify-center">
                     <span className="text-arc-muted text-xs uppercase tracking-widest mb-1">Today</span>
-                    <span className="text-3xl font-black font-mono text-arc-accent">+50</span>
+                    <span className="text-3xl font-black font-mono text-arc-accent">+{logs.reduce((acc, curr) => acc + curr.points, 0)}</span>
                     <span className="text-xs text-arc-muted">POINTS</span>
                 </div>
             </section>
@@ -122,10 +174,13 @@ export default function Train() {
             {/* Feed */}
             <section className="space-y-3">
                 {logs.map((log, i) => (
-                    <div key={i} className="glass-panel p-3 rounded-lg flex justify-between items-center">
+                    <div key={i} className={`glass-panel p-3 rounded-lg flex justify-between items-center border ${log.isPB ? 'border-arc-accent/50 bg-arc-accent/10' : 'border-transparent'}`}>
                         <div>
-                            <div className="font-bold text-sm capitalize">{log.name.replace('_', ' ')}</div>
-                            <div className="text-xs text-arc-muted">{log.time}</div>
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm capitalize">{log.name.replace('_', ' ')}</span>
+                                {log.isPB && <span className="text-[10px] bg-arc-accent text-white px-1 rounded font-bold">PB 🏆</span>}
+                            </div>
+                            <div className="text-xs text-arc-muted">{log.time} • {log.val}</div>
                         </div>
                         <div className="font-mono text-arc-accent font-bold text-sm">+{log.points}</div>
                     </div>
