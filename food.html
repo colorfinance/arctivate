@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARCTIVATE | Food Scanner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        arc: {
+                            bg: '#0f0f11',
+                            card: '#1e1e24',
+                            accent: '#ff4d00',
+                            text: '#e4e4e7',
+                            muted: '#71717a',
+                            success: '#22c55e'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+        body { background-color: #0f0f11; color: #e4e4e7; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: rgba(30, 30, 36, 0.95); border: 1px solid rgba(255,255,255,0.05); }
+        
+        /* Scanner Frame Animation */
+        @keyframes scan-line {
+            0% { top: 10%; opacity: 0; }
+            5% { opacity: 1; }
+            95% { opacity: 1; }
+            100% { top: 90%; opacity: 0; }
+        }
+        .scanner-line {
+            position: absolute;
+            left: 10%;
+            right: 10%;
+            height: 2px;
+            background: #ff4d00;
+            box-shadow: 0 0 10px #ff4d00;
+            animation: scan-line 2s infinite linear;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col max-w-md mx-auto relative overflow-hidden pb-20">
+
+    <!-- HEADER -->
+    <header class="p-6 flex justify-between items-center absolute top-0 left-0 right-0 z-20">
+        <h1 class="text-xl font-black tracking-tighter italic drop-shadow-md">NUTRITION</h1>
+        <div class="glass-panel px-3 py-1 rounded-full text-xs font-mono">
+            <span class="text-arc-muted">Daily:</span> 
+            <span class="text-white font-bold">1,250 / 2,800</span>
+        </div>
+    </header>
+
+    <!-- CAMERA VIEWPORT (Simulated) -->
+    <main class="flex-1 relative bg-gray-900 flex flex-col items-center justify-center">
+        <!-- Background placeholder for camera -->
+        <div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center opacity-30"></div>
+        
+        <!-- Scanner Overlay -->
+        <div class="relative z-10 w-64 h-64 border-2 border-white/20 rounded-3xl flex items-center justify-center overflow-hidden">
+            <!-- Corners -->
+            <div class="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-arc-accent rounded-tl-xl"></div>
+            <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-arc-accent rounded-tr-xl"></div>
+            <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-arc-accent rounded-bl-xl"></div>
+            <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-arc-accent rounded-br-xl"></div>
+            
+            <!-- Scan Line -->
+            <div class="scanner-line"></div>
+            
+            <p class="text-xs text-white/70 font-bold mt-32 tracking-widest uppercase">Align Barcode</p>
+        </div>
+
+        <!-- Controls -->
+        <div class="absolute bottom-24 w-full px-8 flex justify-between items-center z-20">
+            <button class="bg-white/10 p-3 rounded-full backdrop-blur hover:bg-white/20">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> <!-- Flash -->
+            </button>
+            
+            <button onclick="simulateScan()" class="bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+            </button>
+
+            <button class="bg-white/10 p-3 rounded-full backdrop-blur hover:bg-white/20">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> <!-- Manual -->
+            </button>
+        </div>
+    </main>
+
+    <!-- SCANNED ITEM MODAL (Hidden by default) -->
+    <div id="scan-result" class="fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl transform translate-y-full transition-transform duration-300 z-30 border-t border-white/10">
+        <div class="p-6 pb-24">
+            <div class="w-12 h-1 bg-gray-700 rounded-full mx-auto mb-6"></div>
+            
+            <div class="flex justify-between items-start mb-6">
+                <div>
+                    <h2 class="text-xl font-bold">Quest Bar</h2>
+                    <p class="text-arc-muted text-sm">Chocolate Chip Cookie Dough</p>
+                </div>
+                <div class="bg-green-500/10 text-green-500 text-xs font-bold px-2 py-1 rounded">
+                    Verified
+                </div>
+            </div>
+
+            <!-- Macros -->
+            <div class="grid grid-cols-4 gap-2 mb-6 text-center">
+                <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+                    <div class="text-xs text-arc-muted mb-1">Cals</div>
+                    <div class="font-black text-xl">190</div>
+                </div>
+                <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+                    <div class="text-xs text-arc-muted mb-1">Prot</div>
+                    <div class="font-bold text-lg">21g</div>
+                </div>
+                <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+                    <div class="text-xs text-arc-muted mb-1">Carb</div>
+                    <div class="font-bold text-lg">22g</div>
+                </div>
+                <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+                    <div class="text-xs text-arc-muted mb-1">Fat</div>
+                    <div class="font-bold text-lg">9g</div>
+                </div>
+            </div>
+
+            <button onclick="addToLog()" class="w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-lg shadow-orange-900/20 active:scale-95 transition">
+                ADD TO LOG
+            </button>
+        </div>
+    </div>
+
+    <!-- NAVIGATION -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/5 p-4 flex justify-around text-xs font-bold text-arc-muted z-40">
+        <a href="prototype.html" class="flex flex-col items-center gap-1 hover:text-white transition">
+            <span>💪</span>
+            <span>Train</span>
+        </a>
+        <a href="habits.html" class="flex flex-col items-center gap-1 hover:text-white transition">
+            <span>✅</span>
+            <span>Habits</span>
+        </a>
+        <a href="#" class="flex flex-col items-center gap-1 text-arc-accent">
+            <span>🥗</span>
+            <span>Food</span>
+        </a>
+    </nav>
+
+    <script>
+        function simulateScan() {
+            // Simulate processing delay
+            const btn = document.querySelector('button[onclick="simulateScan()"]');
+            btn.classList.add('animate-pulse');
+            
+            setTimeout(() => {
+                btn.classList.remove('animate-pulse');
+                document.getElementById('scan-result').classList.remove('translate-y-full');
+            }, 800);
+        }
+
+        function addToLog() {
+            // Close modal
+            document.getElementById('scan-result').classList.add('translate-y-full');
+            // Show toast or confirmation (optional)
+            alert("Logged 190 calories!");
+        }
+    </script>
+</body>
+</html>

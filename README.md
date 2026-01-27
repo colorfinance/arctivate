@@ -19,6 +19,7 @@
 ## Feature Demos
 - **Workout Logger:** `/prototype.html`
 - **Habit Tracker:** `/habits.html`
+- **Food Scanner:** `/food.html`
 
 
 ## Gamification Rules
