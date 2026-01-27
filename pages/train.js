@@ -4,19 +4,28 @@ import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
 
 export default function Train() {
-  const [exercise, setExercise] = useState('bench_press')
+  const [exercises, setExercises] = useState([])
+  const [selectedExId, setSelectedExId] = useState('')
   const [value, setValue] = useState('')
   const [currentPB, setCurrentPB] = useState(0)
   const [logs, setLogs] = useState([])
   const [points, setPoints] = useState(0)
   const [streak, setStreak] = useState(0)
+  
+  // New Exercise State
+  const [isAdding, setIsAdding] = useState(false)
+  const [newExName, setNewExName] = useState('')
+  const [newExType, setNewExType] = useState('weight')
 
   // Load Data
   useEffect(() => {
     fetchProfile()
-    fetchPB(exercise)
-    // Also fetch recent logs for this session if we wanted
-  }, [exercise])
+    fetchExercises()
+  }, [])
+
+  useEffect(() => {
+    if(selectedExId) fetchPB(selectedExId)
+  }, [selectedExId])
 
   async function fetchProfile() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -29,32 +38,82 @@ export default function Train() {
     }
   }
 
-  async function fetchPB(exName) {
-    // Mock PB for now (100 for bench, 140 for deadlift, 25 for run)
-    const mocks = { bench_press: 100, deadlift: 140, '5k_run': 25 }
-    setCurrentPB(mocks[exName] || 0)
+  async function fetchExercises() {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // Fetch Global (user_id is null) OR Own (user_id = me)
+    const { data, error } = await supabase
+        .from('exercises')
+        .select('*')
+        .or(`user_id.is.null,user_id.eq.${user.id}`)
+        .order('name', { ascending: true })
+
+    if (data && data.length > 0) {
+        setExercises(data)
+        setSelectedExId(data[0].id)
+    }
+  }
+
+  async function fetchPB(exId) {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // Get the exercise details to know if we want MAX (weight) or MIN (time)
+    const ex = exercises.find(e => e.id === exId)
+    const isTime = ex?.metric_type === 'time'
+    
+    // Simple PB fetch: Get best single log
+    const { data } = await supabase
+        .from('workout_logs')
+        .select('value')
+        .eq('user_id', user.id)
+        .eq('exercise_id', exId)
+        .order('value', { ascending: !isTime }) // Ascending for time (lower is better), Descending for weight
+        .limit(1)
+        .single()
+
+    setCurrentPB(data?.value || 0)
+  }
+
+  const createExercise = async () => {
+    if(!newExName) return
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    const { data } = await supabase.from('exercises').insert({
+        user_id: user.id,
+        name: newExName,
+        metric_type: newExType
+    }).select().single()
+
+    if (data) {
+        setExercises([...exercises, data])
+        setSelectedExId(data.id)
+        setIsAdding(false)
+        setNewExName('')
+    }
   }
 
   const handleLog = async () => {
     if (!value) return
     const valNum = parseFloat(value)
+    const { data: { user } } = await supabase.auth.getUser()
+    const ex = exercises.find(e => e.id === selectedExId)
     
     // Check PB Logic
     let isPB = false
     let pointsEarned = 50
 
-    // For runs, lower is usually better, but keeping simple "Higher is better" logic for MVP demo
-    // or specifically handling run:
-    if (exercise === '5k_run') {
-        if (valNum < currentPB && currentPB > 0) isPB = true
+    if (ex.metric_type === 'time') {
+        // Lower is better for time, assuming currentPB > 0 (otherwise first run is PB)
+        if ((valNum < currentPB || currentPB === 0) && valNum > 0) isPB = true
     } else {
+        // Higher is better for weight/reps
         if (valNum > currentPB) isPB = true
     }
 
     if (isPB) {
         pointsEarned += 100
         triggerCelebration()
-        setCurrentPB(valNum) // Update local PB instantly
+        setCurrentPB(valNum)
     }
     
     // Formatted Date
@@ -66,7 +125,7 @@ export default function Train() {
     // Optimistic UI Update
     setPoints(prev => prev + pointsEarned)
     setLogs(prev => [{ 
-        name: exercise, 
+        name: ex.name, 
         val: valNum, 
         points: pointsEarned, 
         time: fullTimestamp,
@@ -74,18 +133,16 @@ export default function Train() {
     }, ...prev])
     
     // Save to DB
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-        await supabase.from('workout_logs').insert({
-            user_id: user.id,
-            value: valNum,
-            is_new_pb: isPB,
-            points_awarded: pointsEarned
-        })
-        
-        // Update total points
-        await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
-    }
+    await supabase.from('workout_logs').insert({
+        user_id: user.id,
+        exercise_id: selectedExId,
+        value: valNum,
+        is_new_pb: isPB,
+        points_awarded: pointsEarned
+    })
+    
+    // Update total points
+    await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
 
     setValue('')
   }
@@ -94,18 +151,11 @@ export default function Train() {
     const duration = 3 * 1000
     const animationEnd = Date.now() + duration
     const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 }
-
     const randomInRange = (min, max) => Math.random() * (max - min) + min
-
     const interval = setInterval(function() {
       const timeLeft = animationEnd - Date.now()
-
-      if (timeLeft <= 0) {
-        return clearInterval(interval)
-      }
-
+      if (timeLeft <= 0) return clearInterval(interval)
       const particleCount = 50 * (timeLeft / duration)
-      // since particles fall down, start a bit higher than random
       confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } })
       confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } })
     }, 250)
@@ -139,22 +189,66 @@ export default function Train() {
             {/* Logger */}
             <section>
                 <div className="glass-panel p-5 rounded-2xl space-y-4">
-                    <div>
-                        <label className="block text-xs font-bold text-arc-muted mb-2 uppercase">Movement</label>
+                    
+                    {/* Exercise Select Header */}
+                    <div className="flex justify-between items-end">
+                        <label className="block text-xs font-bold text-arc-muted uppercase">Movement</label>
+                        {!isAdding && (
+                            <button onClick={() => setIsAdding(true)} className="text-xs text-arc-accent font-bold uppercase hover:text-white transition">
+                                + New
+                            </button>
+                        )}
+                    </div>
+
+                    {isAdding ? (
+                        <div className="bg-black/30 p-3 rounded-lg border border-arc-accent/50 space-y-2 animate-in fade-in slide-in-from-top-2">
+                            <input 
+                                type="text" 
+                                placeholder="Exercise Name (e.g. Pull Ups)"
+                                className="w-full bg-transparent border-b border-white/10 p-2 text-white outline-none font-bold placeholder-gray-600"
+                                value={newExName}
+                                onChange={(e) => setNewExName(e.target.value)}
+                                autoFocus
+                            />
+                            <div className="flex gap-2 text-xs">
+                                <button 
+                                    onClick={() => setNewExType('weight')}
+                                    className={`px-3 py-1 rounded-full border ${newExType === 'weight' ? 'bg-white text-black border-white' : 'border-white/20 text-gray-400'}`}
+                                >
+                                    Weight (kg)
+                                </button>
+                                <button 
+                                    onClick={() => setNewExType('time')}
+                                    className={`px-3 py-1 rounded-full border ${newExType === 'time' ? 'bg-white text-black border-white' : 'border-white/20 text-gray-400'}`}
+                                >
+                                    Time (min)
+                                </button>
+                            </div>
+                            <div className="flex gap-2 pt-2">
+                                <button onClick={createExercise} className="flex-1 bg-arc-accent text-white text-xs font-bold py-2 rounded">SAVE</button>
+                                <button onClick={() => setIsAdding(false)} className="flex-1 bg-white/10 text-white text-xs font-bold py-2 rounded">CANCEL</button>
+                            </div>
+                        </div>
+                    ) : (
                         <select 
-                            value={exercise} 
-                            onChange={(e) => setExercise(e.target.value)} 
+                            value={selectedExId} 
+                            onChange={(e) => setSelectedExId(e.target.value)} 
                             className="w-full bg-[#27272a] border border-[#3f3f46] text-white p-3 rounded-lg font-bold"
                         >
-                            <option value="bench_press">Bench Press (kg)</option>
-                            <option value="deadlift">Deadlift (kg)</option>
-                            <option value="5k_run">5k Run (min)</option>
+                            {exercises.map(ex => (
+                                <option key={ex.id} value={ex.id}>{ex.name}</option>
+                            ))}
                         </select>
-                    </div>
+                    )}
 
                     <div className="flex justify-between items-center bg-black/30 p-3 rounded-lg border border-white/5">
                         <span className="text-xs text-arc-muted">Current PB:</span>
-                        <span className="font-mono font-bold text-arc-accent">{currentPB}</span>
+                        <span className="font-mono font-bold text-arc-accent">
+                            {currentPB} 
+                            <span className="text-[10px] text-gray-500 ml-1">
+                                {exercises.find(e => e.id === selectedExId)?.metric_type === 'time' ? 'min' : 'kg'}
+                            </span>
+                        </span>
                     </div>
 
                     <input 
@@ -177,7 +271,7 @@ export default function Train() {
                     <div key={i} className={`glass-panel p-3 rounded-lg flex justify-between items-center border ${log.isPB ? 'border-arc-accent/50 bg-arc-accent/10' : 'border-transparent'}`}>
                         <div>
                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-sm capitalize">{log.name.replace('_', ' ')}</span>
+                                <span className="font-bold text-sm capitalize">{log.name}</span>
                                 {log.isPB && <span className="text-[10px] bg-arc-accent text-white px-1 rounded font-bold">PB 🏆</span>}
                             </div>
                             <div className="text-xs text-arc-muted">{log.time} • {log.val}</div>
