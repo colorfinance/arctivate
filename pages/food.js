@@ -18,9 +18,44 @@ export default function Food() {
     const reader = new FileReader()
     reader.onloadend = async () => {
       const base64Image = reader.result
-      await analyzeImage(base64Image)
+      // Resize before sending to avoid 4.5MB Vercel limit
+      resizeImage(base64Image, 800, async (resizedImage) => {
+        await analyzeImage(resizedImage)
+      })
     }
     reader.readAsDataURL(file)
+  }
+
+  // Helper to resize image
+  const resizeImage = (base64Str, maxWidth = 800, callback) => {
+    const img = new Image()
+    img.src = base64Str
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      
+      let width = img.width
+      let height = img.height
+      
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width
+          width = maxWidth
+        }
+      } else {
+        if (height > maxWidth) {
+          width *= maxWidth / height
+          height = maxWidth
+        }
+      }
+      
+      canvas.width = width
+      canvas.height = height
+      ctx.drawImage(img, 0, 0, width, height)
+      
+      // Compress to JPEG 0.7 quality
+      callback(canvas.toDataURL('image/jpeg', 0.7))
+    }
   }
 
   const analyzeImage = async (base64Image) => {
