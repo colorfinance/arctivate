@@ -78,11 +78,17 @@ export default function Train() {
     if(!newExName) return
     const { data: { user } } = await supabase.auth.getUser()
     
-    const { data } = await supabase.from('exercises').insert({
+    const { data, error } = await supabase.from('exercises').insert({
         user_id: user.id,
         name: newExName,
         metric_type: newExType
     }).select().single()
+
+    if (error) {
+        alert("Error saving: " + error.message)
+        console.error(error)
+        return
+    }
 
     if (data) {
         setExercises([...exercises, data])
