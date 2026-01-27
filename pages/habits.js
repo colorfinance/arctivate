@@ -25,23 +25,17 @@ export default function Habits() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
-      // For Phase 1 MVP, we will just use a hardcoded list for "System Habits" and only fetch custom ones.
-      // Or better: Let's fetch everything from the 'habits' table.
-      
+      // Fetch only active habits for this user
       const { data, error } = await supabase
         .from('habits')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: true })
 
       if (data && data.length > 0) {
-        // Merge with daily logs to check "checked" state
-        // This is complex for a 1-shot. Let's start with local state for the checklist today.
-        // Ideally: Join habit_logs where date = today.
-        
-        // Simplified for MVP: Just load habits, unchecked by default on reload (unless we check logs)
         setHabits(data.map(h => ({ ...h, checked: false })))
       } else {
-        // Seed default habits if empty
+        // First time user? Seed defaults.
         const defaults = [
           { title: 'No Sugar', points_reward: 10 },
           { title: 'Gallon of Water', points_reward: 10 },
@@ -50,28 +44,22 @@ export default function Habits() {
           { title: 'Visualise Goals', points_reward: 10 }
         ]
         
-        // Insert defaults
         for (const d of defaults) {
            await supabase.from('habits').insert({ ...d, user_id: user.id })
         }
-        // Refetch
-        const { data: refreshed } = await supabase.from('habits').select('*')
+        // Refetch after seeding
+        const { data: refreshed } = await supabase.from('habits').select('*').eq('user_id', user.id)
         setHabits(refreshed.map(h => ({ ...h, checked: false })))
       }
     }
     setLoading(false)
   }
 
-  const toggleHabit = (id) => {
-    setHabits(habits.map(h => h.id === id ? { ...h, checked: !h.checked } : h))
-    // Trigger "save" to habit_logs here in real app
-  }
-
   const addCustom = async () => {
     if(!customHabit) return
     const { data: { user } } = await supabase.auth.getUser()
     if(user) {
-        const { data } = await supabase.from('habits').insert({
+        const { data, error } = await supabase.from('habits').insert({
             user_id: user.id,
             title: customHabit,
             points_reward: 10
@@ -83,8 +71,9 @@ export default function Habits() {
   }
 
   const deleteHabit = async (id) => {
-    await supabase.from('habits').delete().eq('id', id)
+    // Optimistic update
     setHabits(habits.filter(h => h.id !== id))
+    await supabase.from('habits').delete().eq('id', id)
   }
 
   // Calc progress
