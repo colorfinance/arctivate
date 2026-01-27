@@ -1,0 +1,68 @@
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabaseClient'
+import { useRouter } from 'next/router'
+
+export default function Auth() {
+  const [loading, setLoading] = useState(false)
+  const [email, setEmail] = useState('')
+  const [message, setMessage] = useState('')
+  const router = useRouter()
+
+  useEffect(() => {
+    // Check if already logged in
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) router.push('/train')
+    })
+  }, [])
+
+  const handleLogin = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setMessage('')
+    
+    // Magic Link Login
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.origin + '/train',
+      },
+    })
+
+    if (error) {
+      setMessage(error.message)
+    } else {
+      setMessage('Check your email for the login link!')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
+      <h1 className="text-4xl font-black italic tracking-tighter mb-2">ARCTIVATE</h1>
+      <p className="text-arc-muted mb-8">Gamify Your Discipline</p>
+
+      <div className="glass-panel p-8 rounded-2xl w-full max-w-sm">
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-black/30 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-lg shadow-orange-900/20 active:scale-95 transition disabled:opacity-50"
+          >
+            {loading ? 'Sending...' : 'SEND LOGIN LINK'}
+          </button>
+        </form>
+        {message && <div className="mt-4 text-sm font-bold text-arc-accent">{message}</div>}
+      </div>
+    </div>
+  )
+}
