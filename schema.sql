@@ -1,0 +1,89 @@
+-- Arctivate Phase 1 Schema (PostgreSQL/Supabase)
+
+-- 1. USERS & PROFILE
+create table public.profiles (
+  id uuid references auth.users not null primary key,
+  username text unique,
+  bio text,
+  total_points bigint default 0,
+  current_streak int default 0,
+  avatar_url text,
+  created_at timestamptz default now()
+);
+
+-- 2. HABITS (The definitions)
+create table public.habits (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
+  title text not null, -- e.g. "No Sugar"
+  description text,
+  points_reward int default 10,
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+-- 3. HABIT LOGS (Daily execution)
+create table public.habit_logs (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
+  habit_id uuid references public.habits(id),
+  completed_at timestamptz default now(),
+  date date default CURRENT_DATE
+);
+
+-- 4. EXERCISES & PBs
+create table public.exercises (
+  id uuid default gen_random_uuid() primary key,
+  name text not null, -- "Bench Press", "5km Run"
+  metric_type text check (metric_type in ('weight', 'time', 'reps', 'distance')),
+  is_benchmark boolean default false -- If true, highlights in Trophy Room
+);
+
+create table public.personal_bests (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
+  exercise_id uuid references public.exercises(id),
+  value numeric not null, -- The weight/time/rep count
+  achieved_at timestamptz default now()
+);
+
+-- 5. WORKOUT LOGS
+create table public.workout_logs (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
+  exercise_id uuid references public.exercises(id),
+  value numeric not null,
+  sets int,
+  reps int,
+  is_new_pb boolean default false,
+  points_awarded int default 0,
+  created_at timestamptz default now()
+);
+
+-- 6. PARTNER CHECK-INS (Geo/QR)
+create table public.partners (
+  id uuid default gen_random_uuid() primary key,
+  name text not null, -- "Record Recovery"
+  location_lat float,
+  location_long float,
+  qr_uuid uuid unique default gen_random_uuid()
+);
+
+create table public.check_ins (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
+  partner_id uuid references public.partners(id),
+  awarded_points int default 150,
+  checked_in_at timestamptz default now()
+);
+
+-- 7. NUTRITION
+create table public.food_logs (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
+  item_name text,
+  calories int,
+  macros jsonb, -- { "protein": 20, "carbs": 50, "fat": 10 }
+  barcode text,
+  eaten_at timestamptz default now()
+);

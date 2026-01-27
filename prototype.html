@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARCTIVATE | Prototype</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        arc: {
+                            bg: '#0f0f11',      // Deepest black
+                            card: '#1e1e24',    // Slate gray
+                            accent: '#ff4d00',  // High-vis Orange
+                            text: '#e4e4e7',    // Light gray/white
+                            muted: '#71717a'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+        body { background-color: #0f0f11; color: #e4e4e7; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: rgba(30, 30, 36, 0.95); border: 1px solid rgba(255,255,255,0.05); }
+        .input-field { background: #27272a; border: 1px solid #3f3f46; color: white; transition: all 0.2s; }
+        .input-field:focus { border-color: #ff4d00; outline: none; box-shadow: 0 0 0 2px rgba(255,77,0,0.2); }
+        .btn-primary { background: #ff4d00; color: white; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; transition: 0.2s; }
+        .btn-primary:hover { background: #ff6b2b; transform: translateY(-1px); }
+        .btn-primary:active { transform: translateY(0); }
+        
+        /* PB Animation */
+        @keyframes pulse-gold {
+            0% { box-shadow: 0 0 0 0 rgba(255, 77, 0, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 77, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 77, 0, 0); }
+        }
+        .new-pb-glow { animation: pulse-gold 2s infinite; border: 2px solid #ff4d00; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col max-w-md mx-auto relative overflow-x-hidden">
+
+    <!-- HEADER -->
+    <header class="p-6 flex justify-between items-center border-b border-white/5">
+        <h1 class="text-2xl font-black tracking-tighter italic">ARCTIVATE</h1>
+        <div class="flex items-center gap-2 bg-arc-card px-3 py-1 rounded-full border border-white/10">
+            <span class="text-arc-accent text-lg">★</span>
+            <span id="score-display" class="font-mono font-bold">1,250</span>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 p-6 space-y-8">
+
+        <!-- USER STATS -->
+        <section class="grid grid-cols-2 gap-4">
+            <div class="glass-panel p-4 rounded-xl flex flex-col items-center justify-center">
+                <span class="text-arc-muted text-xs uppercase tracking-widest mb-1">Streak</span>
+                <span class="text-3xl font-black font-mono">14</span>
+                <span class="text-xs text-green-500 font-bold">DAYS 🔥</span>
+            </div>
+            <div class="glass-panel p-4 rounded-xl flex flex-col items-center justify-center">
+                <span class="text-arc-muted text-xs uppercase tracking-widest mb-1">Today</span>
+                <span class="text-3xl font-black font-mono text-arc-accent">+210</span>
+                <span class="text-xs text-arc-muted">POINTS</span>
+            </div>
+        </section>
+
+        <!-- LOG WORKOUT -->
+        <section>
+            <h2 class="text-sm font-bold text-arc-muted uppercase tracking-wider mb-4">Log Workout</h2>
+            <div class="glass-panel p-5 rounded-2xl space-y-4">
+                
+                <!-- Exercise Selector -->
+                <div>
+                    <label class="block text-xs font-bold text-arc-muted mb-2 uppercase">Movement</label>
+                    <select id="exercise-select" class="input-field w-full p-3 rounded-lg appearance-none font-bold" onchange="updateCurrentPB()">
+                        <option value="bench_press">Bench Press (kg)</option>
+                        <option value="deadlift">Deadlift (kg)</option>
+                        <option value="5k_run">5k Run (min)</option>
+                        <option value="plank">Plank (sec)</option>
+                    </select>
+                </div>
+
+                <!-- Current PB Display -->
+                <div class="flex justify-between items-center bg-black/30 p-3 rounded-lg border border-white/5">
+                    <span class="text-xs text-arc-muted">Current PB:</span>
+                    <span id="current-pb-display" class="font-mono font-bold text-arc-accent">100 kg</span>
+                </div>
+
+                <!-- Input -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-arc-muted mb-2 uppercase">Value</label>
+                        <input type="number" id="log-value" placeholder="0" class="input-field w-full p-3 rounded-lg font-mono text-xl text-center">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-arc-muted mb-2 uppercase">Reps / Time</label>
+                        <input type="number" id="log-reps" placeholder="0" class="input-field w-full p-3 rounded-lg font-mono text-xl text-center">
+                    </div>
+                </div>
+
+                <button onclick="submitLog()" class="btn-primary w-full py-4 rounded-xl shadow-lg shadow-orange-900/20 text-lg">
+                    LOG ACTIVITY
+                </button>
+
+            </div>
+        </section>
+
+        <!-- RECENT LOGS -->
+        <section>
+            <h2 class="text-sm font-bold text-arc-muted uppercase tracking-wider mb-4">Recent Activity</h2>
+            <div id="activity-feed" class="space-y-3">
+                <!-- JS will populate this -->
+            </div>
+        </section>
+    </main>
+
+    <!-- NOTIFICATION OVERLAY -->
+    <div id="notification" class="fixed inset-0 pointer-events-none flex items-center justify-center opacity-0 transition-opacity duration-500 z-50">
+        <div class="bg-arc-card border-2 border-arc-accent p-8 rounded-2xl shadow-2xl text-center transform scale-90 transition-transform duration-300" id="notification-card">
+            <div class="text-6xl mb-4">🏆</div>
+            <h3 class="text-2xl font-black italic uppercase mb-2">New Record!</h3>
+            <p class="text-gray-400 mb-4">You just crushed your previous best.</p>
+            <div class="text-4xl font-mono font-bold text-arc-accent mb-2">+100 PTS</div>
+        </div>
+    </div>
+
+    <script>
+        // MOCK STATE
+        let userPoints = 1250;
+        let pbs = {
+            'bench_press': 100,
+            'deadlift': 140,
+            '5k_run': 25,
+            'plank': 60
+        };
+        const logs = [
+            { type: 'Habit', name: 'No Sugar', points: 10, time: '2h ago' },
+            { type: 'Workout', name: 'Squats', points: 50, time: '5h ago' }
+        ];
+
+        // INIT
+        function init() {
+            updateScore();
+            updateCurrentPB();
+            renderFeed();
+        }
+
+        function updateScore() {
+            document.getElementById('score-display').innerText = userPoints.toLocaleString();
+        }
+
+        function updateCurrentPB() {
+            const exercise = document.getElementById('exercise-select').value;
+            const unit = exercise.includes('run') ? 'min' : (exercise === 'plank' ? 'sec' : 'kg');
+            document.getElementById('current-pb-display').innerText = `${pbs[exercise]} ${unit}`;
+        }
+
+        function renderFeed() {
+            const container = document.getElementById('activity-feed');
+            container.innerHTML = logs.map(log => `
+                <div class="glass-panel p-3 rounded-lg flex justify-between items-center">
+                    <div>
+                        <div class="font-bold text-sm">${log.name}</div>
+                        <div class="text-xs text-arc-muted">${log.time} • ${log.type}</div>
+                    </div>
+                    <div class="font-mono text-arc-accent font-bold text-sm">+${log.points}</div>
+                </div>
+            `).join('');
+        }
+
+        function triggerNotification(isPB) {
+            const notif = document.getElementById('notification');
+            const card = document.getElementById('notification-card');
+            
+            notif.classList.remove('opacity-0');
+            card.classList.remove('scale-90');
+            card.classList.add('scale-100');
+
+            setTimeout(() => {
+                notif.classList.add('opacity-0');
+                card.classList.remove('scale-100');
+                card.classList.add('scale-90');
+            }, 3000);
+        }
+
+        function submitLog() {
+            const exerciseKey = document.getElementById('exercise-select').value;
+            const value = parseFloat(document.getElementById('log-value').value);
+            const exerciseName = document.getElementById('exercise-select').options[document.getElementById('exercise-select').selectedIndex].text.split(' (')[0];
+            
+            if (!value) return;
+
+            let pointsEarned = 50; // Base workout points
+            let isPB = false;
+
+            // Simple Logic: Higher is better for weights/plank, lower is better for runs (simplified for demo to just 'higher' for now to keep code simple, or invert logic)
+            // For this MVP, let's assume Higher = Better for everything except run.
+            let beaten = false;
+            
+            if (exerciseKey === '5k_run') {
+                if (value < pbs[exerciseKey]) beaten = true; 
+            } else {
+                if (value > pbs[exerciseKey]) beaten = true;
+            }
+
+            if (beaten) {
+                isPB = true;
+                pointsEarned += 100; // Bonus
+                pbs[exerciseKey] = value; // Update PB
+                updateCurrentPB();
+                triggerNotification(true);
+            }
+
+            userPoints += pointsEarned;
+            updateScore();
+
+            // Add to feed
+            logs.unshift({
+                type: isPB ? '🏆 NEW PB' : 'Workout',
+                name: `${exerciseName} (${value})`,
+                points: pointsEarned,
+                time: 'Just now'
+            });
+            renderFeed();
+
+            // Reset inputs
+            document.getElementById('log-value').value = '';
+        }
+
+        // Run
+        init();
+
+    </script>
+</body>
+</html>
