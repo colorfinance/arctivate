@@ -4,3 +4,4 @@ node_modules/\n.next/\n.env.local
 .next/
 node_modules/
 supabase/
+.vercel
