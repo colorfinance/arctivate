@@ -1,1 +1,6 @@
 node_modules/\n.next/\n.env.local
+
+.env.local
+.next/
+node_modules/
+supabase/
