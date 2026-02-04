@@ -8,6 +8,9 @@ create table public.profiles (
   total_points bigint default 0,
   current_streak int default 0,
   avatar_url text,
+  partner_id uuid, -- B2B partner link (FK added after partners table)
+  challenge_start_date timestamptz default now(),
+  challenge_days_goal int default 75,
   created_at timestamptz default now()
 );
 
@@ -105,4 +108,19 @@ create table public.high_fives (
   user_id uuid references public.profiles(id) on delete cascade not null,
   created_at timestamptz default now() not null,
   unique(feed_id, user_id)
+);
+
+-- 10. REWARDS LEDGER (QR Code Redemption)
+create table public.rewards_ledger (
+  id uuid default gen_random_uuid() primary key,
+  code text unique not null,
+  code_type text not null check (code_type in ('points', 'partner')),
+  points_value int default 0,
+  partner_id uuid references public.partners(id),
+  is_used boolean default false,
+  used_by uuid references public.profiles(id),
+  used_at timestamptz,
+  description text,
+  expires_at timestamptz,
+  created_at timestamptz default now() not null
 );

@@ -9,19 +9,20 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.2.0",
     "@supabase/auth-helpers-nextjs": "^0.8.7",
     "@supabase/supabase-js": "^2.39.3",
     "autoprefixer": "^10.0.1",
+    "canvas-confetti": "^1.9.2",
+    "clsx": "^2.1.0",
+    "framer-motion": "^11.0.3",
+    "html5-qrcode": "^2.3.8",
+    "lucide-react": "^0.330.0",
     "next": "14.1.0",
     "postcss": "^8",
     "react": "^18",
     "react-dom": "^18",
-    "tailwindcss": "^3.3.0",
-    "lucide-react": "^0.330.0",
-    "@google/generative-ai": "^0.2.0",
-    "canvas-confetti": "^1.9.2",
-    "framer-motion": "^11.0.3",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^2.2.1"
+    "tailwind-merge": "^2.2.1",
+    "tailwindcss": "^3.3.0"
   }
 }
