@@ -14,6 +14,8 @@ module.exports = {
           surface: '#1E1E22',  // Lighter surface
           accent: '#FF3B00',   // Sharper International Orange
           'accent-glow': '#FF3B0040',
+          orange: '#FF4500',   // Social sharing accent
+          'orange-glow': '#FF450040',
           muted: '#71717A',
           white: '#EDEDED'
         }

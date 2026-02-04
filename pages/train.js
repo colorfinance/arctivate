@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
+import ShareActionCard from '../components/train/ShareActionCard'
 
 // Components
 const NumberTicker = ({ value }) => {
@@ -52,6 +53,10 @@ export default function Train() {
   const [newExType, setNewExType] = useState('weight')
   const [toast, setToast] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  // Success/Share Modal State
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [lastWorkoutData, setLastWorkoutData] = useState(null)
 
   // Load Data
   useEffect(() => {
@@ -138,7 +143,7 @@ export default function Train() {
     const valNum = parseFloat(value)
     const { data: { user } } = await supabase.auth.getUser()
     const ex = exercises.find(e => e.id === selectedExId)
-    
+
     // Check PB Logic
     let isPB = false
     let pointsEarned = 50
@@ -154,7 +159,7 @@ export default function Train() {
         triggerCelebration()
         setCurrentPB(valNum)
     }
-    
+
     // Formatted Date
     const now = new Date()
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -162,15 +167,13 @@ export default function Train() {
 
     // Optimistic UI Update
     setPoints(prev => prev + pointsEarned)
-    setLogs(prev => [{ 
-        name: ex.name, 
-        val: valNum, 
-        points: pointsEarned, 
+    setLogs(prev => [{
+        name: ex.name,
+        val: valNum,
+        points: pointsEarned,
         time: fullTimestamp,
         isPB: isPB
     }, ...prev])
-    
-    showToast(`Logged! +${pointsEarned} PTS`)
 
     // Save to DB
     await supabase.from('workout_logs').insert({
@@ -180,8 +183,20 @@ export default function Train() {
         is_new_pb: isPB,
         points_awarded: pointsEarned
     })
-    
+
     await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
+
+    // Set workout data for sharing and show success modal
+    setLastWorkoutData({
+        exerciseName: ex.name,
+        value: valNum,
+        metricType: ex.metric_type,
+        isNewPB: isPB,
+        pointsEarned: pointsEarned,
+        date: now.toISOString()
+    })
+    setShowSuccessModal(true)
+
     setValue('')
   }
 
@@ -196,6 +211,17 @@ export default function Train() {
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent selection:text-white">
         <AnimatePresence>
             {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+        </AnimatePresence>
+
+        {/* Success/Share Modal */}
+        <AnimatePresence>
+            {showSuccessModal && lastWorkoutData && (
+                <ShareActionCard
+                    workoutData={lastWorkoutData}
+                    onClose={() => setShowSuccessModal(false)}
+                    onShareComplete={() => showToast('Shared to Community!')}
+                />
+            )}
         </AnimatePresence>
 
         {/* Header */}

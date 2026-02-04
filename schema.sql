@@ -87,3 +87,22 @@ create table public.food_logs (
   barcode text,
   eaten_at timestamptz default now()
 );
+
+-- 8. PUBLIC FEED (Social Sharing)
+create table public.public_feed (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  workout_data jsonb not null,
+  -- { "exercise_name": "...", "value": 100, "metric_type": "weight", "is_new_pb": true, "points_earned": 150, "date": "..." }
+  created_at timestamptz default now() not null,
+  likes_count int default 0 not null
+);
+
+-- 9. HIGH FIVES (Likes for Public Feed)
+create table public.high_fives (
+  id uuid default gen_random_uuid() primary key,
+  feed_id uuid references public.public_feed(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  created_at timestamptz default now() not null,
+  unique(feed_id, user_id)
+);

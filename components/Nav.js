@@ -12,6 +12,10 @@ export default function Nav() {
             <span>💪</span>
             <span>Train</span>
         </Link>
+        <Link href="/feed" className={`flex flex-col items-center gap-1 ${isActive('/feed')}`}>
+            <span>👥</span>
+            <span>Feed</span>
+        </Link>
         <Link href="/habits" className={`flex flex-col items-center gap-1 ${isActive('/habits')}`}>
             <span>✅</span>
             <span>Habits</span>
