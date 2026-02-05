@@ -48,8 +48,8 @@ export default async function handler(
   try {
     // Call the redeem_code RPC function
     const { data, error } = await supabaseAdmin.rpc('redeem_code', {
-      code_string: code.trim(),
-      redeemer_id: user_id
+      p_code: code.trim(),
+      p_user_id: user_id
     })
 
     if (error) {
