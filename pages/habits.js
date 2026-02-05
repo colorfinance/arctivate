@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
-import QRScanner from '../components/QRScanner'
 
 // Helper for dates
 const getTodayStr = () => new Date().toISOString().split('T')[0]
@@ -23,7 +22,6 @@ export default function Habits() {
 
   // Points State
   const [totalPoints, setTotalPoints] = useState(0)
-  const [pointsAnimation, setPointsAnimation] = useState(null)
 
   // Load Data
   useEffect(() => {
@@ -126,7 +124,10 @@ export default function Habits() {
   const toggleHabit = async (habitId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        showToast('Please log in to track habits')
+        return
+      }
 
       const today = getTodayStr()
 
@@ -139,28 +140,36 @@ export default function Habits() {
         setLogs(newLogs)
 
         // Remove from DB
-        const { error } = await supabase.from('habit_logs').delete().match({
-          user_id: user.id,
-          habit_id: habitId,
-          date: today
-        })
+        const { error } = await supabase
+          .from('habit_logs')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('habit_id', habitId)
+          .eq('date', today)
 
         if (error) {
           console.error('Error removing habit log:', error)
           // Revert optimistic update
           setLogs(logs)
           showToast('Failed to update habit')
+        } else {
+          showToast('Habit unchecked')
         }
       } else {
         newLogs.add(habitId)
         setLogs(newLogs)
 
-        // Add to DB
-        const { error } = await supabase.from('habit_logs').insert({
-          user_id: user.id,
-          habit_id: habitId,
-          date: today
-        })
+        // Add to DB - use upsert to handle potential duplicates
+        const { error } = await supabase
+          .from('habit_logs')
+          .upsert({
+            user_id: user.id,
+            habit_id: habitId,
+            date: today,
+            completed_at: new Date().toISOString()
+          }, {
+            onConflict: 'user_id,habit_id,date'
+          })
 
         if (error) {
           console.error('Error adding habit log:', error)
@@ -170,9 +179,20 @@ export default function Habits() {
           return
         }
 
+        showToast('Habit completed! +10 pts')
+
+        // Award points for completing habit
+        const habit = habits.find(h => h.id === habitId)
+        if (habit) {
+          const pointsToAward = habit.points_reward || 10
+          await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
+          setTotalPoints(prev => prev + pointsToAward)
+        }
+
         // Mini celebration if all done
         if (newLogs.size === habits.length && habits.length > 0) {
           confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+          showToast('All habits complete! Great job!')
         }
       }
     } catch (err) {
@@ -243,15 +263,6 @@ export default function Habits() {
     }
   }
 
-  const handlePointsEarned = (points) => {
-    // Update local points state
-    setTotalPoints(prev => prev + points)
-
-    // Trigger animation
-    setPointsAnimation(points)
-    setTimeout(() => setPointsAnimation(null), 2000)
-  }
-
   // Calc progress
   const completedCount = logs.size
   const totalCount = habits.length
@@ -282,38 +293,16 @@ export default function Habits() {
                 <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
                     PROTOCOL
                 </h1>
-                <div className="flex items-center gap-3">
-                    <QRScanner onPointsEarned={handlePointsEarned} />
-                    <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
-                        + Add
-                    </button>
-                </div>
+                <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
+                    + Add
+                </button>
             </div>
 
             {/* Points Display */}
-            <div className="mt-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Earned</span>
-                    <div className="relative">
-                        <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
-                        <span className="text-xs text-arc-muted ml-1">PTS</span>
-
-                        {/* Points Added Animation */}
-                        <AnimatePresence>
-                            {pointsAnimation && (
-                                <motion.span
-                                    initial={{ opacity: 1, y: 0 }}
-                                    animate={{ opacity: 0, y: -30 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 1.5 }}
-                                    className="absolute -top-2 left-full ml-2 text-green-400 font-black text-sm whitespace-nowrap"
-                                >
-                                    +{pointsAnimation}
-                                </motion.span>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                </div>
+            <div className="mt-3 flex items-center gap-2">
+                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Earned</span>
+                <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
+                <span className="text-xs text-arc-muted">PTS</span>
             </div>
         </header>
 
