@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
+import ShareActionCard from '../components/train/ShareActionCard'
 
 // Components
 const NumberTicker = ({ value }) => {
@@ -45,13 +46,24 @@ export default function Train() {
   const [logs, setLogs] = useState([])
   const [points, setPoints] = useState(0)
   const [streak, setStreak] = useState(0)
-  
+
   // UI States
   const [isAdding, setIsAdding] = useState(false)
   const [newExName, setNewExName] = useState('')
   const [newExType, setNewExType] = useState('weight')
   const [toast, setToast] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isLogging, setIsLogging] = useState(false)
+
+  // Success/Share Modal State
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [lastWorkoutData, setLastWorkoutData] = useState(null)
+
+  // Get current exercise for unit display
+  const currentExercise = exercises.find(e => e.id === selectedExId)
+  const isTimeExercise = currentExercise?.metric_type === 'time'
+  const unitLabel = isTimeExercise ? 'MIN' : 'KG'
+  const unitLabelLower = isTimeExercise ? 'min' : 'kg'
 
   // Load Data
   useEffect(() => {
@@ -63,48 +75,85 @@ export default function Train() {
   }, [])
 
   useEffect(() => {
-    if(selectedExId) fetchPB(selectedExId)
-  }, [selectedExId])
+    if (selectedExId && exercises.length > 0) fetchPB(selectedExId)
+  }, [selectedExId, exercises])
 
   async function fetchProfile() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    const { data } = await supabase.from('profiles').select('total_points, current_streak').eq('id', user.id).single()
-    if (data) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('total_points, current_streak')
+        .eq('id', user.id)
+        .single()
+
+      if (error) {
+        console.error('Error fetching profile:', error)
+        return
+      }
+
+      if (data) {
         setPoints(data.total_points || 0)
         setStreak(data.current_streak || 0)
+      }
+    } catch (err) {
+      console.error('Profile fetch error:', err)
     }
   }
 
   async function fetchExercises() {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data } = await supabase
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
         .from('exercises')
         .select('*')
         .or(`user_id.is.null,user_id.eq.${user.id}`)
         .order('name', { ascending: true })
 
-    if (data && data.length > 0) {
+      if (error) {
+        console.error('Error fetching exercises:', error)
+        showToast('Failed to load exercises')
+        return
+      }
+
+      if (data && data.length > 0) {
         setExercises(data)
         setSelectedExId(data[0].id)
+      }
+    } catch (err) {
+      console.error('Exercise fetch error:', err)
     }
   }
 
   async function fetchPB(exId) {
-    const { data: { user } } = await supabase.auth.getUser()
-    const ex = exercises.find(e => e.id === exId)
-    const isTime = ex?.metric_type === 'time'
-    
-    const { data } = await supabase
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const ex = exercises.find(e => e.id === exId)
+      if (!ex) return
+
+      const isTime = ex.metric_type === 'time'
+
+      // For time exercises, lower is better; for weight, higher is better
+      const { data } = await supabase
         .from('workout_logs')
         .select('value')
         .eq('user_id', user.id)
         .eq('exercise_id', exId)
-        .order('value', { ascending: !isTime })
+        .order('value', { ascending: isTime })
         .limit(1)
         .single()
 
-    setCurrentPB(data?.value || 0)
+      setCurrentPB(data?.value || 0)
+    } catch (err) {
+      // No PB found is not an error
+      setCurrentPB(0)
+    }
   }
 
   const showToast = (msg) => setToast(msg)
@@ -134,55 +183,110 @@ export default function Train() {
   }
 
   const handleLog = async () => {
-    if (!value) return
-    const valNum = parseFloat(value)
-    const { data: { user } } = await supabase.auth.getUser()
-    const ex = exercises.find(e => e.id === selectedExId)
-    
-    // Check PB Logic
-    let isPB = false
-    let pointsEarned = 50
+    if (!value || isLogging) return
 
-    if (ex.metric_type === 'time') {
-        if ((valNum < currentPB || currentPB === 0) && valNum > 0) isPB = true
-    } else {
-        if (valNum > currentPB) isPB = true
+    setIsLogging(true)
+    const valNum = parseFloat(value)
+
+    if (isNaN(valNum) || valNum <= 0) {
+      showToast('Please enter a valid number')
+      setIsLogging(false)
+      return
     }
 
-    if (isPB) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        showToast('Please log in to continue')
+        setIsLogging(false)
+        return
+      }
+
+      const ex = exercises.find(e => e.id === selectedExId)
+      if (!ex) {
+        showToast('Please select an exercise')
+        setIsLogging(false)
+        return
+      }
+
+      // Check PB Logic
+      let isPB = false
+      let pointsEarned = 50
+
+      if (ex.metric_type === 'time') {
+        // For time, lower is better
+        if ((valNum < currentPB || currentPB === 0) && valNum > 0) isPB = true
+      } else {
+        // For weight, higher is better
+        if (valNum > currentPB) isPB = true
+      }
+
+      if (isPB) {
         pointsEarned += 100
         triggerCelebration()
-        setCurrentPB(valNum)
-    }
-    
-    // Formatted Date
-    const now = new Date()
-    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    const fullTimestamp = `${timeString}`
+      }
 
-    // Optimistic UI Update
-    setPoints(prev => prev + pointsEarned)
-    setLogs(prev => [{ 
-        name: ex.name, 
-        val: valNum, 
-        points: pointsEarned, 
-        time: fullTimestamp,
-        isPB: isPB
-    }, ...prev])
-    
-    showToast(`Logged! +${pointsEarned} PTS`)
+      // Generate unique ID for log entry
+      const logId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
-    // Save to DB
-    await supabase.from('workout_logs').insert({
+      // Formatted Date
+      const now = new Date()
+      const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+      // Save to DB first
+      const { error: logError } = await supabase.from('workout_logs').insert({
         user_id: user.id,
         exercise_id: selectedExId,
         value: valNum,
         is_new_pb: isPB,
         points_awarded: pointsEarned
-    })
-    
-    await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
-    setValue('')
+      })
+
+      if (logError) {
+        console.error('Error logging workout:', logError)
+        showToast('Failed to save workout')
+        setIsLogging(false)
+        return
+      }
+
+      const { error: pointsError } = await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
+
+      if (pointsError) {
+        console.error('Error updating points:', pointsError)
+        // Continue anyway as workout was saved
+      }
+
+      // Update UI after successful save
+      if (isPB) setCurrentPB(valNum)
+      setPoints(prev => prev + pointsEarned)
+      setLogs(prev => [{
+        id: logId,
+        name: ex.name,
+        val: valNum,
+        points: pointsEarned,
+        time: timeString,
+        isPB: isPB,
+        metricType: ex.metric_type
+      }, ...prev])
+
+      // Set workout data for sharing and show success modal
+      setLastWorkoutData({
+        exerciseName: ex.name,
+        value: valNum,
+        metricType: ex.metric_type,
+        isNewPB: isPB,
+        pointsEarned: pointsEarned,
+        date: now.toISOString()
+      })
+      setShowSuccessModal(true)
+
+      setValue('')
+    } catch (err) {
+      console.error('Unexpected error:', err)
+      showToast('Something went wrong')
+    } finally {
+      setIsLogging(false)
+    }
   }
 
   const triggerCelebration = () => {
@@ -196,6 +300,17 @@ export default function Train() {
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent selection:text-white">
         <AnimatePresence>
             {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+        </AnimatePresence>
+
+        {/* Success/Share Modal */}
+        <AnimatePresence>
+            {showSuccessModal && lastWorkoutData && (
+                <ShareActionCard
+                    workoutData={lastWorkoutData}
+                    onClose={() => setShowSuccessModal(false)}
+                    onShareComplete={() => showToast('Shared to Community!')}
+                />
+            )}
         </AnimatePresence>
 
         {/* Header */}
@@ -268,27 +383,40 @@ export default function Train() {
 
                     <div className="flex items-center justify-between px-2">
                          <span className="text-xs text-arc-muted font-medium">Personal Best</span>
-                         <span className="font-mono font-bold text-arc-accent text-lg">{currentPB} <span className="text-xs text-arc-muted">kg</span></span>
+                         <span className="font-mono font-bold text-arc-accent text-lg">{currentPB} <span className="text-xs text-arc-muted">{unitLabelLower}</span></span>
                     </div>
 
                     <div className="relative group">
-                         <input 
-                            type="number" 
+                         <input
+                            type="number"
                             value={value}
                             onChange={(e) => setValue(e.target.value)}
-                            placeholder="0.0" 
+                            placeholder="0.0"
+                            step={isTimeExercise ? '0.1' : '0.5'}
+                            min="0"
                             className="w-full bg-transparent border-b-2 border-white/10 text-center font-mono text-5xl font-black text-white py-4 outline-none focus:border-arc-accent transition-colors placeholder-white/5"
                         />
-                        <span className="absolute right-0 bottom-6 text-arc-muted font-bold text-sm">KG</span>
+                        <span className="absolute right-0 bottom-6 text-arc-muted font-bold text-sm">{unitLabel}</span>
                     </div>
 
-                    <motion.button 
+                    <motion.button
                         whileTap={{ scale: 0.98 }}
-                        onClick={handleLog} 
-                        disabled={!value}
-                        className="w-full bg-arc-accent text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow text-lg disabled:opacity-50 disabled:shadow-none transition-all hover:bg-[#ff5522]"
+                        onClick={handleLog}
+                        disabled={!value || isLogging}
+                        className="w-full bg-arc-accent text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow text-lg disabled:opacity-50 disabled:shadow-none transition-all hover:bg-[#ff5522] flex items-center justify-center gap-2"
                     >
-                        LOG SET
+                        {isLogging ? (
+                          <>
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                              className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                            />
+                            <span>LOGGING...</span>
+                          </>
+                        ) : (
+                          'LOG SET'
+                        )}
                     </motion.button>
                 </div>
                 
@@ -301,9 +429,9 @@ export default function Train() {
                  <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-2">Recent Activity</h3>
                  <div className="space-y-3 pb-10">
                     <AnimatePresence initial={false}>
-                        {logs.map((log, i) => (
-                            <motion.div 
-                                key={i} // Use a real ID in prod
+                        {logs.map((log) => (
+                            <motion.div
+                                key={log.id}
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
@@ -314,7 +442,10 @@ export default function Train() {
                                         <span className="font-bold text-sm text-white">{log.name}</span>
                                         {log.isPB && <span className="text-[9px] bg-arc-accent text-black px-1.5 py-0.5 rounded font-black tracking-tighter uppercase">NEW PB</span>}
                                     </div>
-                                    <div className="text-[11px] text-arc-muted font-mono">{log.time} • <span className="text-white">{log.val}</span></div>
+                                    <div className="text-[11px] text-arc-muted font-mono">
+                                        {log.time} • <span className="text-white">{log.val}</span>
+                                        <span className="text-arc-muted ml-1">{log.metricType === 'time' ? 'min' : 'kg'}</span>
+                                    </div>
                                 </div>
                                 <div className="font-mono text-arc-accent font-bold text-sm bg-arc-accent/10 px-2 py-1 rounded">+{log.points}</div>
                             </motion.div>

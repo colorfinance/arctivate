@@ -8,6 +8,9 @@ create table public.profiles (
   total_points bigint default 0,
   current_streak int default 0,
   avatar_url text,
+  partner_id uuid, -- B2B partner link (FK added after partners table)
+  challenge_start_date timestamptz default now(),
+  challenge_days_goal int default 75,
   created_at timestamptz default now()
 );
 
@@ -86,4 +89,38 @@ create table public.food_logs (
   macros jsonb, -- { "protein": 20, "carbs": 50, "fat": 10 }
   barcode text,
   eaten_at timestamptz default now()
+);
+
+-- 8. PUBLIC FEED (Social Sharing)
+create table public.public_feed (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  workout_data jsonb not null,
+  -- { "exercise_name": "...", "value": 100, "metric_type": "weight", "is_new_pb": true, "points_earned": 150, "date": "..." }
+  created_at timestamptz default now() not null,
+  likes_count int default 0 not null
+);
+
+-- 9. HIGH FIVES (Likes for Public Feed)
+create table public.high_fives (
+  id uuid default gen_random_uuid() primary key,
+  feed_id uuid references public.public_feed(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  created_at timestamptz default now() not null,
+  unique(feed_id, user_id)
+);
+
+-- 10. REWARDS LEDGER (QR Code Redemption)
+create table public.rewards_ledger (
+  id uuid default gen_random_uuid() primary key,
+  code text unique not null,
+  code_type text not null check (code_type in ('points', 'partner')),
+  points_value int default 0,
+  partner_id uuid references public.partners(id),
+  is_used boolean default false,
+  used_by uuid references public.profiles(id),
+  used_at timestamptz,
+  description text,
+  expires_at timestamptz,
+  created_at timestamptz default now() not null
 );

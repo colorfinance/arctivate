@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
+import QRScanner from '../components/QRScanner'
 
 // Helper for dates
 const getTodayStr = () => new Date().toISOString().split('T')[0]
@@ -20,6 +21,10 @@ export default function Habits() {
   const [isEditingGoal, setIsEditingGoal] = useState(false)
   const [newGoal, setNewGoal] = useState(75)
 
+  // Points State
+  const [totalPoints, setTotalPoints] = useState(0)
+  const [pointsAnimation, setPointsAnimation] = useState(null)
+
   // Load Data
   useEffect(() => {
     fetchData()
@@ -30,14 +35,15 @@ export default function Habits() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // 1. Fetch Challenge Info
-    const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal').eq('id', user.id).single()
+    // 1. Fetch Challenge Info & Points
+    const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal, total_points').eq('id', user.id).single()
     if (profile) {
         const start = new Date(profile.challenge_start_date)
         const now = new Date()
         const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1
         setChallengeDay(Math.max(1, diff))
         setChallengeGoal(profile.challenge_days_goal || 75)
+        setTotalPoints(profile.total_points || 0)
     }
 
     // 2. Fetch Habits
@@ -61,75 +67,189 @@ export default function Habits() {
     setLoading(false)
   }
 
-  const updateGoal = async (restart = false) => {
-    const goal = parseInt(newGoal)
-    if (goal > 0) {
-        setChallengeGoal(goal)
-        setNewGoal(goal)
-        const { data: { user } } = await supabase.auth.getUser()
-        
-        const updates = { challenge_days_goal: goal }
-        
-        // If restarting, reset the start date to NOW
-        if (restart) {
-            const now = new Date().toISOString()
-            updates.challenge_start_date = now
-            setChallengeDay(1)
-        }
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [toast, setToast] = useState(null)
 
-        await supabase.from('profiles').update(updates).eq('id', user.id)
-        setIsEditingGoal(false)
-        if (restart) confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#FF3B00', '#ffffff'] })
+  const showToast = (msg) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  const updateGoal = async (restart = false) => {
+    const goal = parseInt(newGoal, 10)
+
+    // Validate goal is a reasonable number
+    if (isNaN(goal) || goal < 1 || goal > 365) {
+      showToast('Please enter a goal between 1 and 365 days')
+      return
+    }
+
+    setIsUpdating(true)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        showToast('Please log in to continue')
+        return
+      }
+
+      const updates = { challenge_days_goal: goal }
+
+      // If restarting, reset the start date to NOW
+      if (restart) {
+        updates.challenge_start_date = new Date().toISOString()
+      }
+
+      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+
+      if (error) {
+        console.error('Error updating goal:', error)
+        showToast('Failed to update goal')
+        return
+      }
+
+      setChallengeGoal(goal)
+      setNewGoal(goal)
+      if (restart) {
+        setChallengeDay(1)
+        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#FF3B00', '#ffffff'] })
+      }
+      setIsEditingGoal(false)
+    } catch (err) {
+      console.error('Unexpected error:', err)
+      showToast('Something went wrong')
+    } finally {
+      setIsUpdating(false)
     }
   }
 
   const toggleHabit = async (habitId) => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const today = getTodayStr()
-    
-    // Optimistic Update
-    const isCompleted = logs.has(habitId)
-    const newLogs = new Set(logs)
-    
-    if (isCompleted) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const today = getTodayStr()
+
+      // Optimistic Update
+      const isCompleted = logs.has(habitId)
+      const newLogs = new Set(logs)
+
+      if (isCompleted) {
         newLogs.delete(habitId)
+        setLogs(newLogs)
+
         // Remove from DB
-        await supabase.from('habit_logs').delete().match({ user_id: user.id, habit_id: habitId, date: today })
-    } else {
-        newLogs.add(habitId)
-        // Add to DB
-        await supabase.from('habit_logs').insert({ user_id: user.id, habit_id: habitId, date: today })
-        
-        // Mini celebration if all done
-        if (newLogs.size === habits.length) {
-            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+        const { error } = await supabase.from('habit_logs').delete().match({
+          user_id: user.id,
+          habit_id: habitId,
+          date: today
+        })
+
+        if (error) {
+          console.error('Error removing habit log:', error)
+          // Revert optimistic update
+          setLogs(logs)
+          showToast('Failed to update habit')
         }
+      } else {
+        newLogs.add(habitId)
+        setLogs(newLogs)
+
+        // Add to DB
+        const { error } = await supabase.from('habit_logs').insert({
+          user_id: user.id,
+          habit_id: habitId,
+          date: today
+        })
+
+        if (error) {
+          console.error('Error adding habit log:', error)
+          // Revert optimistic update
+          setLogs(logs)
+          showToast('Failed to update habit')
+          return
+        }
+
+        // Mini celebration if all done
+        if (newLogs.size === habits.length && habits.length > 0) {
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+        }
+      }
+    } catch (err) {
+      console.error('Toggle habit error:', err)
+      showToast('Something went wrong')
     }
-    
-    setLogs(newLogs)
   }
 
   const addCustom = async () => {
-    if(!customHabit) return
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    const { data, error } = await supabase.from('habits').insert({
+    if (!customHabit.trim()) {
+      showToast('Please enter a habit name')
+      return
+    }
+
+    setIsUpdating(true)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        showToast('Please log in to continue')
+        return
+      }
+
+      const { data, error } = await supabase.from('habits').insert({
         user_id: user.id,
-        title: customHabit,
+        title: customHabit.trim(),
         points_reward: 10
-    }).select().single()
-    
-    if(data) {
+      }).select().single()
+
+      if (error) {
+        console.error('Error adding habit:', error)
+        showToast('Failed to add habit')
+        return
+      }
+
+      if (data) {
         setHabits([...habits, data])
         setCustomHabit('')
         setIsAdding(false)
+      }
+    } catch (err) {
+      console.error('Add habit error:', err)
+      showToast('Something went wrong')
+    } finally {
+      setIsUpdating(false)
     }
   }
 
   const deleteHabit = async (id) => {
-    if(!confirm("Delete this habit?")) return
+    if (!confirm("Delete this habit?")) return
+
+    // Optimistic update
+    const previousHabits = habits
     setHabits(habits.filter(h => h.id !== id))
-    await supabase.from('habits').delete().eq('id', id)
+
+    try {
+      const { error } = await supabase.from('habits').delete().eq('id', id)
+
+      if (error) {
+        console.error('Error deleting habit:', error)
+        setHabits(previousHabits) // Revert
+        showToast('Failed to delete habit')
+      }
+    } catch (err) {
+      console.error('Delete habit error:', err)
+      setHabits(previousHabits) // Revert
+      showToast('Something went wrong')
+    }
+  }
+
+  const handlePointsEarned = (points) => {
+    // Update local points state
+    setTotalPoints(prev => prev + points)
+
+    // Trigger animation
+    setPointsAnimation(points)
+    setTimeout(() => setPointsAnimation(null), 2000)
   }
 
   // Calc progress
@@ -140,18 +260,64 @@ export default function Habits() {
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent selection:text-white">
-        
+
+        {/* Toast */}
+        <AnimatePresence>
+          {toast && (
+            <motion.div
+              initial={{ opacity: 0, y: -50 }}
+              animate={{ opacity: 1, y: 20 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="fixed top-0 left-1/2 -translate-x-1/2 z-50 bg-arc-surface border border-white/10 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md"
+            >
+              <div className="w-2 h-2 rounded-full bg-arc-accent animate-pulse" />
+              <span className="text-sm font-medium">{toast}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Header */}
-        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-6 flex justify-between items-center">
-            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-                PROTOCOL
-            </h1>
-            <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
-                + Add Habit
-            </button>
+        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-6">
+            <div className="flex justify-between items-center">
+                <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                    PROTOCOL
+                </h1>
+                <div className="flex items-center gap-3">
+                    <QRScanner onPointsEarned={handlePointsEarned} />
+                    <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
+                        + Add
+                    </button>
+                </div>
+            </div>
+
+            {/* Points Display */}
+            <div className="mt-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Earned</span>
+                    <div className="relative">
+                        <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
+                        <span className="text-xs text-arc-muted ml-1">PTS</span>
+
+                        {/* Points Added Animation */}
+                        <AnimatePresence>
+                            {pointsAnimation && (
+                                <motion.span
+                                    initial={{ opacity: 1, y: 0 }}
+                                    animate={{ opacity: 0, y: -30 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 1.5 }}
+                                    className="absolute -top-2 left-full ml-2 text-green-400 font-black text-sm whitespace-nowrap"
+                                >
+                                    +{pointsAnimation}
+                                </motion.span>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                </div>
+            </div>
         </header>
 
-        <main className="pt-28 px-6 space-y-8 max-w-lg mx-auto">
+        <main className="pt-36 px-6 space-y-8 max-w-lg mx-auto">
             
             {/* Challenge Progress */}
             <section className="relative pt-2">
