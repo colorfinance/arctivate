@@ -144,10 +144,10 @@ export default function Habits() {
       const newLogs = new Set(logs)
 
       if (isCompleted) {
-        // Uncheck: Delete from DB
         newLogs.delete(habitId)
         setLogs(newLogs)
 
+        // Remove from DB
         const { error } = await supabase
           .from('habit_logs')
           .delete()
@@ -164,52 +164,26 @@ export default function Habits() {
           showToast('Habit unchecked')
         }
       } else {
-        // Check: Insert into DB
         newLogs.add(habitId)
         setLogs(newLogs)
 
-        // Insert Logic (with try/catch for conflict if unique constraint exists, though we removed specific onConflict usage to avoid naming issues)
+        // Add to DB - use upsert to handle potential duplicates
+        // Note: Supabase JS client v2 syntax requires distinct insert/update objects for upsert if defined.
+        // However, with just columns object, it works fine.
+        const logData = {
+          user_id: user.id,
+          habit_id: habitId,
+          date: today,
+          completed_at: new Date().toISOString()
+        }
+        
+        // Check if record exists first for cleaner logic, or rely on upsert
+        // Relying on upsert. If it fails, we revert.
         const { error } = await supabase
           .from('habit_logs')
-          .insert({
-            user_id: user.id,
-            habit_id: habitId,
-            date: today,
-            completed_at: new Date().toISOString()
+          .upsert(logData, {
+            onConflict: 'user_id,habit_id,date'
           })
-
-        if (error) {
-          // If it's a duplicate key error, the data is technically correct, just don't error out visually
-          if (error.code === '23505' || error.code === '23514') {
-             console.warn("Habit already logged today")
-             // Data is present, don't revert visual, just return
-             return
-          }
-          console.error('Error adding habit log:', error)
-          // Revert optimistic update
-          setLogs(logs)
-          showToast('Failed to update habit')
-          return
-        }
-
-        showToast('Habit completed! +10 pts')
-
-        // Award points
-        const habit = habits.find(h => h.id === habitId)
-        if (habit) {
-          const pointsToAward = habit.points_reward || 10
-          await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
-          setTotalPoints(prev => prev + pointsToAward)
-        }
-
-        // Celebration
-        if (newLogs.size === habits.length && habits.length > 0) {
-          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
-          showToast('All habits complete! Great job!')
-        }
-      }
-    } catch (err) {
-      console.error('Toggle habit error:', err)
 
         if (error) {
           console.error('Error adding habit log:', error)
