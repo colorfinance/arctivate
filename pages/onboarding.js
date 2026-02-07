@@ -65,7 +65,7 @@ export default function Onboarding() {
   const finishOnboarding = async () => {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     const updates = {
       username: formData.name,
       age: parseInt(formData.age),
@@ -77,11 +77,14 @@ export default function Onboarding() {
     }
 
     // RPC call or direct update
-    const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+    const { error, status } = await supabase.from('profiles').update(updates).eq('id', user.id)
+
+    console.log('SAVE DEBUG:', { error, status });
 
     if (!error) {
       router.push('/train')
     } else {
+      console.error('Supabase Save Error:', error)
       alert("Error saving profile. Please try again.")
     }
     setLoading(false)
