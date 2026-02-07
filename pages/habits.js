@@ -3,16 +3,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
+import { useRouter } from 'next/router'
 
 // Helper for dates
 const getTodayStr = () => new Date().toISOString().split('T')[0]
 
 export default function Habits() {
+  const router = useRouter() // Add router
   const [habits, setHabits] = useState([])
   const [logs, setLogs] = useState(new Set()) // Set of habit_ids completed today
   const [loading, setLoading] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
   const [customHabit, setCustomHabit] = useState('')
+  const [unitLabel, setUnitLabel] = useState('KG') // Can leave default if not shown, but keeping consistent structure
   
   // Challenge State
   const [challengeDay, setChallengeDay] = useState(1)
@@ -31,7 +34,10 @@ export default function Habits() {
   async function fetchData() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) {
+      router.push('/') // Redirect if not logged in (should not happen often due to /app layout, but good safety)
+      return
+    }
 
     // 1. Fetch Challenge Info & Points
     const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal, total_points').eq('id', user.id).single()
@@ -50,7 +56,9 @@ export default function Habits() {
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: true })
-    
+
+    if (!habitsData) return
+
     // 3. Fetch Today's Logs
     const today = getTodayStr()
     const { data: logsData } = await supabase
@@ -60,7 +68,7 @@ export default function Habits() {
       .eq('date', today)
 
     // Set State
-    setHabits(habitsData || [])
+    setHabits(habitsData)
     setLogs(new Set(logsData?.map(l => l.habit_id) || []))
     setLoading(false)
   }
@@ -160,14 +168,20 @@ export default function Habits() {
         setLogs(newLogs)
 
         // Add to DB - use upsert to handle potential duplicates
+        // Note: Supabase JS client v2 syntax requires distinct insert/update objects for upsert if defined.
+        // However, with just columns object, it works fine.
+        const logData = {
+          user_id: user.id,
+          habit_id: habitId,
+          date: today,
+          completed_at: new Date().toISOString()
+        }
+        
+        // Check if record exists first for cleaner logic, or rely on upsert
+        // Relying on upsert. If it fails, we revert.
         const { error } = await supabase
           .from('habit_logs')
-          .upsert({
-            user_id: user.id,
-            habit_id: habitId,
-            date: today,
-            completed_at: new Date().toISOString()
-          }, {
+          .upsert(logData, {
             onConflict: 'user_id,habit_id,date'
           })
 
