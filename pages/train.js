@@ -4,6 +4,7 @@ import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
 import ShareActionCard from '../components/train/ShareActionCard'
+import { useRouter } from 'next/router'
 
 // Components
 const NumberTicker = ({ value }) => {
@@ -39,6 +40,7 @@ const Toast = ({ message, onClose }) => {
 }
 
 export default function Train() {
+  const router = useRouter()
   const [exercises, setExercises] = useState([])
   const [selectedExId, setSelectedExId] = useState('')
   const [value, setValue] = useState('')
@@ -68,6 +70,21 @@ export default function Train() {
   // Load Data
   useEffect(() => {
     const load = async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          router.push('/')
+          return
+        }
+
+        // CHECK ONBOARDING STATUS
+        const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+
+        if (profile && profile.completed_onboarding === false) {
+            console.log("Onboarding redirect from Train page")
+            router.push('/onboarding')
+            return
+        }
+
         await Promise.all([fetchProfile(), fetchExercises()])
         setIsLoading(false)
     }
@@ -80,6 +97,7 @@ export default function Train() {
 
   async function fetchProfile() {
     try {
+      // No manual auth check needed here, parent effect handles routing
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
