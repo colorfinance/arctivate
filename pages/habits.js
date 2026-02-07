@@ -187,6 +187,7 @@ export default function Habits() {
 
         if (error) {
           console.error('Error adding habit log:', error)
+          console.log('SUPABASE ERROR OBJECT:', error)
           // Revert optimistic update
           setLogs(logs)
           showToast('Failed to update habit')
