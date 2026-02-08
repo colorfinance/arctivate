@@ -253,10 +253,13 @@ export default function Feed() {
                 ) : (
                   <AnimatePresence initial={false}>
                     {posts.map((post, index) => {
-                      const workout = post.workout_data
+                      const data = post.workout_data
                       const hasHighFived = userLikes.has(`workout:${post.id}`)
                       const isOwnPost = post.user_id === currentUserId
-                      const shareText = `Just logged ${workout.exercise_name}: ${workout.value}${getUnit(workout.metric_type)}${workout.is_new_pb ? ' - NEW PB!' : ''} on Arctivate!`
+                      const isFood = data?.type === 'food'
+                      const shareText = isFood
+                        ? `Just logged ${data.item_name}: ${data.calories} calories on Arctivate!`
+                        : `Just logged ${data.exercise_name}: ${data.value}${getUnit(data.metric_type)}${data.is_new_pb ? ' - NEW PB!' : ''} on Arctivate!`
 
                       return (
                         <motion.div key={post.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
@@ -268,7 +271,11 @@ export default function Feed() {
                               <span className="font-bold text-sm text-white">{post.profiles?.username || 'Anonymous'}</span>
                               <span className="block text-[11px] text-arc-muted">{formatTimeAgo(post.created_at)}</span>
                             </div>
-                            {workout.is_new_pb && (
+                            {isFood ? (
+                              <span className="flex items-center gap-1 text-[10px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">
+                                🥗 Food
+                              </span>
+                            ) : data.is_new_pb && (
                               <span className="flex items-center gap-1 text-[10px] bg-arc-orange/20 text-arc-orange px-2 py-1 rounded-full font-bold">
                                 <FireIcon />PB
                               </span>
@@ -276,26 +283,61 @@ export default function Feed() {
                           </div>
 
                           <div className="p-5">
-                            <div className="text-center mb-4">
-                              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Logged</span>
-                              <h3 className="text-lg font-bold text-white mt-1">{workout.exercise_name}</h3>
-                            </div>
-                            <div className="flex justify-center gap-6">
-                              <div className="text-center">
-                                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">{workout.metric_type === 'time' ? 'Time' : 'Weight'}</span>
-                                <div className="flex items-baseline justify-center gap-1 mt-1">
-                                  <span className="text-2xl font-black font-mono text-arc-orange">{workout.value}</span>
-                                  <span className="text-sm text-arc-muted font-bold">{getUnit(workout.metric_type)}</span>
+                            {isFood ? (
+                              <>
+                                <div className="text-center mb-4">
+                                  <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Ate</span>
+                                  <h3 className="text-lg font-bold text-white mt-1">{data.item_name}</h3>
                                 </div>
-                              </div>
-                              <div className="text-center">
-                                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Points</span>
-                                <div className="flex items-baseline justify-center gap-1 mt-1">
-                                  <span className="text-sm text-green-400 font-bold">+</span>
-                                  <span className="text-2xl font-black font-mono text-white">{workout.points_earned}</span>
+                                <div className="flex justify-center gap-4">
+                                  <div className="text-center">
+                                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Calories</span>
+                                    <div className="flex items-baseline justify-center gap-1 mt-1">
+                                      <span className="text-2xl font-black font-mono text-green-400">{data.calories}</span>
+                                    </div>
+                                  </div>
+                                  {data.macros && (
+                                    <>
+                                      <div className="text-center">
+                                        <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Protein</span>
+                                        <div className="flex items-baseline justify-center gap-1 mt-1">
+                                          <span className="text-lg font-bold text-white">{data.macros.p || 0}g</span>
+                                        </div>
+                                      </div>
+                                      <div className="text-center">
+                                        <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Carbs</span>
+                                        <div className="flex items-baseline justify-center gap-1 mt-1">
+                                          <span className="text-lg font-bold text-white">{data.macros.c || 0}g</span>
+                                        </div>
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
-                              </div>
-                            </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="text-center mb-4">
+                                  <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Logged</span>
+                                  <h3 className="text-lg font-bold text-white mt-1">{data.exercise_name}</h3>
+                                </div>
+                                <div className="flex justify-center gap-6">
+                                  <div className="text-center">
+                                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">{data.metric_type === 'time' ? 'Time' : 'Weight'}</span>
+                                    <div className="flex items-baseline justify-center gap-1 mt-1">
+                                      <span className="text-2xl font-black font-mono text-arc-orange">{data.value}</span>
+                                      <span className="text-sm text-arc-muted font-bold">{getUnit(data.metric_type)}</span>
+                                    </div>
+                                  </div>
+                                  <div className="text-center">
+                                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Points</span>
+                                    <div className="flex items-baseline justify-center gap-1 mt-1">
+                                      <span className="text-sm text-green-400 font-bold">+</span>
+                                      <span className="text-2xl font-black font-mono text-white">{data.points_earned}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </>
+                            )}
                           </div>
 
                           <div className="flex items-center justify-between px-4 py-3 bg-arc-bg/50 border-t border-white/5">

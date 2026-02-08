@@ -177,16 +177,29 @@ export default function Habits() {
         newLogs.add(habitId)
         setLogs(newLogs)
 
-        // Add to DB - use upsert to handle potential duplicates
+        // Check if already logged today (to prevent duplicates)
+        const { data: existingLog } = await supabase
+          .from('habit_logs')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('habit_id', habitId)
+          .eq('date', today)
+          .maybeSingle()
+
+        if (existingLog) {
+          // Already logged, just update UI
+          showToast('Habit already completed!')
+          return
+        }
+
+        // Insert new log
         const { error } = await supabase
           .from('habit_logs')
-          .upsert({
+          .insert({
             user_id: user.id,
             habit_id: habitId,
             date: today,
             completed_at: new Date().toISOString()
-          }, {
-            onConflict: 'user_id,habit_id,date'
           })
 
         if (error) {
@@ -203,7 +216,16 @@ export default function Habits() {
         const habit = habits.find(h => h.id === habitId)
         if (habit) {
           const pointsToAward = habit.points_reward || 10
-          await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
+          // Use direct update as fallback if RPC doesn't exist
+          try {
+            await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
+          } catch {
+            // Fallback: direct update
+            await supabase
+              .from('profiles')
+              .update({ total_points: totalPoints + pointsToAward })
+              .eq('id', user.id)
+          }
           setTotalPoints(prev => prev + pointsToAward)
         }
 

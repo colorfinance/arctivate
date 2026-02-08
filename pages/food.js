@@ -16,6 +16,8 @@ export default function Food() {
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '' })
   const [todayLogs, setTodayLogs] = useState([])
   const [toast, setToast] = useState(null)
+  const [shareToFeed, setShareToFeed] = useState(false)
+  const [isSharing, setIsSharing] = useState(false)
   const fileInputRef = useRef(null)
 
   const showToast = (msg) => {
@@ -281,7 +283,13 @@ export default function Food() {
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
       showToast('Food logged successfully!')
 
+      // Share to feed if enabled
+      if (shareToFeed) {
+        await shareToPublicFeed(manualFood.name.trim(), cals, { p, c, f })
+      }
+
       setManualFood({ name: '', cals: '', p: '', c: '', f: '' })
+      setShareToFeed(false)
       setShowManualEntry(false)
     } catch (err) {
       console.error('Error logging food:', err)
@@ -315,6 +323,46 @@ export default function Food() {
   const dismissResult = () => {
     setResult(null)
     setError(null)
+  }
+
+  const shareToPublicFeed = async (foodName, calories, macros) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get username
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('id', user.id)
+        .single()
+
+      const foodData = {
+        type: 'food',
+        item_name: foodName,
+        calories: calories,
+        macros: macros,
+        date: new Date().toISOString()
+      }
+
+      await supabase.from('public_feed').insert({
+        user_id: user.id,
+        workout_data: foodData
+      })
+
+      showToast('Shared to feed!')
+    } catch (err) {
+      console.error('Error sharing to feed:', err)
+    }
+  }
+
+  const shareFoodLog = async (log) => {
+    setIsSharing(true)
+    try {
+      await shareToPublicFeed(log.item_name, log.calories, log.macros)
+    } finally {
+      setIsSharing(false)
+    }
   }
 
   const calorieProgress = Math.min((dailyCalories / dailyGoal) * 100, 100)
@@ -540,6 +588,14 @@ export default function Food() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-arc-orange">{log.calories}</span>
                     <button
+                      onClick={() => shareFoodLog(log)}
+                      disabled={isSharing}
+                      className="text-white/20 hover:text-arc-accent transition-colors p-1"
+                      title="Share to feed"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                    </button>
+                    <button
                       onClick={() => deleteLog(log.id, log.calories, log.macros)}
                       className="text-white/20 hover:text-red-500 transition-colors p-1"
                     >
@@ -629,6 +685,20 @@ export default function Food() {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Share to Feed Toggle */}
+              <div className="flex items-center justify-between mt-4 p-3 bg-arc-surface rounded-xl">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📣</span>
+                  <span className="text-sm font-medium">Share to Community</span>
+                </div>
+                <button
+                  onClick={() => setShareToFeed(!shareToFeed)}
+                  className={`w-12 h-6 rounded-full transition-colors relative ${shareToFeed ? 'bg-arc-accent' : 'bg-white/20'}`}
+                >
+                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${shareToFeed ? 'left-7' : 'left-1'}`} />
+                </button>
               </div>
 
               <div className="flex gap-3 mt-6">
