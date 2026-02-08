@@ -11,14 +11,16 @@ export default function Habits() {
   const [habits, setHabits] = useState([])
   const [logs, setLogs] = useState(new Set()) // Set of habit_ids completed today
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [isAdding, setIsAdding] = useState(false)
   const [customHabit, setCustomHabit] = useState('')
-  
+
   // Challenge State
   const [challengeDay, setChallengeDay] = useState(1)
   const [challengeGoal, setChallengeGoal] = useState(75)
   const [isEditingGoal, setIsEditingGoal] = useState(false)
   const [newGoal, setNewGoal] = useState(75)
+  const [currentStreak, setCurrentStreak] = useState(0)
 
   // Points State
   const [totalPoints, setTotalPoints] = useState(0)
@@ -30,39 +32,55 @@ export default function Habits() {
 
   async function fetchData() {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    setError(null)
 
-    // 1. Fetch Challenge Info & Points
-    const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal, total_points').eq('id', user.id).single()
-    if (profile) {
-        const start = new Date(profile.challenge_start_date)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setError('Please log in to view your habits')
+        setLoading(false)
+        return
+      }
+
+      // Batch fetch all data in parallel for performance
+      const today = getTodayStr()
+      const [profileResult, habitsResult, logsResult] = await Promise.all([
+        supabase.from('profiles').select('challenge_start_date, challenge_days_goal, total_points, current_streak').eq('id', user.id).single(),
+        supabase.from('habits').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
+        supabase.from('habit_logs').select('habit_id').eq('user_id', user.id).eq('date', today)
+      ])
+
+      // Handle profile data
+      if (profileResult.data) {
+        const profile = profileResult.data
+        const start = new Date(profile.challenge_start_date || new Date())
         const now = new Date()
         const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1
         setChallengeDay(Math.max(1, diff))
         setChallengeGoal(profile.challenge_days_goal || 75)
         setTotalPoints(profile.total_points || 0)
+        setCurrentStreak(profile.current_streak || 0)
+      }
+
+      // Handle habits data
+      if (habitsResult.error) throw habitsResult.error
+      setHabits(habitsResult.data || [])
+
+      // Handle logs data
+      if (logsResult.error) throw logsResult.error
+      setLogs(new Set(logsResult.data?.map(l => l.habit_id) || []))
+
+      // Calculate streak in background (don't block UI)
+      supabase.rpc('calculate_streak', { p_user_id: user.id }).then(({ data }) => {
+        if (data !== null) setCurrentStreak(data)
+      }).catch(() => {})
+
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      setError('Failed to load habits. Please try again.')
+    } finally {
+      setLoading(false)
     }
-
-    // 2. Fetch Habits
-    const { data: habitsData } = await supabase
-      .from('habits')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true })
-    
-    // 3. Fetch Today's Logs
-    const today = getTodayStr()
-    const { data: logsData } = await supabase
-      .from('habit_logs')
-      .select('habit_id')
-      .eq('user_id', user.id)
-      .eq('date', today)
-
-    // Set State
-    setHabits(habitsData || [])
-    setLogs(new Set(logsData?.map(l => l.habit_id) || []))
-    setLoading(false)
   }
 
   const [isUpdating, setIsUpdating] = useState(false)
@@ -298,16 +316,75 @@ export default function Habits() {
                 </button>
             </div>
 
-            {/* Points Display */}
-            <div className="mt-3 flex items-center gap-2">
-                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Earned</span>
-                <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
-                <span className="text-xs text-arc-muted">PTS</span>
+            {/* Points & Streak Display */}
+            <div className="mt-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Earned</span>
+                    <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
+                    <span className="text-xs text-arc-muted">PTS</span>
+                </div>
+                {currentStreak > 0 && (
+                    <div className="flex items-center gap-1.5 bg-arc-orange/20 px-3 py-1 rounded-full">
+                        <span className="text-arc-orange">🔥</span>
+                        <span className="text-sm font-bold text-arc-orange">{currentStreak} day streak</span>
+                    </div>
+                )}
             </div>
         </header>
 
         <main className="pt-36 px-6 space-y-8 max-w-lg mx-auto">
-            
+
+            {/* Loading State */}
+            {loading && (
+                <div className="space-y-6">
+                    {/* Skeleton for challenge progress */}
+                    <div className="animate-pulse">
+                        <div className="h-4 bg-white/10 rounded w-32 mb-2" />
+                        <div className="h-8 bg-white/10 rounded w-48 mb-4" />
+                        <div className="h-2 bg-white/10 rounded-full" />
+                    </div>
+                    {/* Skeleton for daily grind */}
+                    <div className="bg-arc-surface rounded-[2rem] p-6 animate-pulse">
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <div className="h-3 bg-white/10 rounded w-20 mb-2" />
+                                <div className="h-10 bg-white/10 rounded w-24" />
+                            </div>
+                            <div className="w-20 h-20 bg-white/10 rounded-full" />
+                        </div>
+                    </div>
+                    {/* Skeleton for habits */}
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="bg-arc-surface rounded-xl p-4 animate-pulse">
+                            <div className="flex items-center gap-4">
+                                <div className="w-6 h-6 bg-white/10 rounded" />
+                                <div className="flex-1">
+                                    <div className="h-4 bg-white/10 rounded w-3/4 mb-2" />
+                                    <div className="h-3 bg-white/10 rounded w-16" />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Error State */}
+            {error && !loading && (
+                <div className="text-center py-20">
+                    <div className="text-5xl mb-4">😕</div>
+                    <h3 className="text-lg font-bold text-white mb-2">Something went wrong</h3>
+                    <p className="text-arc-muted text-sm mb-6">{error}</p>
+                    <button
+                        onClick={fetchData}
+                        className="bg-arc-accent text-white font-bold px-6 py-3 rounded-xl"
+                    >
+                        Try Again
+                    </button>
+                </div>
+            )}
+
+            {!loading && !error && (
+            <>
             {/* Challenge Progress */}
             <section className="relative pt-2">
                  <div className="flex justify-between items-end mb-2 px-1">
@@ -400,10 +477,12 @@ export default function Habits() {
                     )
                 })}
                 
-                {habits.length === 0 && !loading && (
+                {habits.length === 0 && (
                     <div className="text-center py-10 opacity-50 text-sm">No habits set. Add one!</div>
                 )}
             </section>
+            </>
+            )}
         </main>
 
         {/* Add Habit Sheet */}

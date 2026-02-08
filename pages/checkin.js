@@ -56,6 +56,7 @@ export default function CheckIn() {
   const [currentUser, setCurrentUser] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [totalPoints, setTotalPoints] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Check-in history
   const [recentCheckIns, setRecentCheckIns] = useState([])
@@ -76,36 +77,35 @@ export default function CheckIn() {
   }, [])
 
   async function loadData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      setCurrentUser(user)
+    setIsLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setCurrentUser(user)
 
-      // Fetch profile with admin status and points
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('is_admin, total_points')
-        .eq('id', user.id)
-        .single()
+        // Batch fetch profile and check-ins in parallel
+        const [profileResult, checkInsResult] = await Promise.all([
+          supabase.from('profiles').select('is_admin, total_points').eq('id', user.id).single(),
+          supabase.from('check_ins').select('*, partners(name)').eq('user_id', user.id).order('checked_in_at', { ascending: false }).limit(10)
+        ])
 
-      if (profile) {
-        setIsAdmin(profile.is_admin || false)
-        setTotalPoints(profile.total_points || 0)
+        if (profileResult.data) {
+          setIsAdmin(profileResult.data.is_admin || false)
+          setTotalPoints(profileResult.data.total_points || 0)
+        }
+
+        if (checkInsResult.data) setRecentCheckIns(checkInsResult.data)
+
+        // If admin, fetch reward codes
+        if (profileResult.data?.is_admin) {
+          fetchRewardCodes()
+        }
       }
-
-      // Fetch recent check-ins
-      const { data: checkIns } = await supabase
-        .from('check_ins')
-        .select('*, partners(name)')
-        .eq('user_id', user.id)
-        .order('checked_in_at', { ascending: false })
-        .limit(10)
-
-      if (checkIns) setRecentCheckIns(checkIns)
-
-      // If admin, fetch reward codes
-      if (profile?.is_admin) {
-        fetchRewardCodes()
-      }
+    } catch (err) {
+      console.error('Error loading data:', err)
+      showToast('Failed to load data')
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -311,8 +311,19 @@ export default function CheckIn() {
       </header>
 
       <main className="pt-24 px-4 max-w-lg mx-auto">
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-20">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              className="w-8 h-8 border-2 border-arc-orange/30 border-t-arc-orange rounded-full"
+            />
+          </div>
+        )}
+
         {/* Scanner Section */}
-        {!showAdminPanel && (
+        {!isLoading && !showAdminPanel && (
           <section className="mb-8">
             <div className="bg-arc-card border border-white/5 rounded-3xl overflow-hidden">
               {/* Scanner Container */}
@@ -431,7 +442,7 @@ export default function CheckIn() {
         )}
 
         {/* Admin Panel */}
-        {showAdminPanel && isAdmin && (
+        {!isLoading && showAdminPanel && isAdmin && (
           <section className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-black italic">Reward Codes</h2>
@@ -478,7 +489,7 @@ export default function CheckIn() {
         )}
 
         {/* Recent Check-ins */}
-        {!showAdminPanel && recentCheckIns.length > 0 && (
+        {!isLoading && !showAdminPanel && recentCheckIns.length > 0 && (
           <section>
             <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">
               Recent Check-ins
