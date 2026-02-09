@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
@@ -55,6 +55,34 @@ const FacebookIcon = () => (
   </svg>
 )
 
+const ImageIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <polyline points="21 15 16 10 5 21" />
+  </svg>
+)
+
+const InboxIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+    <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
+  </svg>
+)
+
+const ArrowLeftIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+  </svg>
+)
+
+const CameraIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+)
+
 export default function Feed() {
   const router = useRouter()
   const [posts, setPosts] = useState([])
@@ -67,6 +95,22 @@ export default function Feed() {
   const [isPosting, setIsPosting] = useState(false)
   const [showComposer, setShowComposer] = useState(false)
   const [toast, setToast] = useState(null)
+
+  // Image upload state
+  const [composerImage, setComposerImage] = useState(null)
+  const [composerImagePreview, setComposerImagePreview] = useState(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const imageInputRef = useRef(null)
+
+  // DM state
+  const [showDMs, setShowDMs] = useState(false)
+  const [conversations, setConversations] = useState([])
+  const [activeDM, setActiveDM] = useState(null)
+  const [dmMessages, setDmMessages] = useState([])
+  const [newDM, setNewDM] = useState('')
+  const [sendingDM, setSendingDM] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const dmScrollRef = useRef(null)
 
   const showToast = (msg) => {
     setToast(msg)
@@ -81,15 +125,14 @@ export default function Feed() {
         return
       }
 
-      // Check onboarding
-      const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+      const { data: profile } = await supabase.from('profiles').select('completed_onboarding, username, avatar_url').eq('id', user.id).single()
       if (profile && profile.completed_onboarding === false) {
         router.push('/onboarding')
         return
       }
 
       setCurrentUserId(user.id)
-      await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id)])
+      await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id)])
       setIsLoading(false)
     }
     load()
@@ -122,13 +165,6 @@ export default function Feed() {
     }
   }
 
-  async function refreshFeed() {
-    setIsLoading(true)
-    await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages()])
-    if (currentUserId) await fetchUserLikes(currentUserId)
-    setIsLoading(false)
-  }
-
   async function fetchUserLikes(userId) {
     const { data: workoutLikes } = await supabase.from('high_fives').select('feed_id').eq('user_id', userId)
     const likes = new Set()
@@ -137,13 +173,136 @@ export default function Feed() {
     try {
       const { data: messageLikes } = await supabase.from('message_likes').select('message_id').eq('user_id', userId)
       messageLikes?.forEach(l => likes.add(`message:${l.message_id}`))
-    } catch (err) {
-      // Table might not exist yet
-    }
+    } catch (err) {}
 
     setUserLikes(likes)
   }
 
+  async function fetchUnreadCount(userId) {
+    try {
+      const { count } = await supabase
+        .from('direct_messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('receiver_id', userId)
+        .eq('is_read', false)
+      setUnreadCount(count || 0)
+    } catch (err) {}
+  }
+
+  // --- DM Functions ---
+  async function fetchConversations() {
+    try {
+      const { data: sent } = await supabase
+        .from('direct_messages')
+        .select('*, profiles:receiver_id (username, avatar_url)')
+        .eq('sender_id', currentUserId)
+        .order('created_at', { ascending: false })
+
+      const { data: received } = await supabase
+        .from('direct_messages')
+        .select('*, profiles:sender_id (username, avatar_url)')
+        .eq('receiver_id', currentUserId)
+        .order('created_at', { ascending: false })
+
+      const convMap = new Map()
+
+      const processDM = (dm, otherUserId, otherProfile, isSent) => {
+        if (!convMap.has(otherUserId)) {
+          convMap.set(otherUserId, {
+            userId: otherUserId,
+            username: otherProfile?.username || 'User',
+            avatar_url: otherProfile?.avatar_url,
+            lastMessage: dm.content,
+            lastTime: dm.created_at,
+            unread: !isSent && !dm.is_read ? 1 : 0
+          })
+        } else {
+          const conv = convMap.get(otherUserId)
+          if (new Date(dm.created_at) > new Date(conv.lastTime)) {
+            conv.lastMessage = dm.content
+            conv.lastTime = dm.created_at
+          }
+          if (!isSent && !dm.is_read) conv.unread++
+        }
+      }
+
+      sent?.forEach(dm => processDM(dm, dm.receiver_id, dm.profiles, true))
+      received?.forEach(dm => processDM(dm, dm.sender_id, dm.profiles, false))
+
+      const sorted = [...convMap.values()].sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime))
+      setConversations(sorted)
+    } catch (err) {
+      console.error('Error fetching conversations:', err)
+    }
+  }
+
+  async function openDM(userId, username, avatarUrl) {
+    setActiveDM({ userId, username, avatarUrl })
+    await fetchDMThread(userId)
+
+    try {
+      await supabase.rpc('mark_dms_read', { p_sender_id: userId })
+      setUnreadCount(prev => Math.max(0, prev - (conversations.find(c => c.userId === userId)?.unread || 0)))
+    } catch (err) {}
+  }
+
+  async function fetchDMThread(otherUserId) {
+    try {
+      const { data } = await supabase
+        .from('direct_messages')
+        .select('*')
+        .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUserId})`)
+        .order('created_at', { ascending: true })
+        .limit(100)
+
+      setDmMessages(data || [])
+      setTimeout(() => {
+        if (dmScrollRef.current) {
+          dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight
+        }
+      }, 100)
+    } catch (err) {
+      console.error('Error fetching DM thread:', err)
+    }
+  }
+
+  async function sendDirectMessage() {
+    if (!newDM.trim() || sendingDM || !activeDM) return
+    setSendingDM(true)
+    try {
+      const { data, error } = await supabase.rpc('send_dm', {
+        p_receiver_id: activeDM.userId,
+        p_content: newDM.trim()
+      })
+
+      if (error) throw error
+
+      if (data?.success) {
+        const newMsg = {
+          id: data.dm_id,
+          sender_id: currentUserId,
+          receiver_id: activeDM.userId,
+          content: newDM.trim(),
+          created_at: new Date().toISOString(),
+          is_read: false
+        }
+        setDmMessages(prev => [...prev, newMsg])
+        setNewDM('')
+        setTimeout(() => {
+          if (dmScrollRef.current) {
+            dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight
+          }
+        }, 50)
+      }
+    } catch (err) {
+      console.error('Send DM error:', err)
+      showToast('Failed to send message')
+    } finally {
+      setSendingDM(false)
+    }
+  }
+
+  // --- Post Functions ---
   async function handleHighFive(postId) {
     try {
       const { data, error } = await supabase.rpc('increment_high_five', { post_id: postId })
@@ -184,8 +343,53 @@ export default function Feed() {
     }
   }
 
+  // Image handling for composer
+  function handleComposerImage(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image must be under 5MB')
+      return
+    }
+
+    setComposerImage(file)
+    const reader = new FileReader()
+    reader.onloadend = () => setComposerImagePreview(reader.result)
+    reader.readAsDataURL(file)
+  }
+
+  function removeComposerImage() {
+    setComposerImage(null)
+    setComposerImagePreview(null)
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
+  async function uploadImage(file) {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const ext = file.name.split('.').pop()
+    const fileName = `${user.id}/${Date.now()}.${ext}`
+
+    const { data, error } = await supabase.storage
+      .from('post-images')
+      .upload(fileName, file, { cacheControl: '3600', upsert: false })
+
+    if (error) {
+      console.error('Upload error:', error)
+      return null
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('post-images')
+      .getPublicUrl(data.path)
+
+    return urlData?.publicUrl || null
+  }
+
   async function postMessage() {
-    if (!newMessage.trim() || isPosting) return
+    if ((!newMessage.trim() && !composerImage) || isPosting) return
     setIsPosting(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -194,29 +398,64 @@ export default function Feed() {
         return
       }
 
+      let imageUrl = null
+      if (composerImage) {
+        setUploadingImage(true)
+        imageUrl = await uploadImage(composerImage)
+        setUploadingImage(false)
+      }
+
+      const insertData = {
+        user_id: user.id,
+        content: newMessage.trim() || (imageUrl ? 'Shared a photo' : ''),
+        message_type: imageUrl ? 'image' : 'text'
+      }
+
+      if (imageUrl) {
+        insertData.image_url = imageUrl
+      }
+
       const { data, error } = await supabase
         .from('community_messages')
-        .insert({ user_id: user.id, content: newMessage.trim(), message_type: 'text' })
+        .insert(insertData)
         .select(`*, profiles:user_id (username, avatar_url)`)
         .single()
 
       if (error) {
         console.error('Error posting message:', error)
-        showToast('Failed to post message. Please try again.')
-        return
+        // If image_url column doesn't exist yet, retry without it
+        if (error.message?.includes('image_url')) {
+          const { data: retryData, error: retryError } = await supabase
+            .from('community_messages')
+            .insert({ user_id: user.id, content: newMessage.trim() || 'Shared a post', message_type: 'text' })
+            .select(`*, profiles:user_id (username, avatar_url)`)
+            .single()
+
+          if (retryError) {
+            showToast('Failed to post. Please try again.')
+            return
+          }
+          if (retryData) {
+            setMessages([retryData, ...messages])
+          }
+        } else {
+          showToast('Failed to post. Please try again.')
+          return
+        }
+      } else if (data) {
+        setMessages([data, ...messages])
       }
 
-      if (data) {
-        setMessages([data, ...messages])
-        setNewMessage('')
-        setShowComposer(false)
-        showToast('Message posted!')
-      }
+      setNewMessage('')
+      setShowComposer(false)
+      removeComposerImage()
+      showToast('Posted!')
     } catch (err) {
       console.error('Error posting:', err)
-      showToast('Something went wrong. Please try again.')
+      showToast('Something went wrong')
     } finally {
       setIsPosting(false)
+      setUploadingImage(false)
     }
   }
 
@@ -245,6 +484,136 @@ export default function Feed() {
 
   const getUnit = (metricType) => metricType === 'time' ? 'min' : 'kg'
 
+  // --- DM Inbox View ---
+  if (showDMs && !activeDM) {
+    return (
+      <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
+        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowDMs(false)} className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
+              <ArrowLeftIcon />
+            </button>
+            <h1 className="text-xl font-black italic tracking-tighter">MESSAGES</h1>
+          </div>
+        </header>
+
+        <main className="pt-20 px-4 max-w-lg mx-auto">
+          {conversations.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="w-16 h-16 bg-arc-surface rounded-full flex items-center justify-center mx-auto mb-4 text-arc-muted">
+                <InboxIcon />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">No Messages Yet</h3>
+              <p className="text-arc-muted text-sm">Tap on a user&apos;s avatar in the feed to start a conversation</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {conversations.map((conv) => (
+                <motion.button
+                  key={conv.userId}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  onClick={() => openDM(conv.userId, conv.username, conv.avatar_url)}
+                  className="w-full flex items-center gap-3 bg-arc-card border border-white/5 rounded-2xl p-4 text-left hover:border-white/10 transition-colors"
+                >
+                  <div className="w-12 h-12 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold shrink-0">
+                    {conv.username?.[0]?.toUpperCase() || '?'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-white">{conv.username}</span>
+                      <span className="text-[11px] text-arc-muted">{formatTimeAgo(conv.lastTime)}</span>
+                    </div>
+                    <p className="text-sm text-arc-muted truncate mt-0.5">{conv.lastMessage}</p>
+                  </div>
+                  {conv.unread > 0 && (
+                    <div className="w-5 h-5 bg-arc-accent rounded-full flex items-center justify-center shrink-0">
+                      <span className="text-[10px] font-bold text-white">{conv.unread}</span>
+                    </div>
+                  )}
+                </motion.button>
+              ))}
+            </div>
+          )}
+        </main>
+        <Nav />
+      </div>
+    )
+  }
+
+  // --- Active DM Thread View ---
+  if (showDMs && activeDM) {
+    return (
+      <div className="min-h-screen bg-arc-bg text-white font-sans flex flex-col">
+        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
+          <div className="flex items-center gap-3">
+            <button onClick={() => { setActiveDM(null); fetchConversations() }} className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
+              <ArrowLeftIcon />
+            </button>
+            <div className="w-8 h-8 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold text-sm">
+              {activeDM.username?.[0]?.toUpperCase() || '?'}
+            </div>
+            <span className="font-bold text-white">{activeDM.username}</span>
+          </div>
+        </header>
+
+        <div ref={dmScrollRef} className="flex-1 overflow-y-auto pt-20 pb-24 px-4 max-w-lg mx-auto w-full">
+          {dmMessages.length === 0 ? (
+            <div className="text-center py-20">
+              <p className="text-arc-muted text-sm">Start a conversation with {activeDM.username}</p>
+            </div>
+          ) : (
+            <div className="space-y-3 py-4">
+              {dmMessages.map((msg) => {
+                const isMine = msg.sender_id === currentUserId
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`max-w-[75%] px-4 py-3 rounded-2xl ${isMine ? 'bg-arc-accent text-white rounded-br-md' : 'bg-arc-card border border-white/5 text-white rounded-bl-md'}`}>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                      <span className={`text-[10px] mt-1 block ${isMine ? 'text-white/60' : 'text-arc-muted'}`}>
+                        {formatTimeAgo(msg.created_at)}
+                      </span>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="fixed bottom-0 inset-x-0 bg-arc-bg/90 backdrop-blur-xl border-t border-white/5 p-4">
+          <div className="flex gap-2 max-w-lg mx-auto">
+            <input
+              type="text"
+              value={newDM}
+              onChange={(e) => setNewDM(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDirectMessage() } }}
+              placeholder="Type a message..."
+              className="flex-1 bg-arc-surface border border-white/10 px-4 py-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
+            />
+            <button
+              onClick={sendDirectMessage}
+              disabled={!newDM.trim() || sendingDM}
+              className="bg-arc-accent text-white p-3 rounded-xl disabled:opacity-50 shrink-0"
+            >
+              {sendingDM ? (
+                <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
+              ) : (
+                <SendIcon />
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // --- Main Feed View ---
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
       {/* Toast */}
@@ -270,6 +639,15 @@ export default function Feed() {
               COMMUNITY
             </h1>
             <div className="flex gap-2">
+              <button
+                onClick={() => { setShowDMs(true); fetchConversations() }}
+                className="relative flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10"
+              >
+                <InboxIcon />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-arc-accent rounded-full flex items-center justify-center text-[9px] font-bold">{unreadCount}</span>
+                )}
+              </button>
               <Link href="/groups" className="flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10">
                 <GroupIcon />
               </Link>
@@ -292,7 +670,7 @@ export default function Feed() {
               onClick={() => setActiveTab('community')}
               className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all ${activeTab === 'community' ? 'bg-arc-accent text-white' : 'text-arc-muted hover:text-white'}`}
             >
-              Messages
+              Feed
             </button>
           </div>
         </div>
@@ -310,7 +688,9 @@ export default function Feed() {
               <>
                 {posts.length === 0 ? (
                   <div className="text-center py-20">
-                    <div className="text-4xl mb-4">🏋️</div>
+                    <div className="w-16 h-16 bg-arc-surface rounded-full flex items-center justify-center mx-auto mb-4 text-arc-muted">
+                      <HighFiveIcon />
+                    </div>
                     <h3 className="text-lg font-bold text-white mb-2">No Workouts Yet</h3>
                     <p className="text-arc-muted text-sm">Be the first to share your workout!</p>
                   </div>
@@ -325,9 +705,18 @@ export default function Feed() {
                       return (
                         <motion.div key={post.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
                           <div className="flex items-center gap-3 p-4 border-b border-white/5">
-                            <div className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold">
+                            <button
+                              onClick={() => {
+                                if (!isOwnPost) {
+                                  setShowDMs(true)
+                                  openDM(post.user_id, post.profiles?.username, post.profiles?.avatar_url)
+                                }
+                              }}
+                              disabled={isOwnPost}
+                              className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold disabled:cursor-default"
+                            >
                               {post.profiles?.username?.[0]?.toUpperCase() || '?'}
-                            </div>
+                            </button>
                             <div className="flex-1">
                               <span className="font-bold text-sm text-white">{post.profiles?.username || 'Anonymous'}</span>
                               <span className="block text-[11px] text-arc-muted">{formatTimeAgo(post.created_at)}</span>
@@ -363,10 +752,20 @@ export default function Feed() {
                           </div>
 
                           <div className="flex items-center justify-between px-4 py-3 bg-arc-bg/50 border-t border-white/5">
-                            <button onClick={() => handleHighFive(post.id)} disabled={isOwnPost} className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${hasHighFived ? 'bg-arc-orange/20 text-arc-orange' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnPost ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                              <HighFiveIcon filled={hasHighFived} />
-                              <span className="font-bold text-sm">{post.likes_count || 0}</span>
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <button onClick={() => handleHighFive(post.id)} disabled={isOwnPost} className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${hasHighFived ? 'bg-arc-orange/20 text-arc-orange' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnPost ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                <HighFiveIcon filled={hasHighFived} />
+                                <span className="font-bold text-sm">{post.likes_count || 0}</span>
+                              </button>
+                              {!isOwnPost && (
+                                <button
+                                  onClick={() => { setShowDMs(true); openDM(post.user_id, post.profiles?.username, post.profiles?.avatar_url) }}
+                                  className="flex items-center gap-1 px-3 py-2 rounded-xl bg-arc-surface text-arc-muted hover:text-white transition-all"
+                                >
+                                  <MessageIcon />
+                                </button>
+                              )}
+                            </div>
                             <div className="flex gap-2">
                               <button onClick={() => shareToTwitter(shareText)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-white transition-colors">
                                 <TwitterIcon />
@@ -389,11 +788,13 @@ export default function Feed() {
               <>
                 {messages.length === 0 ? (
                   <div className="text-center py-20">
-                    <div className="text-4xl mb-4">💬</div>
-                    <h3 className="text-lg font-bold text-white mb-2">No Messages Yet</h3>
+                    <div className="w-16 h-16 bg-arc-surface rounded-full flex items-center justify-center mx-auto mb-4 text-arc-muted">
+                      <MessageIcon />
+                    </div>
+                    <h3 className="text-lg font-bold text-white mb-2">No Posts Yet</h3>
                     <p className="text-arc-muted text-sm">Start the conversation!</p>
                     <button onClick={() => setShowComposer(true)} className="mt-4 bg-arc-accent text-white font-bold px-6 py-3 rounded-xl">
-                      Post First Message
+                      Create Post
                     </button>
                   </div>
                 ) : (
@@ -403,26 +804,58 @@ export default function Feed() {
                       const isOwnMessage = msg.user_id === currentUserId
 
                       return (
-                        <motion.div key={msg.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/5 rounded-2xl p-4">
-                          <div className="flex gap-3">
-                            <div className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold shrink-0">
-                              {msg.profiles?.username?.[0]?.toUpperCase() || '?'}
+                        <motion.div key={msg.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
+                          <div className="p-4">
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => {
+                                  if (!isOwnMessage) {
+                                    setShowDMs(true)
+                                    openDM(msg.user_id, msg.profiles?.username, msg.profiles?.avatar_url)
+                                  }
+                                }}
+                                disabled={isOwnMessage}
+                                className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold shrink-0 disabled:cursor-default"
+                              >
+                                {msg.profiles?.username?.[0]?.toUpperCase() || '?'}
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-bold text-sm text-white">{msg.profiles?.username || 'Anonymous'}</span>
+                                  <span className="text-[11px] text-arc-muted">{formatTimeAgo(msg.created_at)}</span>
+                                </div>
+                                <p className="text-white/90 text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                              </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-bold text-sm text-white">{msg.profiles?.username || 'Anonymous'}</span>
-                                <span className="text-[11px] text-arc-muted">{formatTimeAgo(msg.created_at)}</span>
+
+                            {/* Image attachment */}
+                            {msg.image_url && (
+                              <div className="mt-3 ml-13 rounded-xl overflow-hidden">
+                                <img src={msg.image_url} alt="" className="w-full max-h-80 object-cover rounded-xl" />
                               </div>
-                              <p className="text-white/90 text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                              <div className="flex items-center gap-4 mt-3">
-                                <button onClick={() => handleMessageLike(msg.id)} disabled={isOwnMessage} className={`flex items-center gap-1 text-sm transition-colors ${hasLiked ? 'text-arc-orange' : 'text-arc-muted hover:text-white'} ${isOwnMessage ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                  <HighFiveIcon filled={hasLiked} />
-                                  <span>{msg.likes_count || 0}</span>
+                            )}
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
+                            <div className="flex items-center gap-3">
+                              <button onClick={() => handleMessageLike(msg.id)} disabled={isOwnMessage} className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm transition-all ${hasLiked ? 'bg-arc-orange/20 text-arc-orange' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnMessage ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                <HighFiveIcon filled={hasLiked} />
+                                <span className="font-bold">{msg.likes_count || 0}</span>
+                              </button>
+                              {!isOwnMessage && (
+                                <button
+                                  onClick={() => { setShowDMs(true); openDM(msg.user_id, msg.profiles?.username, msg.profiles?.avatar_url) }}
+                                  className="flex items-center gap-1 px-3 py-2 rounded-xl bg-arc-surface text-arc-muted hover:text-white transition-all text-sm"
+                                >
+                                  <MessageIcon />
                                 </button>
-                                <button onClick={() => shareToTwitter(msg.content)} className="flex items-center gap-1 text-sm text-arc-muted hover:text-white transition-colors">
-                                  <TwitterIcon />
-                                </button>
-                              </div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => shareToTwitter(msg.content)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-white transition-colors">
+                                <TwitterIcon />
+                              </button>
                             </div>
                           </div>
                         </motion.div>
@@ -440,15 +873,73 @@ export default function Feed() {
       <AnimatePresence>
         {showComposer && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowComposer(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowComposer(false); removeComposerImage() }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 max-h-[85vh] overflow-y-auto">
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
-              <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">POST TO COMMUNITY</h2>
-              <textarea value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Share your thoughts, motivation, or progress..." rows={4} className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors resize-none" autoFocus />
+              <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">CREATE POST</h2>
+
+              <textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Share your thoughts, motivation, or progress..."
+                rows={4}
+                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors resize-none"
+                autoFocus
+              />
+
+              {/* Image Preview */}
+              {composerImagePreview && (
+                <div className="mt-3 relative">
+                  <img src={composerImagePreview} alt="Preview" className="w-full max-h-48 object-cover rounded-xl" />
+                  <button
+                    onClick={removeComposerImage}
+                    className="absolute top-2 right-2 w-8 h-8 bg-black/70 rounded-full flex items-center justify-center text-white"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+              )}
+
+              {/* Toolbar */}
+              <div className="flex items-center justify-between mt-4">
+                <div className="flex gap-2">
+                  <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleComposerImage} />
+                  <button
+                    onClick={() => imageInputRef.current?.click()}
+                    className="flex items-center gap-2 px-4 py-2 bg-arc-surface border border-white/10 rounded-xl text-arc-muted hover:text-white transition-colors text-sm"
+                  >
+                    <ImageIcon />
+                    Photo
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (imageInputRef.current) {
+                        imageInputRef.current.setAttribute('capture', 'environment')
+                        imageInputRef.current.click()
+                        imageInputRef.current.removeAttribute('capture')
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-arc-surface border border-white/10 rounded-xl text-arc-muted hover:text-white transition-colors text-sm"
+                  >
+                    <CameraIcon />
+                  </button>
+                </div>
+              </div>
+
               <div className="flex gap-3 mt-4">
-                <button onClick={() => setShowComposer(false)} className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl">Cancel</button>
-                <button onClick={postMessage} disabled={!newMessage.trim() || isPosting} className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50 flex items-center justify-center gap-2">
-                  {isPosting ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" /> : <><SendIcon /> Post</>}
+                <button onClick={() => { setShowComposer(false); removeComposerImage() }} className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl">Cancel</button>
+                <button
+                  onClick={postMessage}
+                  disabled={(!newMessage.trim() && !composerImage) || isPosting}
+                  className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isPosting ? (
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
+                  ) : uploadingImage ? (
+                    <span>Uploading...</span>
+                  ) : (
+                    <><SendIcon /> Post</>
+                  )}
                 </button>
               </div>
             </motion.div>
