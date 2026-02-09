@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
@@ -36,19 +36,32 @@ export default function Auth() {
     e.preventDefault()
     setLoading(true)
     setMessage('')
-    
-    // Magic Link Login
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: window.location.origin + '/train',
-      },
-    })
 
-    if (error) {
-      setMessage(error.message)
-    } else {
-      setMessage('Check your email for the login link!')
+    if (!isSupabaseConfigured()) {
+      setMessage('error: App is not configured. Please set Supabase environment variables.')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: window.location.origin + '/train',
+        },
+      })
+
+      if (error) {
+        setMessage('error: ' + error.message)
+      } else {
+        setMessage('Check your email for the login link!')
+      }
+    } catch (err) {
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        setMessage('error: Unable to connect to server. Your Supabase project may be paused — check your Supabase dashboard.')
+      } else {
+        setMessage('error: ' + (err.message || 'Something went wrong'))
+      }
     }
     setLoading(false)
   }
@@ -99,9 +112,9 @@ export default function Auth() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className={`mt-4 text-sm font-bold ${message.includes('error') ? 'text-red-400' : 'text-arc-accent'}`}
+              className={`mt-4 text-sm font-bold ${message.startsWith('error:') ? 'text-red-400' : 'text-green-400'}`}
             >
-              {message}
+              {message.startsWith('error:') ? message.slice(7) : message}
             </motion.div>
           )}
         </div>

@@ -82,6 +82,9 @@ export default function Habits() {
       // Set State
       setHabits(habitsData || [])
       setLogs(new Set(logsData?.map(l => l.habit_id) || []))
+
+      // Fetch progress photos
+      await fetchProgressPhotos(user.id)
     } catch (err) {
       console.error('Error loading habits data:', err)
     } finally {
@@ -92,6 +95,12 @@ export default function Habits() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [toast, setToast] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+
+  // Progress Photo State
+  const [progressPhoto, setProgressPhoto] = useState(null) // today's photo URL
+  const [photoGallery, setPhotoGallery] = useState([]) // last 7 days [{date, url}]
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const [photoError, setPhotoError] = useState(null)
 
   const showToast = (msg) => {
     setToast(msg)
@@ -305,6 +314,167 @@ export default function Habits() {
     }
   }
 
+  // --- Progress Photo Functions ---
+
+  async function fetchProgressPhotos(userId) {
+    try {
+      const today = getTodayStr()
+
+      // Check if today's photo exists by trying to get its public URL
+      const todayPath = `${userId}/${today}.jpg`
+      const { data: todayData } = supabase.storage
+        .from('progress-photos')
+        .getPublicUrl(todayPath)
+
+      // We need to verify the file actually exists by listing
+      const { data: listData, error: listError } = await supabase.storage
+        .from('progress-photos')
+        .list(userId, { limit: 100, sortBy: { column: 'name', order: 'desc' } })
+
+      if (listError) {
+        console.error('Error listing progress photos:', listError)
+        setPhotoError('Could not load progress photos')
+        return
+      }
+
+      if (!listData || listData.length === 0) {
+        setProgressPhoto(null)
+        setPhotoGallery([])
+        return
+      }
+
+      // Filter to only .jpg files and get last 7 days
+      const photoFiles = listData
+        .filter(f => f.name.endsWith('.jpg'))
+        .sort((a, b) => b.name.localeCompare(a.name))
+        .slice(0, 7)
+
+      // Check if today's photo exists in the list
+      const todayFile = photoFiles.find(f => f.name === `${today}.jpg`)
+      if (todayFile) {
+        const { data: urlData } = supabase.storage
+          .from('progress-photos')
+          .getPublicUrl(`${userId}/${today}.jpg`)
+        setProgressPhoto(urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : null)
+      } else {
+        setProgressPhoto(null)
+      }
+
+      // Build gallery
+      const gallery = photoFiles.map(f => {
+        const date = f.name.replace('.jpg', '')
+        const { data: urlData } = supabase.storage
+          .from('progress-photos')
+          .getPublicUrl(`${userId}/${f.name}`)
+        return {
+          date,
+          url: urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : null,
+          name: f.name
+        }
+      }).filter(item => item.url)
+
+      setPhotoGallery(gallery)
+      setPhotoError(null)
+    } catch (err) {
+      console.error('Error fetching progress photos:', err)
+      setPhotoError('Could not load progress photos')
+    }
+  }
+
+  function resizeImage(file, maxWidth = 800) {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      const reader = new FileReader()
+
+      reader.onload = (e) => {
+        img.onload = () => {
+          let width = img.width
+          let height = img.height
+
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width)
+            width = maxWidth
+          }
+
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0, width, height)
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) resolve(blob)
+              else reject(new Error('Failed to resize image'))
+            },
+            'image/jpeg',
+            0.85
+          )
+        }
+        img.onerror = () => reject(new Error('Failed to load image'))
+        img.src = e.target.result
+      }
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function uploadProgressPhoto(file) {
+    if (!file) return
+    setIsUploadingPhoto(true)
+    setPhotoError(null)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        showToast('Please log in to upload photos')
+        return
+      }
+
+      // Resize image
+      const resizedBlob = await resizeImage(file)
+
+      const today = getTodayStr()
+      const filePath = `${user.id}/${today}.jpg`
+
+      // Upload (upsert: true will overwrite if same day)
+      const { error: uploadError } = await supabase.storage
+        .from('progress-photos')
+        .upload(filePath, resizedBlob, {
+          contentType: 'image/jpeg',
+          upsert: true
+        })
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        setPhotoError('Upload failed. Make sure the storage bucket exists.')
+        showToast('Photo upload failed')
+        return
+      }
+
+      // Get public URL for the newly uploaded photo
+      const { data: urlData } = supabase.storage
+        .from('progress-photos')
+        .getPublicUrl(filePath)
+
+      if (urlData?.publicUrl) {
+        setProgressPhoto(`${urlData.publicUrl}?t=${Date.now()}`)
+      }
+
+      // Refresh gallery
+      await fetchProgressPhotos(user.id)
+
+      showToast('Progress photo saved!')
+      confetti({ particleCount: 60, spread: 50, origin: { y: 0.7 }, colors: ['#FF3B00', '#22c55e'] })
+    } catch (err) {
+      console.error('Upload error:', err)
+      setPhotoError('Something went wrong during upload')
+      showToast('Photo upload failed')
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
+
   // Calc progress
   const completedCount = logs.size
   const totalCount = habits.length
@@ -452,6 +622,134 @@ export default function Habits() {
                 
                 {habits.length === 0 && !loading && (
                     <div className="text-center py-10 opacity-50 text-sm">No habits set. Add one!</div>
+                )}
+            </section>
+
+            {/* Progress Photo Section - 75 Hard Style */}
+            <section className="space-y-4 pb-12">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Progress Photo</h2>
+                        <p className="text-xs text-arc-muted">One photo per day. Stay accountable.</p>
+                    </div>
+                    {progressPhoto && (
+                        <span className="text-[10px] font-bold text-green-500 uppercase tracking-widest flex items-center gap-1">
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                            Done Today
+                        </span>
+                    )}
+                </div>
+
+                {/* Today's Photo or Upload */}
+                <div className="bg-glass-gradient border border-white/5 rounded-[2rem] p-6 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-32 h-32 bg-arc-accent/5 blur-3xl rounded-full pointer-events-none" />
+
+                    {progressPhoto ? (
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="relative"
+                        >
+                            <img
+                                src={progressPhoto}
+                                alt={`Progress photo for ${getTodayStr()}`}
+                                className="w-full rounded-xl object-cover max-h-80"
+                            />
+                            <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full">
+                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">
+                                    {getTodayStr()}
+                                </span>
+                            </div>
+                            {/* Allow re-upload / replace */}
+                            <label className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/80 transition-colors">
+                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Replace</span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        if (e.target.files?.[0]) uploadProgressPhoto(e.target.files[0])
+                                    }}
+                                />
+                            </label>
+                        </motion.div>
+                    ) : (
+                        <label className={`flex flex-col items-center justify-center py-10 cursor-pointer group ${isUploadingPhoto ? 'pointer-events-none' : ''}`}>
+                            {isUploadingPhoto ? (
+                                <div className="flex flex-col items-center gap-3">
+                                    <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+                                    <span className="text-xs text-arc-muted font-bold">Uploading...</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-white/10 group-hover:border-arc-accent/50 flex items-center justify-center transition-colors mb-3">
+                                        <svg className="w-7 h-7 text-white/20 group-hover:text-arc-accent/50 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                                            <polyline points="21 15 16 10 5 21"/>
+                                        </svg>
+                                    </div>
+                                    <span className="text-sm font-bold text-white/40 group-hover:text-white/60 transition-colors">
+                                        Tap to upload today&apos;s photo
+                                    </span>
+                                    <span className="text-[10px] text-arc-muted mt-1">
+                                        Max 800px, compressed automatically
+                                    </span>
+                                </>
+                            )}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={isUploadingPhoto}
+                                onChange={(e) => {
+                                    if (e.target.files?.[0]) uploadProgressPhoto(e.target.files[0])
+                                }}
+                            />
+                        </label>
+                    )}
+
+                    {/* Error Message */}
+                    {photoError && (
+                        <motion.p
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-xs text-red-400 mt-3 text-center"
+                        >
+                            {photoError}
+                        </motion.p>
+                    )}
+                </div>
+
+                {/* Photo Gallery - Last 7 Days */}
+                {photoGallery.length > 0 && (
+                    <div>
+                        <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3">Recent Progress</h3>
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
+                            {photoGallery.map((photo) => (
+                                <motion.div
+                                    key={photo.date}
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    className="flex-shrink-0 relative group"
+                                >
+                                    <img
+                                        src={photo.url}
+                                        alt={`Progress ${photo.date}`}
+                                        className="w-24 h-32 object-cover rounded-xl border border-white/5 group-hover:border-arc-accent/30 transition-colors"
+                                    />
+                                    <div className="absolute bottom-1.5 left-1.5 right-1.5 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+                                        <span className="text-[8px] font-bold text-white/80 tracking-wider">
+                                            {new Date(photo.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                        </span>
+                                    </div>
+                                    {photo.date === getTodayStr() && (
+                                        <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
+                                    )}
+                                </motion.div>
+                            ))}
+                        </div>
+                    </div>
                 )}
             </section>
         </main>

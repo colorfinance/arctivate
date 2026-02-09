@@ -408,7 +408,7 @@ export default function Feed() {
       const insertData = {
         user_id: user.id,
         content: newMessage.trim() || (imageUrl ? 'Shared a photo' : ''),
-        message_type: imageUrl ? 'image' : 'text'
+        message_type: 'text'
       }
 
       if (imageUrl) {
@@ -639,6 +639,9 @@ export default function Feed() {
               COMMUNITY
             </h1>
             <div className="flex gap-2">
+              <Link href="/profile" className="flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </Link>
               <button
                 onClick={() => { setShowDMs(true); fetchConversations() }}
                 className="relative flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10"
@@ -823,8 +826,33 @@ export default function Feed() {
                                 <div className="flex items-center gap-2 mb-1">
                                   <span className="font-bold text-sm text-white">{msg.profiles?.username || 'Anonymous'}</span>
                                   <span className="text-[11px] text-arc-muted">{formatTimeAgo(msg.created_at)}</span>
+                                  {msg.metadata?.type === 'meal' && (
+                                    <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded font-bold">Meal</span>
+                                  )}
                                 </div>
                                 <p className="text-white/90 text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+
+                                {/* Meal macro card */}
+                                {msg.metadata?.type === 'meal' && (
+                                  <div className="mt-2 grid grid-cols-4 gap-1.5 text-center">
+                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
+                                      <div className="text-[10px] text-arc-muted">Cal</div>
+                                      <div className="font-bold text-sm text-white">{msg.metadata.cals}</div>
+                                    </div>
+                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
+                                      <div className="text-[10px] text-arc-muted">Prot</div>
+                                      <div className="font-bold text-sm text-blue-400">{msg.metadata.p}g</div>
+                                    </div>
+                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
+                                      <div className="text-[10px] text-arc-muted">Carb</div>
+                                      <div className="font-bold text-sm text-yellow-400">{msg.metadata.c}g</div>
+                                    </div>
+                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
+                                      <div className="text-[10px] text-arc-muted">Fat</div>
+                                      <div className="font-bold text-sm text-orange-400">{msg.metadata.f}g</div>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
 

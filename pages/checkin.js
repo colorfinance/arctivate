@@ -64,10 +64,17 @@ export default function CheckIn() {
 
   // Admin state
   const [showAdminPanel, setShowAdminPanel] = useState(false)
+  const [adminTab, setAdminTab] = useState('codes') // 'codes' | 'businesses'
   const [rewardCodes, setRewardCodes] = useState([])
   const [showCreateCode, setShowCreateCode] = useState(false)
   const [newCode, setNewCode] = useState({ code: '', points: '', name: '', description: '' })
   const [isCreating, setIsCreating] = useState(false)
+
+  // Business QR state
+  const [businesses, setBusinesses] = useState([])
+  const [showCreateBusiness, setShowCreateBusiness] = useState(false)
+  const [newBusiness, setNewBusiness] = useState({ name: '', discount: '', description: '', points: '150' })
+  const [selectedQR, setSelectedQR] = useState(null)
 
   // Scanner refs
   const html5QrCodeRef = useRef(null)
@@ -116,10 +123,67 @@ export default function CheckIn() {
 
       if (checkIns) setRecentCheckIns(checkIns)
 
-      // If admin, fetch reward codes
+      // If admin, fetch reward codes and businesses
       if (profile?.is_admin) {
         fetchRewardCodes()
+        fetchBusinesses()
       }
+    }
+  }
+
+  async function fetchBusinesses() {
+    try {
+      const { data } = await supabase
+        .from('partners')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (data) setBusinesses(data)
+    } catch (err) {
+      console.log('Partners table not available yet')
+    }
+  }
+
+  async function createBusiness() {
+    if (!newBusiness.name.trim()) {
+      showToast('Please enter a business name')
+      return
+    }
+    setIsCreating(true)
+    try {
+      const qrUuid = crypto.randomUUID()
+      const { data, error } = await supabase.from('partners').insert({
+        name: newBusiness.name.trim(),
+        description: newBusiness.description.trim() || null,
+        discount_text: newBusiness.discount.trim() || null,
+        points_value: parseInt(newBusiness.points, 10) || 150,
+        qr_uuid: qrUuid
+      }).select().single()
+
+      if (error) throw error
+
+      if (data) {
+        setBusinesses(prev => [data, ...prev])
+        showToast('Business created with QR code!')
+        setNewBusiness({ name: '', discount: '', description: '', points: '150' })
+        setShowCreateBusiness(false)
+      }
+    } catch (err) {
+      console.error('Create business error:', err)
+      showToast('Failed to create business')
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  async function deleteBusiness(id) {
+    try {
+      const { error } = await supabase.from('partners').delete().eq('id', id)
+      if (error) throw error
+      setBusinesses(prev => prev.filter(b => b.id !== id))
+      showToast('Business removed')
+    } catch (err) {
+      console.error('Delete business error:', err)
+      showToast('Failed to delete')
     }
   }
 
@@ -392,6 +456,11 @@ export default function CheckIn() {
                         </motion.div>
                       )}
                       <p className="text-arc-muted">{scanResult.description}</p>
+                      {scanResult.partner_name && (
+                        <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-xl p-3">
+                          <p className="text-green-400 font-bold text-sm">Show this screen at {scanResult.partner_name} to claim your discount!</p>
+                        </div>
+                      )}
                       <button
                         onClick={() => setScanResult(null)}
                         className="mt-6 w-full bg-arc-orange text-white font-bold py-4 rounded-xl"
@@ -447,46 +516,121 @@ export default function CheckIn() {
         {/* Admin Panel */}
         {showAdminPanel && isAdmin && (
           <section className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-lg font-black italic">Reward Codes</h2>
+            {/* Admin Tabs */}
+            <div className="flex gap-2">
               <button
-                onClick={() => setShowCreateCode(true)}
-                className="flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-3 py-2 rounded-full"
+                onClick={() => setAdminTab('codes')}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-colors ${adminTab === 'codes' ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted'}`}
               >
-                <PlusIcon />
-                Create
+                Reward Codes
+              </button>
+              <button
+                onClick={() => setAdminTab('businesses')}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-colors ${adminTab === 'businesses' ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted'}`}
+              >
+                Businesses
               </button>
             </div>
 
-            {rewardCodes.length === 0 ? (
-              <div className="text-center py-12 text-arc-muted">
-                No reward codes yet. Create one!
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {rewardCodes.map(code => (
-                  <div key={code.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="font-mono font-bold text-white text-lg">{code.code}</div>
-                        {code.name && <div className="text-sm text-arc-muted">{code.name}</div>}
-                        <div className="flex items-center gap-3 mt-2 text-xs">
-                          <span className="text-arc-orange font-bold">{code.points_value} PTS</span>
-                          <span className={code.is_used ? 'text-red-400' : 'text-green-400'}>
-                            {code.is_used ? 'Used' : 'Active'}
-                          </span>
+            {/* Reward Codes Tab */}
+            {adminTab === 'codes' && (
+              <>
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg font-black italic">Reward Codes</h2>
+                  <button
+                    onClick={() => setShowCreateCode(true)}
+                    className="flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-3 py-2 rounded-full"
+                  >
+                    <PlusIcon />
+                    Create
+                  </button>
+                </div>
+
+                {rewardCodes.length === 0 ? (
+                  <div className="text-center py-12 text-arc-muted">
+                    No reward codes yet. Create one!
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {rewardCodes.map(code => (
+                      <div key={code.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="font-mono font-bold text-white text-lg">{code.code}</div>
+                            {code.name && <div className="text-sm text-arc-muted">{code.name}</div>}
+                            <div className="flex items-center gap-3 mt-2 text-xs">
+                              <span className="text-arc-orange font-bold">{code.points_value} PTS</span>
+                              <span className={code.is_used ? 'text-red-400' : 'text-green-400'}>
+                                {code.is_used ? 'Used' : 'Active'}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => deleteRewardCode(code.id)}
+                            className="p-2 text-arc-muted hover:text-red-500 transition-colors"
+                          >
+                            <TrashIcon />
+                          </button>
                         </div>
                       </div>
-                      <button
-                        onClick={() => deleteRewardCode(code.id)}
-                        className="p-2 text-arc-muted hover:text-red-500 transition-colors"
-                      >
-                        <TrashIcon />
-                      </button>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
+            )}
+
+            {/* Businesses Tab */}
+            {adminTab === 'businesses' && (
+              <>
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg font-black italic">Businesses</h2>
+                  <button
+                    onClick={() => setShowCreateBusiness(true)}
+                    className="flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-3 py-2 rounded-full"
+                  >
+                    <PlusIcon />
+                    Add Business
+                  </button>
+                </div>
+
+                {businesses.length === 0 ? (
+                  <div className="text-center py-12 text-arc-muted">
+                    No businesses yet. Add a partner business!
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {businesses.map(biz => (
+                      <div key={biz.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-white">{biz.name}</div>
+                            {biz.discount_text && <div className="text-sm text-green-400 mt-0.5">{biz.discount_text}</div>}
+                            {biz.description && <div className="text-xs text-arc-muted mt-1">{biz.description}</div>}
+                            <div className="flex items-center gap-3 mt-2 text-xs">
+                              <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS per check-in</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setSelectedQR(biz)}
+                              className="p-2 text-arc-accent hover:text-white transition-colors"
+                              title="Show QR Code"
+                            >
+                              <QRIcon />
+                            </button>
+                            <button
+                              onClick={() => deleteBusiness(biz.id)}
+                              className="p-2 text-arc-muted hover:text-red-500 transition-colors"
+                            >
+                              <TrashIcon />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </section>
         )}
@@ -608,6 +752,157 @@ export default function CheckIn() {
                   ) : (
                     'Create Code'
                   )}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Create Business Modal */}
+      <AnimatePresence>
+        {showCreateBusiness && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCreateBusiness(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe"
+            >
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
+              <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">ADD BUSINESS</h2>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Business Name</label>
+                  <input
+                    type="text"
+                    value={newBusiness.name}
+                    onChange={(e) => setNewBusiness({ ...newBusiness, name: e.target.value })}
+                    placeholder="e.g. Downtown Fitness"
+                    className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Discount / Offer</label>
+                  <input
+                    type="text"
+                    value={newBusiness.discount}
+                    onChange={(e) => setNewBusiness({ ...newBusiness, discount: e.target.value })}
+                    placeholder="e.g. 10% off all smoothies"
+                    className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Description (Optional)</label>
+                  <input
+                    type="text"
+                    value={newBusiness.description}
+                    onChange={(e) => setNewBusiness({ ...newBusiness, description: e.target.value })}
+                    placeholder="e.g. Health food cafe on Main St"
+                    className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Points per Check-in</label>
+                  <input
+                    type="number"
+                    value={newBusiness.points}
+                    onChange={(e) => setNewBusiness({ ...newBusiness, points: e.target.value })}
+                    placeholder="150"
+                    className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowCreateBusiness(false)}
+                  className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={createBusiness}
+                  disabled={isCreating || !newBusiness.name.trim()}
+                  className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isCreating ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                    />
+                  ) : (
+                    'Create & Generate QR'
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* QR Code Display Modal */}
+      <AnimatePresence>
+        {selectedQR && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedQR(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-6"
+            >
+              <div className="bg-arc-card border border-white/10 rounded-2xl p-8 w-full max-w-sm text-center space-y-4">
+                <h3 className="text-lg font-black italic">{selectedQR.name}</h3>
+                {selectedQR.discount_text && (
+                  <p className="text-green-400 font-bold text-sm">{selectedQR.discount_text}</p>
+                )}
+
+                {/* QR Code - rendered as a styled code block businesses can use */}
+                <div className="bg-white rounded-2xl p-6 mx-auto w-fit">
+                  <div className="bg-white p-4 rounded-xl">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(selectedQR.qr_uuid)}`}
+                      alt="QR Code"
+                      className="w-48 h-48"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-[10px] text-arc-muted font-bold uppercase tracking-widest">QR UUID</p>
+                  <p className="text-xs font-mono text-white/60 break-all">{selectedQR.qr_uuid}</p>
+                </div>
+
+                <p className="text-xs text-arc-muted">
+                  Print this QR code and display it at your business. Users scan it to earn {selectedQR.points_value || 150} points and claim their discount.
+                </p>
+
+                <button
+                  onClick={() => setSelectedQR(null)}
+                  className="w-full bg-arc-accent text-white font-bold py-3 rounded-xl"
+                >
+                  Close
                 </button>
               </div>
             </motion.div>

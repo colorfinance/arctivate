@@ -20,6 +20,7 @@ export default function Food() {
   const [toast, setToast] = useState(null)
   const [pageLoading, setPageLoading] = useState(true)
   const [cameraActive, setCameraActive] = useState(false)
+  const [lastLoggedResult, setLastLoggedResult] = useState(null)
   const fileInputRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -61,18 +62,21 @@ export default function Food() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Fetch user's calorie goal
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('daily_calorie_goal')
-        .eq('id', user.id)
-        .single()
-
-      if (profile?.daily_calorie_goal) {
-        setDailyGoal(profile.daily_calorie_goal)
+      // Fetch user's calorie goal (column may not exist yet)
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('daily_calorie_goal')
+          .eq('id', user.id)
+          .single()
+        if (profile?.daily_calorie_goal) {
+          setDailyGoal(profile.daily_calorie_goal)
+        }
+      } catch (e) {
+        // daily_calorie_goal column may not exist yet — use default
       }
 
-      // Fetch today's food logs directly
+      // Fetch today's food logs
       const today = new Date()
       today.setHours(0, 0, 0, 0)
 
@@ -204,12 +208,54 @@ export default function Food() {
         throw new Error('Could not identify food in image')
       }
 
-      setResult(data)
+      // Auto-log the scanned food immediately
+      await autoLog(data)
     } catch (err) {
       console.error('Analyze error:', err)
-      setError(err.message || 'Failed to identify food. Please try again.')
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        setError('Network error. Check your connection and try again.')
+      } else {
+        setError(err.message || 'Failed to identify food. Please try again.')
+      }
     } finally {
       setScanning(false)
+    }
+  }
+
+  const autoLog = async (data) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setResult(data)
+        return
+      }
+
+      const { data: newLog, error: insertError } = await supabase.from('food_logs').insert({
+        user_id: user.id,
+        item_name: data.name,
+        calories: data.cals,
+        macros: { p: data.p, c: data.c, f: data.f }
+      }).select().single()
+
+      if (insertError) {
+        console.error('Auto-log error:', insertError)
+        setResult(data)
+        return
+      }
+
+      setDailyCalories(prev => prev + data.cals)
+      setDailyMacros(prev => ({
+        protein: prev.protein + data.p,
+        carbs: prev.carbs + data.c,
+        fat: prev.fat + data.f
+      }))
+      if (newLog) setTodayLogs(prev => [newLog, ...prev])
+
+      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+      setLastLoggedResult({ ...data })
+    } catch (err) {
+      console.error('Auto-log failed:', err)
+      setResult(data)
     }
   }
 
@@ -251,14 +297,48 @@ export default function Food() {
 
       // Celebration
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
-      showToast('Food logged successfully!')
+      showToast('Food logged! Share it to the feed?')
 
+      setLastLoggedResult({ ...result })
       setResult(null)
     } catch (err) {
       console.error('Error logging food:', err)
       setError('Failed to save food. Please try again.')
     } finally {
       setIsLogging(false)
+    }
+  }
+
+  const shareToFeed = async (food) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const content = `Just logged ${food.name} — ${food.cals} cal | P:${food.p}g C:${food.c}g F:${food.f}g`
+
+      const insertData = {
+        user_id: user.id,
+        content,
+        message_type: 'text',
+        metadata: { type: 'meal', name: food.name, cals: food.cals, p: food.p, c: food.c, f: food.f }
+      }
+
+      const { error } = await supabase.from('community_messages').insert(insertData)
+
+      if (error) {
+        // If metadata column causes issues, retry without it
+        await supabase.from('community_messages').insert({
+          user_id: user.id,
+          content,
+          message_type: 'text'
+        })
+      }
+
+      showToast('Shared to feed!')
+      setLastLoggedResult(null)
+    } catch (err) {
+      console.error('Share error:', err)
+      showToast('Failed to share. Try again.')
     }
   }
 
@@ -307,8 +387,9 @@ export default function Food() {
       }
 
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
-      showToast('Food logged successfully!')
+      showToast('Food logged! Share it to the feed?')
 
+      setLastLoggedResult({ name: manualFood.name.trim(), cals, p, c, f, desc: 'Manual entry' })
       setManualFood({ name: '', cals: '', p: '', c: '', f: '' })
       setShowManualEntry(false)
     } catch (err) {
@@ -326,11 +407,11 @@ export default function Food() {
       if (error) throw error
 
       setTodayLogs(prev => prev.filter(l => l.id !== logId))
-      setDailyCalories(prev => prev - (calories || 0))
+      setDailyCalories(prev => Math.max(0, prev - (calories || 0)))
       setDailyMacros(prev => ({
-        protein: prev.protein - (macros?.p || 0),
-        carbs: prev.carbs - (macros?.c || 0),
-        fat: prev.fat - (macros?.f || 0)
+        protein: Math.max(0, prev.protein - (macros?.p || 0)),
+        carbs: Math.max(0, prev.carbs - (macros?.c || 0)),
+        fat: Math.max(0, prev.fat - (macros?.f || 0))
       }))
 
       showToast('Food removed')
@@ -415,7 +496,7 @@ export default function Food() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col pb-20 relative overflow-hidden bg-arc-bg text-white">
+    <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
       {/* Hidden canvas for camera capture */}
       <canvas ref={canvasRef} className="hidden" />
 
@@ -435,172 +516,247 @@ export default function Food() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="p-6 flex justify-between items-center absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-arc-bg via-arc-bg/80 to-transparent">
-        <h1 className="text-xl font-black tracking-tighter italic drop-shadow-md">NUTRITION</h1>
-        <button
-          onClick={() => setShowManualEntry(true)}
-          className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors"
-        >
-          + Manual
-        </button>
+      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-xl font-black tracking-tighter italic">NUTRITION</h1>
+          <button
+            onClick={() => setShowManualEntry(true)}
+            className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors"
+          >
+            + Manual
+          </button>
+        </div>
       </header>
 
-      {/* Viewport */}
-      <main className="flex-1 relative bg-gray-900 flex flex-col items-center justify-center">
-        {/* BG Gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-arc-bg via-gray-900 to-arc-bg"></div>
-
-        {/* Scanner Frame */}
-        <div className="relative z-10 w-64 h-64 border-2 border-white/20 rounded-3xl flex items-center justify-center overflow-hidden">
-          <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-arc-accent rounded-tl-xl z-20"></div>
-          <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-arc-accent rounded-tr-xl z-20"></div>
-          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-arc-accent rounded-bl-xl z-20"></div>
-          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-arc-accent rounded-br-xl z-20"></div>
-
-          {/* Live camera feed */}
-          {cameraActive && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          )}
-
-          {scanning && (
-            <motion.div
-              animate={{ top: ['10%', '90%', '10%'] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#ff4d00] z-10"
-            />
-          )}
-
-          {!scanning && !result && !error && !cameraActive && (
-            <p className="text-xs text-white/70 font-bold mt-32 tracking-widest uppercase">Tap to Scan</p>
-          )}
-
-          {error && !scanning && !cameraActive && (
-            <div className="text-center p-4">
-              <span className="text-red-400 text-sm">{error}</span>
+      <main className="pt-16 px-4 max-w-lg mx-auto">
+        {/* Calorie Summary Card */}
+        <div className="mt-4 bg-arc-card border border-white/5 rounded-2xl p-6">
+          <div className="flex items-center gap-6">
+            {/* Progress Ring */}
+            <div className="relative shrink-0">
+              <svg className="w-24 h-24 -rotate-90">
+                <circle
+                  cx="48"
+                  cy="48"
+                  r="40"
+                  stroke="currentColor"
+                  strokeWidth="8"
+                  fill="transparent"
+                  className="text-white/10"
+                />
+                <circle
+                  cx="48"
+                  cy="48"
+                  r="40"
+                  stroke="currentColor"
+                  strokeWidth="8"
+                  fill="transparent"
+                  strokeDasharray={`${2 * Math.PI * 40}`}
+                  strokeDashoffset={`${2 * Math.PI * 40 * (1 - calorieProgress / 100)}`}
+                  className="text-arc-accent transition-all duration-500"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <span className="text-lg font-black">{dailyCalories}</span>
+                  <span className="block text-[10px] text-arc-muted font-bold">/ {dailyGoal}</span>
+                </div>
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Calorie Progress Ring */}
-        <div className="mt-8 relative z-10">
-          <svg className="w-24 h-24 -rotate-90">
-            <circle
-              cx="48"
-              cy="48"
-              r="40"
-              stroke="currentColor"
-              strokeWidth="8"
-              fill="transparent"
-              className="text-white/10"
-            />
-            <circle
-              cx="48"
-              cy="48"
-              r="40"
-              stroke="currentColor"
-              strokeWidth="8"
-              fill="transparent"
-              strokeDasharray={`${2 * Math.PI * 40}`}
-              strokeDashoffset={`${2 * Math.PI * 40 * (1 - calorieProgress / 100)}`}
-              className="text-arc-accent transition-all duration-500"
-              strokeLinecap="round"
-            />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <span className="text-lg font-bold">{dailyCalories}</span>
-              <span className="block text-[10px] text-arc-muted font-bold">/ {dailyGoal}</span>
+            {/* Macros */}
+            <div className="flex-1 space-y-2">
+              <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Today's Macros</h2>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-arc-muted">Protein</span>
+                  <span className="text-sm font-bold">{dailyMacros.protein}g</span>
+                </div>
+                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((dailyMacros.protein / 150) * 100, 100)}%` }} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-arc-muted">Carbs</span>
+                  <span className="text-sm font-bold">{dailyMacros.carbs}g</span>
+                </div>
+                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-yellow-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((dailyMacros.carbs / 300) * 100, 100)}%` }} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-arc-muted">Fat</span>
+                  <span className="text-sm font-bold">{dailyMacros.fat}g</span>
+                </div>
+                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-orange-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((dailyMacros.fat / 80) * 100, 100)}%` }} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Macro Summary */}
-        <div className="mt-4 flex gap-4 text-xs text-arc-muted relative z-10">
-          <span>P: <span className="text-white font-bold">{dailyMacros.protein}g</span></span>
-          <span>C: <span className="text-white font-bold">{dailyMacros.carbs}g</span></span>
-          <span>F: <span className="text-white font-bold">{dailyMacros.fat}g</span></span>
+        {/* Scanner Section */}
+        <div className="mt-4 bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
+          {/* Camera / Scanner Viewport */}
+          <div className="relative aspect-square max-h-64 bg-gray-900 flex items-center justify-center">
+            <div className="absolute inset-4 border-2 border-white/20 rounded-2xl overflow-hidden flex items-center justify-center">
+              <div className="absolute top-0 left-0 w-6 h-6 border-t-3 border-l-3 border-arc-accent rounded-tl-lg z-10"></div>
+              <div className="absolute top-0 right-0 w-6 h-6 border-t-3 border-r-3 border-arc-accent rounded-tr-lg z-10"></div>
+              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-3 border-l-3 border-arc-accent rounded-bl-lg z-10"></div>
+              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-3 border-r-3 border-arc-accent rounded-br-lg z-10"></div>
+
+              {/* Live camera feed */}
+              {cameraActive && (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              )}
+
+              {scanning && (
+                <motion.div
+                  animate={{ top: ['10%', '90%', '10%'] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                  className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#ff4d00] z-10"
+                />
+              )}
+
+              {!scanning && !result && !error && !cameraActive && (
+                <p className="text-xs text-white/40 font-bold tracking-widest uppercase">Tap to Scan</p>
+              )}
+
+              {error && !scanning && !cameraActive && (
+                <div className="text-center p-4">
+                  <span className="text-red-400 text-sm">{error}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="p-4 flex justify-center items-center gap-4">
+            {/* Upload button */}
+            <button
+              onClick={() => {
+                setError(null)
+                if (cameraActive) stopCamera()
+                fileInputRef.current?.click()
+              }}
+              disabled={scanning}
+              className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors disabled:opacity-50"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </button>
+
+            {/* Main camera/capture button */}
+            {cameraActive ? (
+              <button
+                onClick={capturePhoto}
+                disabled={scanning}
+                className="bg-white w-16 h-16 rounded-full border-4 border-arc-accent flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.4)] active:scale-95 transition"
+              >
+                <div className="w-10 h-10 rounded-full bg-arc-accent" />
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setError(null)
+                  startCamera()
+                }}
+                disabled={scanning}
+                className={`bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.4)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
+              >
+                {scanning ? (
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full"
+                  />
+                ) : (
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                )}
+              </button>
+            )}
+
+            {/* Close camera button */}
+            {cameraActive ? (
+              <button
+                onClick={stopCamera}
+                className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            ) : (
+              <div className="w-12"></div>
+            )}
+          </div>
         </div>
 
         {/* Hidden File Input */}
         <input
           type="file"
           accept="image/*"
-          capture="environment"
           ref={fileInputRef}
           className="hidden"
           onChange={handleFileSelect}
         />
 
-        {/* Controls */}
-        <div className="absolute bottom-24 w-full px-8 flex justify-between items-center z-20">
-          {/* Upload button */}
-          <button
-            onClick={() => {
-              setError(null)
-              if (cameraActive) stopCamera()
-              fileInputRef.current?.click()
-            }}
-            disabled={scanning}
-            className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors disabled:opacity-50"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </button>
-
-          {/* Main camera/capture button */}
-          {cameraActive ? (
-            <button
-              onClick={capturePhoto}
-              disabled={scanning}
-              className="bg-white w-20 h-20 rounded-full border-4 border-arc-accent flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition"
-            >
-              <div className="w-14 h-14 rounded-full bg-arc-accent" />
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                setError(null)
-                startCamera()
-              }}
-              disabled={scanning}
-              className={`bg-arc-accent w-20 h-20 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
-            >
-              {scanning ? (
+        {/* Today's Food Log */}
+        {todayLogs.length > 0 && (
+          <div className="mt-4">
+            <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">Today's Log</h3>
+            <div className="space-y-2">
+              {todayLogs.map((log) => (
                 <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full"
-                />
-              ) : (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                  <circle cx="12" cy="13" r="4"/>
-                </svg>
-              )}
-            </button>
-          )}
+                  key={log.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-arc-card border border-white/5 rounded-xl px-4 py-3 flex items-center justify-between"
+                >
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-bold text-white truncate block">{log.item_name}</span>
+                    <span className="text-[10px] text-arc-muted">
+                      P:{log.macros?.p || 0}g  C:{log.macros?.c || 0}g  F:{log.macros?.f || 0}g
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-arc-orange">{log.calories} cal</span>
+                    <button
+                      onClick={() => shareToFeed({ name: log.item_name, cals: log.calories, p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 })}
+                      className="text-white/20 hover:text-arc-accent transition-colors p-1"
+                      title="Share to feed"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                    </button>
+                    <button
+                      onClick={() => deleteLog(log.id, log.calories, log.macros)}
+                      className="text-white/20 hover:text-red-500 transition-colors p-1"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        )}
 
-          {/* Close camera button */}
-          {cameraActive ? (
-            <button
-              onClick={stopCamera}
-              className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
-          ) : (
-            <div className="w-12"></div>
-          )}
-        </div>
+        {/* Empty state */}
+        {todayLogs.length === 0 && !scanning && (
+          <div className="mt-6 text-center">
+            <p className="text-arc-muted text-sm">No food logged today. Scan or add food to start tracking!</p>
+          </div>
+        )}
       </main>
 
       {/* Result Modal */}
@@ -611,9 +767,9 @@ export default function Food() {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl z-30 border-t border-white/10"
+            className="fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl z-50 border-t border-white/10"
           >
-            <div className="p-6 pb-24">
+            <div className="p-6 pb-8">
               <div
                 className="w-12 h-1 bg-gray-700 rounded-full mx-auto mb-6 cursor-pointer"
                 onClick={dismissResult}
@@ -671,35 +827,42 @@ export default function Food() {
         )}
       </AnimatePresence>
 
-      {/* Today's Food Log */}
-      {todayLogs.length > 0 && (
-        <div className="absolute bottom-24 left-0 right-0 px-4 max-h-40 overflow-y-auto z-10">
-          <div className="bg-arc-card/90 backdrop-blur-lg rounded-2xl border border-white/5 p-4">
-            <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3">Today's Log</h3>
-            <div className="space-y-2">
-              {todayLogs.slice(0, 5).map((log) => (
-                <div key={log.id} className="flex items-center justify-between bg-arc-surface/50 rounded-lg px-3 py-2">
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-white truncate block">{log.item_name}</span>
-                    <span className="text-[10px] text-arc-muted">
-                      P:{log.macros?.p || 0}g C:{log.macros?.c || 0}g F:{log.macros?.f || 0}g
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-arc-orange">{log.calories}</span>
-                    <button
-                      onClick={() => deleteLog(log.id, log.calories, log.macros)}
-                      className="text-white/20 hover:text-red-500 transition-colors p-1"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                    </button>
-                  </div>
-                </div>
-              ))}
+      {/* Share to Feed Prompt */}
+      <AnimatePresence>
+        {lastLoggedResult && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl z-50 border-t border-white/10"
+          >
+            <div className="p-6 pb-8">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
+              <div className="text-center mb-4">
+                <div className="text-2xl mb-2">&#127860;</div>
+                <h3 className="text-lg font-bold text-white">{lastLoggedResult.name} logged!</h3>
+                <p className="text-arc-muted text-sm mt-1">{lastLoggedResult.cals} cal | P:{lastLoggedResult.p}g C:{lastLoggedResult.c}g F:{lastLoggedResult.f}g</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setLastLoggedResult(null)}
+                  className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl"
+                >
+                  Done
+                </button>
+                <button
+                  onClick={() => shareToFeed(lastLoggedResult)}
+                  className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow flex items-center justify-center gap-2"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                  Share to Feed
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Manual Entry Modal */}
       <AnimatePresence>
