@@ -85,7 +85,7 @@ export default function Train() {
             return
         }
 
-        await Promise.all([fetchProfile(), fetchExercises()])
+        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id)])
         setIsLoading(false)
     }
     load()
@@ -171,6 +171,35 @@ export default function Train() {
     } catch (err) {
       // No PB found is not an error
       setCurrentPB(0)
+    }
+  }
+
+  async function fetchWorkoutHistory(userId) {
+    try {
+      const { data } = await supabase
+        .from('workout_logs')
+        .select('*, exercises(name, metric_type)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(30)
+
+      if (data && data.length > 0) {
+        const history = data.map(log => {
+          const d = new Date(log.created_at)
+          return {
+            id: log.id,
+            name: log.exercises?.name || 'Unknown',
+            val: log.value,
+            points: log.points_awarded || 50,
+            time: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isPB: log.is_new_pb || false,
+            metricType: log.exercises?.metric_type || 'weight'
+          }
+        })
+        setLogs(history)
+      }
+    } catch (err) {
+      console.error('Workout history fetch error:', err)
     }
   }
 
