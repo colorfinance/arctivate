@@ -208,12 +208,54 @@ export default function Food() {
         throw new Error('Could not identify food in image')
       }
 
-      setResult(data)
+      // Auto-log the scanned food immediately
+      await autoLog(data)
     } catch (err) {
       console.error('Analyze error:', err)
-      setError(err.message || 'Failed to identify food. Please try again.')
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        setError('Network error. Check your connection and try again.')
+      } else {
+        setError(err.message || 'Failed to identify food. Please try again.')
+      }
     } finally {
       setScanning(false)
+    }
+  }
+
+  const autoLog = async (data) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setResult(data)
+        return
+      }
+
+      const { data: newLog, error: insertError } = await supabase.from('food_logs').insert({
+        user_id: user.id,
+        item_name: data.name,
+        calories: data.cals,
+        macros: { p: data.p, c: data.c, f: data.f }
+      }).select().single()
+
+      if (insertError) {
+        console.error('Auto-log error:', insertError)
+        setResult(data)
+        return
+      }
+
+      setDailyCalories(prev => prev + data.cals)
+      setDailyMacros(prev => ({
+        protein: prev.protein + data.p,
+        carbs: prev.carbs + data.c,
+        fat: prev.fat + data.f
+      }))
+      if (newLog) setTodayLogs(prev => [newLog, ...prev])
+
+      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+      setLastLoggedResult({ ...data })
+    } catch (err) {
+      console.error('Auto-log failed:', err)
+      setResult(data)
     }
   }
 
@@ -664,7 +706,6 @@ export default function Food() {
         <input
           type="file"
           accept="image/*"
-          capture="environment"
           ref={fileInputRef}
           className="hidden"
           onChange={handleFileSelect}

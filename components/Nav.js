@@ -16,10 +16,6 @@ export default function Nav() {
             <span className="text-base">👥</span>
             <span>Feed</span>
         </Link>
-        <Link href="/checkin" className={`flex flex-col items-center gap-1 ${isActive('/checkin')}`}>
-            <span className="text-base">📍</span>
-            <span>Check-in</span>
-        </Link>
         <Link href="/habits" className={`flex flex-col items-center gap-1 ${isActive('/habits')}`}>
             <span className="text-base">✅</span>
             <span>Habits</span>
@@ -27,6 +23,10 @@ export default function Nav() {
         <Link href="/food" className={`flex flex-col items-center gap-1 ${isActive('/food')}`}>
             <span className="text-base">🥗</span>
             <span>Food</span>
+        </Link>
+        <Link href="/checkin" className={`flex flex-col items-center gap-1 ${isActive('/checkin')}`}>
+            <span className="text-base">📍</span>
+            <span>Check-in</span>
         </Link>
     </nav>
   )

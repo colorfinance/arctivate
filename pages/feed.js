@@ -639,6 +639,9 @@ export default function Feed() {
               COMMUNITY
             </h1>
             <div className="flex gap-2">
+              <Link href="/profile" className="flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </Link>
               <button
                 onClick={() => { setShowDMs(true); fetchConversations() }}
                 className="relative flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10"
