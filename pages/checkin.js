@@ -46,6 +46,13 @@ const TrashIcon = () => (
   </svg>
 )
 
+const StoreIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+    <polyline points="9 22 9 12 15 12 15 22" />
+  </svg>
+)
+
 export default function CheckIn() {
   const router = useRouter()
   const [isScanning, setIsScanning] = useState(false)
@@ -62,19 +69,21 @@ export default function CheckIn() {
   // Check-in history
   const [recentCheckIns, setRecentCheckIns] = useState([])
 
+  // Tab state: 'scan' | 'businesses' | 'admin'
+  const [activeTab, setActiveTab] = useState('scan')
+
   // Admin state
-  const [showAdminPanel, setShowAdminPanel] = useState(false)
-  const [adminTab, setAdminTab] = useState('codes') // 'codes' | 'businesses'
   const [rewardCodes, setRewardCodes] = useState([])
   const [showCreateCode, setShowCreateCode] = useState(false)
   const [newCode, setNewCode] = useState({ code: '', points: '', name: '', description: '' })
   const [isCreating, setIsCreating] = useState(false)
 
-  // Business QR state
+  // Business state
   const [businesses, setBusinesses] = useState([])
   const [showCreateBusiness, setShowCreateBusiness] = useState(false)
   const [newBusiness, setNewBusiness] = useState({ name: '', discount: '', description: '', points: '150' })
   const [selectedQR, setSelectedQR] = useState(null)
+  const [myBusinesses, setMyBusinesses] = useState([])
 
   // Scanner refs
   const html5QrCodeRef = useRef(null)
@@ -98,36 +107,39 @@ export default function CheckIn() {
       return
     }
 
-    if (user) {
-      setCurrentUser(user)
+    setCurrentUser(user)
 
-      // Fetch profile with admin status and points
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('is_admin, total_points')
-        .eq('id', user.id)
-        .single()
+    // Fetch profile with admin status and points
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_admin, total_points')
+      .eq('id', user.id)
+      .single()
 
-      if (profile) {
-        setIsAdmin(profile.is_admin || false)
-        setTotalPoints(profile.total_points || 0)
-      }
+    if (profile) {
+      setIsAdmin(profile.is_admin || false)
+      setTotalPoints(profile.total_points || 0)
+    }
 
-      // Fetch recent check-ins
-      const { data: checkIns } = await supabase
-        .from('check_ins')
-        .select('*, partners(name)')
-        .eq('user_id', user.id)
-        .order('checked_in_at', { ascending: false })
-        .limit(10)
+    // Fetch recent check-ins
+    const { data: checkIns } = await supabase
+      .from('check_ins')
+      .select('*, partners(name)')
+      .eq('user_id', user.id)
+      .order('checked_in_at', { ascending: false })
+      .limit(10)
 
-      if (checkIns) setRecentCheckIns(checkIns)
+    if (checkIns) setRecentCheckIns(checkIns)
 
-      // If admin, fetch reward codes and businesses
-      if (profile?.is_admin) {
-        fetchRewardCodes()
-        fetchBusinesses()
-      }
+    // Fetch all businesses for the directory
+    fetchBusinesses()
+
+    // Fetch user's own businesses
+    fetchMyBusinesses(user.id)
+
+    // If admin, fetch reward codes
+    if (profile?.is_admin) {
+      fetchRewardCodes()
     }
   }
 
@@ -143,33 +155,82 @@ export default function CheckIn() {
     }
   }
 
+  async function fetchMyBusinesses(userId) {
+    try {
+      const { data } = await supabase
+        .from('partners')
+        .select('*')
+        .eq('owner_id', userId)
+        .order('created_at', { ascending: false })
+      if (data) setMyBusinesses(data)
+    } catch (err) {
+      // owner_id column may not exist yet
+    }
+  }
+
   async function createBusiness() {
     if (!newBusiness.name.trim()) {
       showToast('Please enter a business name')
       return
     }
+    if (!newBusiness.discount.trim()) {
+      showToast('Please enter a discount offer')
+      return
+    }
     setIsCreating(true)
     try {
       const qrUuid = crypto.randomUUID()
-      const { data, error } = await supabase.from('partners').insert({
+      const insertData = {
         name: newBusiness.name.trim(),
         description: newBusiness.description.trim() || null,
-        discount_text: newBusiness.discount.trim() || null,
+        discount_text: newBusiness.discount.trim(),
         points_value: parseInt(newBusiness.points, 10) || 150,
-        qr_uuid: qrUuid
-      }).select().single()
-
-      if (error) throw error
-
-      if (data) {
-        setBusinesses(prev => [data, ...prev])
-        showToast('Business created with QR code!')
-        setNewBusiness({ name: '', discount: '', description: '', points: '150' })
-        setShowCreateBusiness(false)
+        qr_uuid: qrUuid,
       }
+
+      // Try with owner_id first, fallback without it
+      if (currentUser) {
+        insertData.owner_id = currentUser.id
+      }
+
+      let result
+      try {
+        result = await supabase.from('partners').insert(insertData).select().single()
+      } catch {
+        // owner_id column might not exist, try without it
+        delete insertData.owner_id
+        result = await supabase.from('partners').insert(insertData).select().single()
+      }
+
+      const { data, error } = result
+
+      if (error) {
+        // If owner_id column doesn't exist, retry without it
+        if (error.message?.includes('owner_id')) {
+          delete insertData.owner_id
+          const retry = await supabase.from('partners').insert(insertData).select().single()
+          if (retry.error) throw retry.error
+          if (retry.data) {
+            setBusinesses(prev => [retry.data, ...prev])
+            setMyBusinesses(prev => [retry.data, ...prev])
+            showToast('Business listed! QR code ready.')
+            setSelectedQR(retry.data)
+          }
+        } else {
+          throw error
+        }
+      } else if (data) {
+        setBusinesses(prev => [data, ...prev])
+        setMyBusinesses(prev => [data, ...prev])
+        showToast('Business listed! QR code ready.')
+        setSelectedQR(data)
+      }
+
+      setNewBusiness({ name: '', discount: '', description: '', points: '150' })
+      setShowCreateBusiness(false)
     } catch (err) {
       console.error('Create business error:', err)
-      showToast('Failed to create business')
+      showToast('Failed to create business. Try again.')
     } finally {
       setIsCreating(false)
     }
@@ -180,6 +241,7 @@ export default function CheckIn() {
       const { error } = await supabase.from('partners').delete().eq('id', id)
       if (error) throw error
       setBusinesses(prev => prev.filter(b => b.id !== id))
+      setMyBusinesses(prev => prev.filter(b => b.id !== id))
       showToast('Business removed')
     } catch (err) {
       console.error('Delete business error:', err)
@@ -248,7 +310,70 @@ export default function CheckIn() {
         return
       }
 
-      // Use the RPC function for redemption
+      // Try partner QR first — look up partner by qr_uuid
+      const { data: partner } = await supabase
+        .from('partners')
+        .select('*')
+        .eq('qr_uuid', code)
+        .single()
+
+      if (partner) {
+        // Check if already checked in today
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const { data: existing } = await supabase
+          .from('check_ins')
+          .select('id')
+          .eq('user_id', currentUser.id)
+          .eq('partner_id', partner.id)
+          .gte('checked_in_at', today.toISOString())
+          .limit(1)
+
+        if (existing && existing.length > 0) {
+          setError('You already checked in here today! Come back tomorrow.')
+          setIsRedeeming(false)
+          return
+        }
+
+        // Create check-in
+        const pointsAwarded = partner.points_value || 150
+        const { error: checkInError } = await supabase.from('check_ins').insert({
+          user_id: currentUser.id,
+          partner_id: partner.id,
+          awarded_points: pointsAwarded,
+        })
+
+        if (checkInError) throw checkInError
+
+        // Update user points
+        await supabase.rpc('add_points', { p_user_id: currentUser.id, p_points: pointsAwarded }).catch(() => {
+          // Fallback: direct update if RPC doesn't exist
+          supabase.from('profiles').update({ total_points: totalPoints + pointsAwarded }).eq('id', currentUser.id)
+        })
+
+        setTotalPoints(prev => prev + pointsAwarded)
+
+        setScanResult({
+          success: true,
+          type: 'checkin',
+          points_awarded: pointsAwarded,
+          partner_name: partner.name,
+          discount_text: partner.discount_text,
+          description: partner.description || `Checked in at ${partner.name}`,
+        })
+
+        confetti({
+          particleCount: 150,
+          spread: 100,
+          origin: { y: 0.6 },
+          colors: ['#FF4500', '#FFD700', '#ffffff']
+        })
+
+        loadData()
+        return
+      }
+
+      // Fallback: try RPC redeem_code for reward codes
       const { data, error: rpcError } = await supabase.rpc('redeem_code', {
         p_code: code,
         p_user_id: currentUser.id
@@ -258,8 +383,6 @@ export default function CheckIn() {
 
       if (data?.success) {
         setScanResult(data)
-
-        // Update points
         if (data.points_awarded) {
           setTotalPoints(prev => prev + data.points_awarded)
         }
@@ -271,14 +394,13 @@ export default function CheckIn() {
           colors: ['#FF4500', '#FFD700', '#ffffff']
         })
 
-        // Refresh check-ins
         loadData()
       } else {
-        setError(data?.error || 'Failed to redeem code')
+        setError(data?.error || 'Invalid QR code')
       }
     } catch (err) {
       console.error('Redeem error:', err)
-      setError('Network error. Please try again.')
+      setError('Could not process this code. Please try again.')
     } finally {
       setIsRedeeming(false)
     }
@@ -320,8 +442,6 @@ export default function CheckIn() {
   }
 
   const deleteRewardCode = async (id) => {
-    if (!confirm('Delete this reward code?')) return
-
     try {
       const { error } = await supabase.from('rewards_ledger').delete().eq('id', id)
       if (error) throw error
@@ -377,10 +497,26 @@ export default function CheckIn() {
               <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
             </div>
           </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={() => { setActiveTab('scan'); stopScanner() }}
+            className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors ${activeTab === 'scan' ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted'}`}
+          >
+            Scan
+          </button>
+          <button
+            onClick={() => { setActiveTab('businesses'); stopScanner() }}
+            className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors ${activeTab === 'businesses' ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted'}`}
+          >
+            Businesses
+          </button>
           {isAdmin && (
             <button
-              onClick={() => setShowAdminPanel(!showAdminPanel)}
-              className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full transition-colors ${showAdminPanel ? 'bg-arc-accent text-white' : 'text-arc-accent border border-arc-accent/30 hover:bg-arc-accent hover:text-white'}`}
+              onClick={() => { setActiveTab('admin'); stopScanner() }}
+              className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-colors ${activeTab === 'admin' ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted'}`}
             >
               Admin
             </button>
@@ -388,269 +524,352 @@ export default function CheckIn() {
         </div>
       </header>
 
-      <main className="pt-24 px-4 max-w-lg mx-auto">
-        {/* Scanner Section */}
-        {!showAdminPanel && (
-          <section className="mb-8">
-            <div className="bg-arc-card border border-white/5 rounded-3xl overflow-hidden">
-              {/* Scanner Container */}
-              <div className="relative aspect-square">
-                <div id="qr-reader" className="w-full h-full bg-black" />
+      <main className={`${isAdmin ? 'pt-36' : 'pt-32'} px-4 max-w-lg mx-auto`}>
+        {/* ============ SCAN TAB ============ */}
+        {activeTab === 'scan' && (
+          <>
+            <section className="mb-8">
+              <div className="bg-arc-card border border-white/5 rounded-3xl overflow-hidden">
+                {/* Scanner Container */}
+                <div className="relative aspect-square">
+                  <div id="qr-reader" className="w-full h-full bg-black" />
 
-                {/* Scanner Overlay */}
-                {isScanning && (
-                  <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-arc-orange rounded-tl-lg" />
-                    <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-arc-orange rounded-tr-lg" />
-                    <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-arc-orange rounded-bl-lg" />
-                    <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-arc-orange rounded-br-lg" />
-                    <motion.div
-                      animate={{ top: ['15%', '85%', '15%'] }}
-                      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                      className="absolute left-8 right-8 h-0.5 bg-gradient-to-r from-transparent via-arc-orange to-transparent"
-                    />
-                  </div>
-                )}
-
-                {/* Redeeming Overlay */}
-                {isRedeeming && (
-                  <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
-                    <div className="text-center">
+                  {/* Scanner Overlay */}
+                  {isScanning && (
+                    <div className="absolute inset-0 pointer-events-none">
+                      <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-arc-orange rounded-tl-lg" />
+                      <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-arc-orange rounded-tr-lg" />
+                      <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-arc-orange rounded-bl-lg" />
+                      <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-arc-orange rounded-br-lg" />
                       <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                        className="w-12 h-12 border-4 border-arc-orange/30 border-t-arc-orange rounded-full mx-auto mb-4"
+                        animate={{ top: ['15%', '85%', '15%'] }}
+                        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                        className="absolute left-8 right-8 h-0.5 bg-gradient-to-r from-transparent via-arc-orange to-transparent"
                       />
-                      <p className="text-white font-bold">Redeeming...</p>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Success State */}
-                {scanResult && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="absolute inset-0 bg-arc-card flex items-center justify-center"
-                  >
-                    <div className="text-center p-8">
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: 'spring', damping: 10 }}
-                        className="inline-flex items-center justify-center w-24 h-24 bg-arc-orange/20 rounded-full mb-6 text-arc-orange"
-                      >
-                        <GiftIcon />
-                      </motion.div>
-                      <h3 className="text-2xl font-black italic text-white mb-2">
-                        {scanResult.type === 'points' ? 'POINTS EARNED!' : 'CHECK-IN SUCCESS!'}
-                      </h3>
-                      {scanResult.points_awarded && (
+                  {/* Redeeming Overlay */}
+                  {isRedeeming && (
+                    <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
+                      <div className="text-center">
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                          className="w-12 h-12 border-4 border-arc-orange/30 border-t-arc-orange rounded-full mx-auto mb-4"
+                        />
+                        <p className="text-white font-bold">Checking in...</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Success State */}
+                  {scanResult && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="absolute inset-0 bg-arc-card flex items-center justify-center"
+                    >
+                      <div className="text-center p-8">
                         <motion.div
                           initial={{ scale: 0 }}
                           animate={{ scale: 1 }}
-                          transition={{ delay: 0.2, type: 'spring' }}
-                          className="text-5xl font-black font-mono text-arc-orange mb-4"
+                          transition={{ type: 'spring', damping: 10 }}
+                          className="inline-flex items-center justify-center w-24 h-24 bg-arc-orange/20 rounded-full mb-6 text-arc-orange"
                         >
-                          +{scanResult.points_awarded}
+                          <GiftIcon />
                         </motion.div>
-                      )}
-                      <p className="text-arc-muted">{scanResult.description}</p>
-                      {scanResult.partner_name && (
-                        <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-xl p-3">
-                          <p className="text-green-400 font-bold text-sm">Show this screen at {scanResult.partner_name} to claim your discount!</p>
-                        </div>
-                      )}
-                      <button
-                        onClick={() => setScanResult(null)}
-                        className="mt-6 w-full bg-arc-orange text-white font-bold py-4 rounded-xl"
-                      >
-                        AWESOME!
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Error State */}
-                {error && !scanResult && (
-                  <div className="absolute inset-0 bg-arc-card flex items-center justify-center">
-                    <div className="text-center p-8">
-                      <div className="text-5xl mb-4">😕</div>
-                      <h3 className="text-xl font-bold text-white mb-2">Oops!</h3>
-                      <p className="text-red-400 mb-6">{error}</p>
-                      <button
-                        onClick={() => { setError(null); startScanner() }}
-                        className="w-full bg-arc-surface text-white font-bold py-4 rounded-xl"
-                      >
-                        Try Again
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Start Camera Button */}
-                {!isScanning && !isRedeeming && !scanResult && !error && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-arc-surface">
-                    <button
-                      onClick={startScanner}
-                      className="flex flex-col items-center gap-4 text-arc-muted hover:text-white transition-colors"
-                    >
-                      <div className="p-8 bg-arc-bg rounded-full">
-                        <CameraIcon />
+                        <h3 className="text-2xl font-black italic text-white mb-2">
+                          {scanResult.type === 'checkin' ? 'CHECK-IN SUCCESS!' : 'POINTS EARNED!'}
+                        </h3>
+                        {scanResult.points_awarded && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ delay: 0.2, type: 'spring' }}
+                            className="text-5xl font-black font-mono text-arc-orange mb-4"
+                          >
+                            +{scanResult.points_awarded}
+                          </motion.div>
+                        )}
+                        <p className="text-arc-muted">{scanResult.description}</p>
+                        {scanResult.discount_text && (
+                          <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-xl p-3">
+                            <p className="text-green-400 font-bold text-sm">
+                              {scanResult.partner_name}: {scanResult.discount_text}
+                            </p>
+                            <p className="text-green-400/60 text-xs mt-1">Show this screen to claim your discount!</p>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => setScanResult(null)}
+                          className="mt-6 w-full bg-arc-orange text-white font-bold py-4 rounded-xl"
+                        >
+                          AWESOME!
+                        </button>
                       </div>
-                      <span className="font-bold">Tap to Scan QR Code</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                    </motion.div>
+                  )}
 
-              <div className="p-4 text-center">
-                <p className="text-arc-muted text-sm">
-                  Scan QR codes at partner locations to earn points!
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
+                  {/* Error State */}
+                  {error && !scanResult && (
+                    <div className="absolute inset-0 bg-arc-card flex items-center justify-center">
+                      <div className="text-center p-8">
+                        <div className="text-5xl mb-4">&#128533;</div>
+                        <h3 className="text-xl font-bold text-white mb-2">Oops!</h3>
+                        <p className="text-red-400 mb-6">{error}</p>
+                        <button
+                          onClick={() => { setError(null); startScanner() }}
+                          className="w-full bg-arc-surface text-white font-bold py-4 rounded-xl"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
-        {/* Admin Panel */}
-        {showAdminPanel && isAdmin && (
-          <section className="space-y-6">
-            {/* Admin Tabs */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setAdminTab('codes')}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-colors ${adminTab === 'codes' ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted'}`}
-              >
-                Reward Codes
-              </button>
-              <button
-                onClick={() => setAdminTab('businesses')}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-colors ${adminTab === 'businesses' ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted'}`}
-              >
-                Businesses
-              </button>
-            </div>
-
-            {/* Reward Codes Tab */}
-            {adminTab === 'codes' && (
-              <>
-                <div className="flex justify-between items-center">
-                  <h2 className="text-lg font-black italic">Reward Codes</h2>
-                  <button
-                    onClick={() => setShowCreateCode(true)}
-                    className="flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-3 py-2 rounded-full"
-                  >
-                    <PlusIcon />
-                    Create
-                  </button>
+                  {/* Start Camera Button */}
+                  {!isScanning && !isRedeeming && !scanResult && !error && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-arc-surface">
+                      <button
+                        onClick={startScanner}
+                        className="flex flex-col items-center gap-4 text-arc-muted hover:text-white transition-colors"
+                      >
+                        <div className="p-8 bg-arc-bg rounded-full">
+                          <CameraIcon />
+                        </div>
+                        <span className="font-bold">Tap to Scan QR Code</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {rewardCodes.length === 0 ? (
-                  <div className="text-center py-12 text-arc-muted">
-                    No reward codes yet. Create one!
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {rewardCodes.map(code => (
-                      <div key={code.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="font-mono font-bold text-white text-lg">{code.code}</div>
-                            {code.name && <div className="text-sm text-arc-muted">{code.name}</div>}
-                            <div className="flex items-center gap-3 mt-2 text-xs">
-                              <span className="text-arc-orange font-bold">{code.points_value} PTS</span>
-                              <span className={code.is_used ? 'text-red-400' : 'text-green-400'}>
-                                {code.is_used ? 'Used' : 'Active'}
-                              </span>
-                            </div>
+                <div className="p-4 text-center">
+                  <p className="text-arc-muted text-sm">
+                    Scan QR codes at partner businesses to earn points and claim discounts!
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            {/* Recent Check-ins */}
+            {recentCheckIns.length > 0 && (
+              <section>
+                <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">
+                  Recent Check-ins
+                </h2>
+                <div className="space-y-2">
+                  {recentCheckIns.map(checkIn => (
+                    <div key={checkIn.id} className="bg-arc-card border border-white/5 rounded-xl p-4 flex justify-between items-center">
+                      <div>
+                        <div className="font-bold text-white">{checkIn.partners?.name || 'Unknown'}</div>
+                        <div className="text-xs text-arc-muted">{formatDate(checkIn.checked_in_at)}</div>
+                      </div>
+                      <div className="text-arc-orange font-bold">+{checkIn.awarded_points}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        {/* ============ BUSINESSES TAB ============ */}
+        {activeTab === 'businesses' && (
+          <section className="space-y-6">
+            {/* List Your Business CTA */}
+            <div className="bg-gradient-to-br from-arc-accent/20 to-arc-orange/10 border border-arc-accent/30 rounded-2xl p-5">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-arc-accent/20 rounded-xl shrink-0">
+                  <StoreIcon />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-white text-lg">List Your Business</h3>
+                  <p className="text-arc-muted text-sm mt-1">
+                    Offer discounts to Arctivate users and drive foot traffic to your business. Get a QR code instantly.
+                  </p>
+                  <button
+                    onClick={() => setShowCreateBusiness(true)}
+                    className="mt-3 flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-4 py-2.5 rounded-full"
+                  >
+                    <PlusIcon />
+                    List My Business
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* My Businesses */}
+            {myBusinesses.length > 0 && (
+              <div>
+                <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">
+                  My Businesses
+                </h2>
+                <div className="space-y-3">
+                  {myBusinesses.map(biz => (
+                    <div key={biz.id} className="bg-arc-card border border-arc-accent/20 rounded-xl p-4">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-white">{biz.name}</div>
+                          {biz.discount_text && <div className="text-sm text-green-400 mt-0.5">{biz.discount_text}</div>}
+                          <div className="flex items-center gap-3 mt-2 text-xs">
+                            <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS per scan</span>
                           </div>
+                        </div>
+                        <div className="flex items-center gap-2">
                           <button
-                            onClick={() => deleteRewardCode(code.id)}
+                            onClick={() => setSelectedQR(biz)}
+                            className="p-2 bg-arc-accent/10 rounded-lg text-arc-accent hover:text-white transition-colors"
+                            title="Show QR Code"
+                          >
+                            <QRIcon />
+                          </button>
+                          <button
+                            onClick={() => deleteBusiness(biz.id)}
                             className="p-2 text-arc-muted hover:text-red-500 transition-colors"
                           >
                             <TrashIcon />
                           </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
-            {/* Businesses Tab */}
-            {adminTab === 'businesses' && (
-              <>
-                <div className="flex justify-between items-center">
-                  <h2 className="text-lg font-black italic">Businesses</h2>
-                  <button
-                    onClick={() => setShowCreateBusiness(true)}
-                    className="flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-3 py-2 rounded-full"
-                  >
-                    <PlusIcon />
-                    Add Business
-                  </button>
+            {/* All Businesses Directory */}
+            <div>
+              <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">
+                Partner Businesses
+              </h2>
+              {businesses.length === 0 ? (
+                <div className="text-center py-12 bg-arc-card border border-white/5 rounded-2xl">
+                  <div className="text-4xl mb-3">&#127970;</div>
+                  <p className="text-arc-muted text-sm">No businesses listed yet.</p>
+                  <p className="text-arc-muted text-xs mt-1">Be the first to list your business!</p>
                 </div>
-
-                {businesses.length === 0 ? (
-                  <div className="text-center py-12 text-arc-muted">
-                    No businesses yet. Add a partner business!
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {businesses.map(biz => (
-                      <div key={biz.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-bold text-white">{biz.name}</div>
-                            {biz.discount_text && <div className="text-sm text-green-400 mt-0.5">{biz.discount_text}</div>}
-                            {biz.description && <div className="text-xs text-arc-muted mt-1">{biz.description}</div>}
-                            <div className="flex items-center gap-3 mt-2 text-xs">
-                              <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS per check-in</span>
+              ) : (
+                <div className="space-y-3">
+                  {businesses.map(biz => (
+                    <div key={biz.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 bg-arc-surface rounded-xl shrink-0">
+                          <StoreIcon />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-white">{biz.name}</div>
+                          {biz.discount_text && (
+                            <div className="inline-block bg-green-500/10 text-green-400 text-xs font-bold px-2 py-1 rounded-lg mt-1">
+                              {biz.discount_text}
                             </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => setSelectedQR(biz)}
-                              className="p-2 text-arc-accent hover:text-white transition-colors"
-                              title="Show QR Code"
-                            >
-                              <QRIcon />
-                            </button>
-                            <button
-                              onClick={() => deleteBusiness(biz.id)}
-                              className="p-2 text-arc-muted hover:text-red-500 transition-colors"
-                            >
-                              <TrashIcon />
-                            </button>
+                          )}
+                          {biz.description && <div className="text-xs text-arc-muted mt-1">{biz.description}</div>}
+                          <div className="flex items-center gap-3 mt-2 text-xs">
+                            <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS</span>
+                            <span className="text-arc-muted">per check-in</span>
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
         )}
 
-        {/* Recent Check-ins */}
-        {!showAdminPanel && recentCheckIns.length > 0 && (
-          <section>
-            <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">
-              Recent Check-ins
-            </h2>
-            <div className="space-y-2">
-              {recentCheckIns.map(checkIn => (
-                <div key={checkIn.id} className="bg-arc-card border border-white/5 rounded-xl p-4 flex justify-between items-center">
-                  <div>
-                    <div className="font-bold text-white">{checkIn.partners?.name || 'Unknown'}</div>
-                    <div className="text-xs text-arc-muted">{formatDate(checkIn.checked_in_at)}</div>
-                  </div>
-                  <div className="text-arc-orange font-bold">+{checkIn.awarded_points}</div>
+        {/* ============ ADMIN TAB ============ */}
+        {activeTab === 'admin' && isAdmin && (
+          <section className="space-y-6">
+            {/* Admin Sub-tabs */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowCreateCode(true)}
+                className="flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-4 py-2.5 rounded-full"
+              >
+                <PlusIcon />
+                Create Code
+              </button>
+              <button
+                onClick={() => setShowCreateBusiness(true)}
+                className="flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-4 py-2.5 rounded-full border border-white/10"
+              >
+                <PlusIcon />
+                Add Business
+              </button>
+            </div>
+
+            {/* Reward Codes */}
+            <div>
+              <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">Reward Codes</h2>
+              {rewardCodes.length === 0 ? (
+                <div className="text-center py-8 text-arc-muted text-sm">No reward codes yet.</div>
+              ) : (
+                <div className="space-y-3">
+                  {rewardCodes.map(code => (
+                    <div key={code.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-mono font-bold text-white text-lg">{code.code}</div>
+                          {code.name && <div className="text-sm text-arc-muted">{code.name}</div>}
+                          <div className="flex items-center gap-3 mt-2 text-xs">
+                            <span className="text-arc-orange font-bold">{code.points_value} PTS</span>
+                            <span className={code.is_used ? 'text-red-400' : 'text-green-400'}>
+                              {code.is_used ? 'Used' : 'Active'}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => deleteRewardCode(code.id)}
+                          className="p-2 text-arc-muted hover:text-red-500 transition-colors"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+            </div>
+
+            {/* All Businesses (admin view) */}
+            <div>
+              <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">All Businesses</h2>
+              {businesses.length === 0 ? (
+                <div className="text-center py-8 text-arc-muted text-sm">No businesses yet.</div>
+              ) : (
+                <div className="space-y-3">
+                  {businesses.map(biz => (
+                    <div key={biz.id} className="bg-arc-card border border-white/5 rounded-xl p-4">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-white">{biz.name}</div>
+                          {biz.discount_text && <div className="text-sm text-green-400 mt-0.5">{biz.discount_text}</div>}
+                          {biz.description && <div className="text-xs text-arc-muted mt-1">{biz.description}</div>}
+                          <div className="flex items-center gap-3 mt-2 text-xs">
+                            <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedQR(biz)}
+                            className="p-2 text-arc-accent hover:text-white transition-colors"
+                          >
+                            <QRIcon />
+                          </button>
+                          <button
+                            onClick={() => deleteBusiness(biz.id)}
+                            className="p-2 text-arc-muted hover:text-red-500 transition-colors"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -681,12 +900,7 @@ export default function CheckIn() {
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Code</label>
-                    <button
-                      onClick={generateRandomCode}
-                      className="text-[10px] font-bold text-arc-accent uppercase tracking-widest"
-                    >
-                      Generate
-                    </button>
+                    <button onClick={generateRandomCode} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">Generate</button>
                   </div>
                   <input
                     type="text"
@@ -696,7 +910,6 @@ export default function CheckIn() {
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-mono font-bold uppercase"
                   />
                 </div>
-
                 <div>
                   <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Points Value</label>
                   <input
@@ -707,7 +920,6 @@ export default function CheckIn() {
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
                   />
                 </div>
-
                 <div>
                   <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Name (Optional)</label>
                   <input
@@ -718,40 +930,18 @@ export default function CheckIn() {
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors"
                   />
                 </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Description (Optional)</label>
-                  <input
-                    type="text"
-                    value={newCode.description}
-                    onChange={(e) => setNewCode({ ...newCode, description: e.target.value })}
-                    placeholder="e.g. New member welcome bonus"
-                    className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors"
-                  />
-                </div>
               </div>
 
               <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => setShowCreateCode(false)}
-                  className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl"
-                >
-                  Cancel
-                </button>
+                <button onClick={() => setShowCreateCode(false)} className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl">Cancel</button>
                 <button
                   onClick={createRewardCode}
                   disabled={isCreating || !newCode.code.trim() || !newCode.points}
                   className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isCreating ? (
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                    />
-                  ) : (
-                    'Create Code'
-                  )}
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
+                  ) : 'Create Code'}
                 </button>
               </div>
             </motion.div>
@@ -775,14 +965,14 @@ export default function CheckIn() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe"
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85vh] overflow-y-auto"
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
-              <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">ADD BUSINESS</h2>
+              <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">LIST YOUR BUSINESS</h2>
 
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Business Name</label>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Business Name *</label>
                   <input
                     type="text"
                     value={newBusiness.name}
@@ -794,7 +984,7 @@ export default function CheckIn() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Discount / Offer</label>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Discount / Offer *</label>
                   <input
                     type="text"
                     value={newBusiness.discount}
@@ -802,10 +992,11 @@ export default function CheckIn() {
                     placeholder="e.g. 10% off all smoothies"
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors"
                   />
+                  <p className="text-[10px] text-arc-muted mt-1.5 px-1">What discount will users get when they check in?</p>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Description (Optional)</label>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Description</label>
                   <input
                     type="text"
                     value={newBusiness.description}
@@ -824,6 +1015,7 @@ export default function CheckIn() {
                     placeholder="150"
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
                   />
+                  <p className="text-[10px] text-arc-muted mt-1.5 px-1">How many points users earn when scanning your QR code</p>
                 </div>
               </div>
 
@@ -836,18 +1028,12 @@ export default function CheckIn() {
                 </button>
                 <button
                   onClick={createBusiness}
-                  disabled={isCreating || !newBusiness.name.trim()}
+                  disabled={isCreating || !newBusiness.name.trim() || !newBusiness.discount.trim()}
                   className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isCreating ? (
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                    />
-                  ) : (
-                    'Create & Generate QR'
-                  )}
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
+                  ) : 'List & Get QR Code'}
                 </button>
               </div>
             </motion.div>
@@ -878,15 +1064,12 @@ export default function CheckIn() {
                   <p className="text-green-400 font-bold text-sm">{selectedQR.discount_text}</p>
                 )}
 
-                {/* QR Code - rendered as a styled code block businesses can use */}
                 <div className="bg-white rounded-2xl p-6 mx-auto w-fit">
-                  <div className="bg-white p-4 rounded-xl">
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(selectedQR.qr_uuid)}`}
-                      alt="QR Code"
-                      className="w-48 h-48"
-                    />
-                  </div>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(selectedQR.qr_uuid)}`}
+                    alt="QR Code"
+                    className="w-48 h-48"
+                  />
                 </div>
 
                 <div className="space-y-1">
