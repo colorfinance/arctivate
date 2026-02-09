@@ -1,13 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Validate environment variable
-const apiKey = process.env.GOOGLE_API_KEY;
-if (!apiKey) {
-  console.error('GOOGLE_API_KEY environment variable is not set');
-}
-
-const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
-
 export const config = {
   api: {
     bodyParser: {
@@ -21,9 +13,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Check if API is configured
-  if (!genAI) {
-    return res.status(500).json({ error: 'Food analysis service not configured' });
+  const apiKey = process.env.GOOGLE_API_KEY;
+
+  if (!apiKey) {
+    console.error('GOOGLE_API_KEY is not set in environment variables');
+    return res.status(500).json({ error: 'Food scanner not configured. Please add GOOGLE_API_KEY to environment variables.' });
   }
 
   try {
@@ -48,19 +42,32 @@ export default async function handler(req, res) {
 
     const mimeType = mimeMatch[1];
 
+    const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const prompt = `Identify the food in this image. Estimate the calories and macros (protein, carbs, fat) for the serving size shown. Return ONLY valid JSON in this format: { "name": "Food Name", "desc": "Short description", "cals": 0, "p": 0, "c": 0, "f": 0 }. Do not include markdown formatting or backticks. If you cannot identify food in the image, return: { "name": "Unknown", "desc": "Could not identify food", "cals": 0, "p": 0, "c": 0, "f": 0 }`;
+    const prompt = `You are a nutrition expert. Identify the food in this image. Estimate the calories and macronutrients (protein, carbs, fat in grams) for the serving size shown.
+
+Return ONLY valid JSON in this exact format, no other text:
+{"name": "Food Name", "desc": "Short description of the dish", "cals": 350, "p": 25, "c": 40, "f": 12}
+
+Rules:
+- "name" should be a clear, concise food name
+- "desc" should describe what you see (e.g. "Grilled chicken breast with rice")
+- "cals" is total calories as a whole number
+- "p" is protein in grams as a whole number
+- "c" is carbs in grams as a whole number
+- "f" is fat in grams as a whole number
+- If you cannot identify food, use: {"name": "Unknown", "desc": "Could not identify food", "cals": 0, "p": 0, "c": 0, "f": 0}`;
 
     const imagePart = {
       inlineData: {
         data: base64Data,
-        mimeType: mimeType
+        mimeType: mimeType,
       },
     };
 
     const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
+    const response = result.response;
     const text = response.text();
 
     // Clean up potential markdown formatting
@@ -80,14 +87,14 @@ export default async function handler(req, res) {
     try {
       data = JSON.parse(cleanJson);
     } catch (parseError) {
-      console.error('JSON parse error:', parseError, 'Raw text:', text);
-      return res.status(500).json({ error: 'Failed to parse food analysis response' });
+      console.error('JSON parse error:', parseError.message, 'Raw text:', text);
+      return res.status(500).json({ error: 'Failed to parse food analysis. Please try again.' });
     }
 
     // Validate required fields
     if (!data.name || data.cals === undefined) {
       console.error('Invalid response structure:', data);
-      return res.status(500).json({ error: 'Invalid food analysis response' });
+      return res.status(500).json({ error: 'Invalid food analysis response. Please try again.' });
     }
 
     // Ensure numeric values
@@ -98,15 +105,22 @@ export default async function handler(req, res) {
 
     res.status(200).json(data);
   } catch (error) {
-    console.error('Gemini Error:', error);
+    console.error('Gemini API Error:', error.message || error);
 
-    // Provide more specific error messages
-    if (error.message?.includes('API key')) {
-      return res.status(500).json({ error: 'API configuration error' });
+    if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('API key not valid')) {
+      return res.status(500).json({ error: 'Invalid API key. Please check your GOOGLE_API_KEY.' });
     }
 
-    if (error.message?.includes('quota')) {
-      return res.status(429).json({ error: 'API rate limit exceeded. Please try again later.' });
+    if (error.message?.includes('quota') || error.message?.includes('RATE_LIMIT')) {
+      return res.status(429).json({ error: 'API rate limit reached. Please try again in a moment.' });
+    }
+
+    if (error.message?.includes('not found') || error.message?.includes('404')) {
+      return res.status(500).json({ error: 'Gemini model not available. Please try again.' });
+    }
+
+    if (error.message?.includes('SAFETY')) {
+      return res.status(400).json({ error: 'Image could not be processed. Please try a different photo.' });
     }
 
     res.status(500).json({ error: 'Failed to analyze food. Please try again.' });

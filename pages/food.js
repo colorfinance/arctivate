@@ -197,22 +197,33 @@ export default function Food() {
         body: JSON.stringify({ image: base64Image }),
       })
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.error || 'Analysis failed')
+      let responseData
+      try {
+        responseData = await res.json()
+      } catch {
+        throw new Error('Server returned an invalid response')
       }
 
-      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(responseData?.error || `Analysis failed (${res.status})`)
+      }
 
-      if (!data || !data.name) {
+      if (!responseData || !responseData.name) {
         throw new Error('Could not identify food in image')
       }
 
+      if (responseData.name === 'Unknown') {
+        // Show result for manual editing instead of auto-logging unknown food
+        setResult(responseData)
+        setScanning(false)
+        return
+      }
+
       // Auto-log the scanned food immediately
-      await autoLog(data)
+      await autoLog(responseData)
     } catch (err) {
       console.error('Analyze error:', err)
-      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError') || err.name === 'TypeError') {
         setError('Network error. Check your connection and try again.')
       } else {
         setError(err.message || 'Failed to identify food. Please try again.')
