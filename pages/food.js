@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
+import { useRouter } from 'next/router'
 
 export default function Food() {
+  const router = useRouter()
   const [scanning, setScanning] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
@@ -16,7 +18,12 @@ export default function Food() {
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '' })
   const [todayLogs, setTodayLogs] = useState([])
   const [toast, setToast] = useState(null)
+  const [pageLoading, setPageLoading] = useState(true)
+  const [cameraActive, setCameraActive] = useState(false)
   const fileInputRef = useRef(null)
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  const streamRef = useRef(null)
 
   const showToast = (msg) => {
     setToast(msg)
@@ -25,7 +32,28 @@ export default function Food() {
 
   // Fetch daily calories on mount
   useEffect(() => {
-    fetchDailyCalories()
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/')
+        return
+      }
+      const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+      if (profile && profile.completed_onboarding === false) {
+        router.push('/onboarding')
+        return
+      }
+      setPageLoading(false)
+      fetchDailyCalories()
+    }
+    init()
+
+    // Cleanup camera on unmount
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+      }
+    }
   }, [])
 
   async function fetchDailyCalories() {
@@ -312,6 +340,65 @@ export default function Food() {
     }
   }
 
+  // Camera functions
+  const startCamera = async () => {
+    try {
+      setError(null)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play()
+      }
+      setCameraActive(true)
+    } catch (err) {
+      console.error('Camera error:', err)
+      if (err.name === 'NotAllowedError') {
+        setError('Camera access denied. Please allow camera permissions.')
+      } else if (err.name === 'NotFoundError') {
+        setError('No camera found. Use the upload button instead.')
+      } else {
+        setError('Could not start camera. Try uploading an image instead.')
+      }
+    }
+  }
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    setCameraActive(false)
+  }, [])
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return
+
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    ctx.drawImage(video, 0, 0)
+
+    const base64Image = canvas.toDataURL('image/jpeg', 0.7)
+
+    stopCamera()
+    setScanning(true)
+    setResult(null)
+    setError(null)
+
+    resizeImage(base64Image, 800, async (resizedImage) => {
+      await analyzeImage(resizedImage)
+    })
+  }
+
   const dismissResult = () => {
     setResult(null)
     setError(null)
@@ -319,8 +406,19 @@ export default function Food() {
 
   const calorieProgress = Math.min((dailyCalories / dailyGoal) * 100, 100)
 
+  if (pageLoading) {
+    return (
+      <div className="min-h-screen bg-arc-bg flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex flex-col pb-20 relative overflow-hidden bg-arc-bg text-white">
+      {/* Hidden canvas for camera capture */}
+      <canvas ref={canvasRef} className="hidden" />
+
       {/* Toast */}
       <AnimatePresence>
         {toast && (
@@ -354,24 +452,35 @@ export default function Food() {
 
         {/* Scanner Frame */}
         <div className="relative z-10 w-64 h-64 border-2 border-white/20 rounded-3xl flex items-center justify-center overflow-hidden">
-          <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-arc-accent rounded-tl-xl"></div>
-          <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-arc-accent rounded-tr-xl"></div>
-          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-arc-accent rounded-bl-xl"></div>
-          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-arc-accent rounded-br-xl"></div>
+          <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-arc-accent rounded-tl-xl z-20"></div>
+          <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-arc-accent rounded-tr-xl z-20"></div>
+          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-arc-accent rounded-bl-xl z-20"></div>
+          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-arc-accent rounded-br-xl z-20"></div>
+
+          {/* Live camera feed */}
+          {cameraActive && (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          )}
 
           {scanning && (
             <motion.div
               animate={{ top: ['10%', '90%', '10%'] }}
               transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#ff4d00]"
+              className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#ff4d00] z-10"
             />
           )}
 
-          {!scanning && !result && !error && (
-            <p className="text-xs text-white/70 font-bold mt-32 tracking-widest uppercase">Tap to Snap</p>
+          {!scanning && !result && !error && !cameraActive && (
+            <p className="text-xs text-white/70 font-bold mt-32 tracking-widest uppercase">Tap to Scan</p>
           )}
 
-          {error && !scanning && (
+          {error && !scanning && !cameraActive && (
             <div className="text-center p-4">
               <span className="text-red-400 text-sm">{error}</span>
             </div>
@@ -404,7 +513,10 @@ export default function Food() {
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-lg font-bold">{Math.round(calorieProgress)}%</span>
+            <div className="text-center">
+              <span className="text-lg font-bold">{dailyCalories}</span>
+              <span className="block text-[10px] text-arc-muted font-bold">/ {dailyGoal}</span>
+            </div>
           </div>
         </div>
 
@@ -427,31 +539,67 @@ export default function Food() {
 
         {/* Controls */}
         <div className="absolute bottom-24 w-full px-8 flex justify-between items-center z-20">
-          <div className="w-12"></div>
-
+          {/* Upload button */}
           <button
             onClick={() => {
               setError(null)
+              if (cameraActive) stopCamera()
               fileInputRef.current?.click()
             }}
             disabled={scanning}
-            className={`bg-arc-accent w-20 h-20 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
+            className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors disabled:opacity-50"
           >
-            {scanning ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                className="w-8 h-8 border-3 border-white/30 border-t-white rounded-full"
-              />
-            ) : (
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                <circle cx="12" cy="13" r="4"/>
-              </svg>
-            )}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
           </button>
 
-          <div className="w-12"></div>
+          {/* Main camera/capture button */}
+          {cameraActive ? (
+            <button
+              onClick={capturePhoto}
+              disabled={scanning}
+              className="bg-white w-20 h-20 rounded-full border-4 border-arc-accent flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition"
+            >
+              <div className="w-14 h-14 rounded-full bg-arc-accent" />
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setError(null)
+                startCamera()
+              }}
+              disabled={scanning}
+              className={`bg-arc-accent w-20 h-20 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.5)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
+            >
+              {scanning ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                  className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full"
+                />
+              ) : (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              )}
+            </button>
+          )}
+
+          {/* Close camera button */}
+          {cameraActive ? (
+            <button
+              onClick={stopCamera}
+              className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          ) : (
+            <div className="w-12"></div>
+          )}
         </div>
       </main>
 

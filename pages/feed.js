@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 
 // Icons
 const HighFiveIcon = ({ filled }) => (
@@ -55,6 +56,7 @@ const FacebookIcon = () => (
 )
 
 export default function Feed() {
+  const router = useRouter()
   const [posts, setPosts] = useState([])
   const [messages, setMessages] = useState([])
   const [userLikes, setUserLikes] = useState(new Set())
@@ -64,14 +66,30 @@ export default function Feed() {
   const [newMessage, setNewMessage] = useState('')
   const [isPosting, setIsPosting] = useState(false)
   const [showComposer, setShowComposer] = useState(false)
+  const [toast, setToast] = useState(null)
+
+  const showToast = (msg) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        setCurrentUserId(user.id)
-        await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id)])
+      if (!user) {
+        router.push('/')
+        return
       }
+
+      // Check onboarding
+      const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+      if (profile && profile.completed_onboarding === false) {
+        router.push('/onboarding')
+        return
+      }
+
+      setCurrentUserId(user.id)
+      await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id)])
       setIsLoading(false)
     }
     load()
@@ -88,17 +106,27 @@ export default function Feed() {
 
   async function fetchCommunityMessages() {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('community_messages')
         .select(`*, profiles:user_id (username, avatar_url)`)
         .is('group_id', null)
         .order('created_at', { ascending: false })
         .limit(50)
+      if (error) {
+        console.error('Community messages error:', error)
+        return
+      }
       if (data) setMessages(data)
     } catch (err) {
-      // Table might not exist yet
       console.log('Community messages not available yet')
     }
+  }
+
+  async function refreshFeed() {
+    setIsLoading(true)
+    await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages()])
+    if (currentUserId) await fetchUserLikes(currentUserId)
+    setIsLoading(false)
   }
 
   async function fetchUserLikes(userId) {
@@ -117,15 +145,25 @@ export default function Feed() {
   }
 
   async function handleHighFive(postId) {
-    const { data } = await supabase.rpc('increment_high_five', { post_id: postId })
-    if (data?.success) {
-      setPosts(posts.map(post => post.id === postId ? { ...post, likes_count: data.likes_count } : post))
-      const likeKey = `workout:${postId}`
-      if (data.action === 'added') {
-        setUserLikes(prev => new Set([...prev, likeKey]))
-      } else {
-        setUserLikes(prev => { const next = new Set(prev); next.delete(likeKey); return next })
+    try {
+      const { data, error } = await supabase.rpc('increment_high_five', { post_id: postId })
+      if (error) {
+        console.error('High five error:', error)
+        showToast('Failed to high five')
+        return
       }
+      if (data?.success) {
+        setPosts(posts.map(post => post.id === postId ? { ...post, likes_count: data.likes_count } : post))
+        const likeKey = `workout:${postId}`
+        if (data.action === 'added') {
+          setUserLikes(prev => new Set([...prev, likeKey]))
+        } else {
+          setUserLikes(prev => { const next = new Set(prev); next.delete(likeKey); return next })
+        }
+      }
+    } catch (err) {
+      console.error('High five error:', err)
+      showToast('Something went wrong')
     }
   }
 
@@ -151,21 +189,32 @@ export default function Feed() {
     setIsPosting(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        showToast('Please log in to post')
+        return
+      }
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('community_messages')
         .insert({ user_id: user.id, content: newMessage.trim(), message_type: 'text' })
         .select(`*, profiles:user_id (username, avatar_url)`)
         .single()
 
+      if (error) {
+        console.error('Error posting message:', error)
+        showToast('Failed to post message. Please try again.')
+        return
+      }
+
       if (data) {
         setMessages([data, ...messages])
         setNewMessage('')
         setShowComposer(false)
+        showToast('Message posted!')
       }
     } catch (err) {
       console.error('Error posting:', err)
+      showToast('Something went wrong. Please try again.')
     } finally {
       setIsPosting(false)
     }
@@ -198,6 +247,21 @@ export default function Feed() {
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 20 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-0 left-1/2 -translate-x-1/2 z-50 bg-arc-surface border border-white/10 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md"
+          >
+            <div className="w-2 h-2 rounded-full bg-arc-accent animate-pulse" />
+            <span className="text-sm font-medium">{toast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5">
         <div className="p-4 pb-0">

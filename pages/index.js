@@ -15,17 +15,14 @@ export default function Auth() {
     // Check if already logged in
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        // CHECK ONBOARDING STATUS HERE
         supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
           .then(({ data, error }) => {
              if (error) {
                 console.error("Onboarding check error:", error)
-                router.push('/train') // Default if DB fails
+                router.push('/train')
              } else if (data && data.completed_onboarding === false) {
-                console.log("Redirecting to onboarding")
-                router.push('/train') // CHECK logic is IN TRAIN for robust SS
+                router.push('/onboarding')
              } else {
-                console.log("Onboarding complete, going to train")
                 router.push('/train')
              }
           })
@@ -44,7 +41,7 @@ export default function Auth() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin + '/train', // Goes to train first
+        emailRedirectTo: window.location.origin + '/train',
       },
     })
 

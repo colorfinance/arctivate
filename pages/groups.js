@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 
 // Icons
 const PlusIcon = () => (
@@ -33,6 +34,7 @@ const ArrowLeftIcon = () => (
 )
 
 export default function Groups() {
+  const router = useRouter()
   const [groups, setGroups] = useState([])
   const [myGroups, setMyGroups] = useState(new Set())
   const [isLoading, setIsLoading] = useState(true)
@@ -50,10 +52,17 @@ export default function Groups() {
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      setCurrentUserId(user.id)
-      await Promise.all([fetchGroups(), fetchMyGroups(user.id)])
+    if (!user) {
+      router.push('/')
+      return
     }
+    const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+    if (profile && profile.completed_onboarding === false) {
+      router.push('/onboarding')
+      return
+    }
+    setCurrentUserId(user.id)
+    await Promise.all([fetchGroups(), fetchMyGroups(user.id)])
     setIsLoading(false)
   }
 

@@ -5,18 +5,20 @@ import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
 import { useRouter } from 'next/router'
 
-// Helper for dates
-const getTodayStr = () => new Date().toISOString().split('T')[0]
+// Helper for dates - use local date to avoid timezone issues
+const getTodayStr = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
 
 export default function Habits() {
-  const router = useRouter() // Add router
+  const router = useRouter()
   const [habits, setHabits] = useState([])
   const [logs, setLogs] = useState(new Set()) // Set of habit_ids completed today
   const [loading, setLoading] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
   const [customHabit, setCustomHabit] = useState('')
-  const [unitLabel, setUnitLabel] = useState('KG') // Can leave default if not shown, but keeping consistent structure
-  
+
   // Challenge State
   const [challengeDay, setChallengeDay] = useState(1)
   const [challengeGoal, setChallengeGoal] = useState(75)
@@ -33,48 +35,63 @@ export default function Habits() {
 
   async function fetchData() {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/') // Redirect if not logged in (should not happen often due to /app layout, but good safety)
-      return
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/')
+        return
+      }
+
+      // 1. Fetch Challenge Info & Points
+      const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal, total_points, completed_onboarding').eq('id', user.id).single()
+
+      if (profile && profile.completed_onboarding === false) {
+        router.push('/onboarding')
+        return
+      }
+
+      if (profile) {
+          if (profile.challenge_start_date) {
+            const start = new Date(profile.challenge_start_date)
+            const now = new Date()
+            // Use UTC dates for consistent day calculation
+            const startDay = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+            const nowDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+            const diff = Math.floor((nowDay - startDay) / (1000 * 60 * 60 * 24)) + 1
+            setChallengeDay(Math.max(1, diff))
+          }
+          setChallengeGoal(profile.challenge_days_goal || 75)
+          setTotalPoints(profile.total_points || 0)
+      }
+
+      // 2. Fetch Habits
+      const { data: habitsData } = await supabase
+        .from('habits')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+
+      // 3. Fetch Today's Logs
+      const today = getTodayStr()
+      const { data: logsData } = await supabase
+        .from('habit_logs')
+        .select('habit_id')
+        .eq('user_id', user.id)
+        .eq('date', today)
+
+      // Set State
+      setHabits(habitsData || [])
+      setLogs(new Set(logsData?.map(l => l.habit_id) || []))
+    } catch (err) {
+      console.error('Error loading habits data:', err)
+    } finally {
+      setLoading(false)
     }
-
-    // 1. Fetch Challenge Info & Points
-    const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal, total_points').eq('id', user.id).single()
-    if (profile) {
-        const start = new Date(profile.challenge_start_date)
-        const now = new Date()
-        const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1
-        setChallengeDay(Math.max(1, diff))
-        setChallengeGoal(profile.challenge_days_goal || 75)
-        setTotalPoints(profile.total_points || 0)
-    }
-
-    // 2. Fetch Habits
-    const { data: habitsData } = await supabase
-      .from('habits')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true })
-
-    if (!habitsData) return
-
-    // 3. Fetch Today's Logs
-    const today = getTodayStr()
-    const { data: logsData } = await supabase
-      .from('habit_logs')
-      .select('habit_id')
-      .eq('user_id', user.id)
-      .eq('date', today)
-
-    // Set State
-    setHabits(habitsData)
-    setLogs(new Set(logsData?.map(l => l.habit_id) || []))
-    setLoading(false)
   }
 
   const [isUpdating, setIsUpdating] = useState(false)
   const [toast, setToast] = useState(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   const showToast = (msg) => {
     setToast(msg)
@@ -167,23 +184,32 @@ export default function Habits() {
         newLogs.add(habitId)
         setLogs(newLogs)
 
-        // Add to DB - use upsert to handle potential duplicates
-        // Note: Supabase JS client v2 syntax requires distinct insert/update objects for upsert if defined.
-        // However, with just columns object, it works fine.
         const logData = {
           user_id: user.id,
           habit_id: habitId,
           date: today,
           completed_at: new Date().toISOString()
         }
-        
-        // Check if record exists first for cleaner logic, or rely on upsert
-        // Relying on upsert. If it fails, we revert.
-        const { error } = await supabase
+
+        // Try insert first; if duplicate constraint exists it will fail, then try upsert
+        let insertError = null
+        const { error: directError } = await supabase
           .from('habit_logs')
-          .upsert(logData, {
-            onConflict: 'user_id,habit_id,date'
-          })
+          .insert(logData)
+
+        if (directError) {
+          // If it's a duplicate/conflict error, try upsert
+          if (directError.code === '23505') {
+            const { error: upsertError } = await supabase
+              .from('habit_logs')
+              .upsert(logData, { onConflict: 'user_id,habit_id,date' })
+            insertError = upsertError
+          } else {
+            insertError = directError
+          }
+        }
+
+        const error = insertError
 
         if (error) {
           console.error('Error adding habit log:', error)
@@ -257,23 +283,24 @@ export default function Habits() {
   }
 
   const deleteHabit = async (id) => {
-    if (!confirm("Delete this habit?")) return
-
     // Optimistic update
     const previousHabits = habits
     setHabits(habits.filter(h => h.id !== id))
+    setConfirmDeleteId(null)
 
     try {
       const { error } = await supabase.from('habits').delete().eq('id', id)
 
       if (error) {
         console.error('Error deleting habit:', error)
-        setHabits(previousHabits) // Revert
+        setHabits(previousHabits)
         showToast('Failed to delete habit')
+      } else {
+        showToast('Habit removed')
       }
     } catch (err) {
       console.error('Delete habit error:', err)
-      setHabits(previousHabits) // Revert
+      setHabits(previousHabits)
       showToast('Something went wrong')
     }
   }
@@ -283,6 +310,14 @@ export default function Habits() {
   const totalCount = habits.length
   const progressPercent = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100)
   const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-arc-bg flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent selection:text-white">
@@ -401,12 +436,12 @@ export default function Habits() {
                                 </div>
                                 <div>
                                     <div className={`font-bold text-sm transition-colors ${isDone ? 'text-green-500 line-through decoration-2 opacity-70' : 'text-white'}`}>{habit.title}</div>
-                                    <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">10 PTS</div>
+                                    <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">{habit.points_reward || 10} PTS</div>
                                 </div>
                             </div>
                             
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); deleteHabit(habit.id); }}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
                                 className="z-10 text-white/20 hover:text-red-500 transition-colors p-2"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -505,6 +540,32 @@ export default function Habits() {
                         <p className="text-center text-xs text-arc-muted">
                             "Lock In" resets your counter to Day 1.
                         </p>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Delete Confirmation */}
+        <AnimatePresence>
+            {confirmDeleteId && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-6"
+                    >
+                        <div className="bg-arc-card border border-white/10 rounded-2xl p-6 w-full max-w-xs text-center space-y-4">
+                            <h3 className="text-lg font-black italic">DELETE HABIT?</h3>
+                            <p className="text-sm text-arc-muted">This action cannot be undone.</p>
+                            <div className="flex gap-3">
+                                <button onClick={() => setConfirmDeleteId(null)} className="flex-1 py-3 rounded-xl border border-white/10 text-arc-muted font-bold">Cancel</button>
+                                <button onClick={() => deleteHabit(confirmDeleteId)} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold">Delete</button>
+                            </div>
+                        </div>
                     </motion.div>
                 </>
             )}
