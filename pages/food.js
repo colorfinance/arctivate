@@ -20,6 +20,7 @@ export default function Food() {
   const [toast, setToast] = useState(null)
   const [pageLoading, setPageLoading] = useState(true)
   const [cameraActive, setCameraActive] = useState(false)
+  const [lastLoggedResult, setLastLoggedResult] = useState(null)
   const fileInputRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -254,14 +255,48 @@ export default function Food() {
 
       // Celebration
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
-      showToast('Food logged successfully!')
+      showToast('Food logged! Share it to the feed?')
 
+      setLastLoggedResult({ ...result })
       setResult(null)
     } catch (err) {
       console.error('Error logging food:', err)
       setError('Failed to save food. Please try again.')
     } finally {
       setIsLogging(false)
+    }
+  }
+
+  const shareToFeed = async (food) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const content = `Just logged ${food.name} — ${food.cals} cal | P:${food.p}g C:${food.c}g F:${food.f}g`
+
+      const insertData = {
+        user_id: user.id,
+        content,
+        message_type: 'text',
+        metadata: { type: 'meal', name: food.name, cals: food.cals, p: food.p, c: food.c, f: food.f }
+      }
+
+      const { error } = await supabase.from('community_messages').insert(insertData)
+
+      if (error) {
+        // If metadata column causes issues, retry without it
+        await supabase.from('community_messages').insert({
+          user_id: user.id,
+          content,
+          message_type: 'text'
+        })
+      }
+
+      showToast('Shared to feed!')
+      setLastLoggedResult(null)
+    } catch (err) {
+      console.error('Share error:', err)
+      showToast('Failed to share. Try again.')
     }
   }
 
@@ -310,8 +345,9 @@ export default function Food() {
       }
 
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
-      showToast('Food logged successfully!')
+      showToast('Food logged! Share it to the feed?')
 
+      setLastLoggedResult({ name: manualFood.name.trim(), cals, p, c, f, desc: 'Manual entry' })
       setManualFood({ name: '', cals: '', p: '', c: '', f: '' })
       setShowManualEntry(false)
     } catch (err) {
@@ -652,8 +688,15 @@ export default function Food() {
                       P:{log.macros?.p || 0}g  C:{log.macros?.c || 0}g  F:{log.macros?.f || 0}g
                     </span>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <span className="text-sm font-black text-arc-orange">{log.calories} cal</span>
+                    <button
+                      onClick={() => shareToFeed({ name: log.item_name, cals: log.calories, p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 })}
+                      className="text-white/20 hover:text-arc-accent transition-colors p-1"
+                      title="Share to feed"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                    </button>
                     <button
                       onClick={() => deleteLog(log.id, log.calories, log.macros)}
                       className="text-white/20 hover:text-red-500 transition-colors p-1"
@@ -738,6 +781,43 @@ export default function Food() {
                   'ADD TO LOG'
                 )}
               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Share to Feed Prompt */}
+      <AnimatePresence>
+        {lastLoggedResult && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl z-50 border-t border-white/10"
+          >
+            <div className="p-6 pb-8">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
+              <div className="text-center mb-4">
+                <div className="text-2xl mb-2">&#127860;</div>
+                <h3 className="text-lg font-bold text-white">{lastLoggedResult.name} logged!</h3>
+                <p className="text-arc-muted text-sm mt-1">{lastLoggedResult.cals} cal | P:{lastLoggedResult.p}g C:{lastLoggedResult.c}g F:{lastLoggedResult.f}g</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setLastLoggedResult(null)}
+                  className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl"
+                >
+                  Done
+                </button>
+                <button
+                  onClick={() => shareToFeed(lastLoggedResult)}
+                  className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow flex items-center justify-center gap-2"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                  Share to Feed
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
