@@ -4,6 +4,7 @@ import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { Html5Qrcode } from 'html5-qrcode'
 import confetti from 'canvas-confetti'
+import { useRouter } from 'next/router'
 
 // Icons
 const QRIcon = () => (
@@ -46,6 +47,7 @@ const TrashIcon = () => (
 )
 
 export default function CheckIn() {
+  const router = useRouter()
   const [isScanning, setIsScanning] = useState(false)
   const [scanResult, setScanResult] = useState(null)
   const [error, setError] = useState(null)
@@ -77,6 +79,18 @@ export default function CheckIn() {
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/')
+      return
+    }
+
+    // Check onboarding
+    const { data: onboardingCheck } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+    if (onboardingCheck && onboardingCheck.completed_onboarding === false) {
+      router.push('/onboarding')
+      return
+    }
+
     if (user) {
       setCurrentUser(user)
 

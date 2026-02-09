@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
+import confetti from 'canvas-confetti'
 
 // Steps configuration
 const STEPS = {
@@ -64,30 +65,38 @@ export default function Onboarding() {
 
   const finishOnboarding = async () => {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/')
+        return
+      }
 
-    const updates = {
-      username: formData.name,
-      age: parseInt(formData.age),
-      weight: parseFloat(formData.weight),
-      gender: formData.gender,
-      fitness_level: formData.fitness_level,
-      goal: formData.goal,
-      completed_onboarding: true
+      const updates = {
+        username: formData.name,
+        age: parseInt(formData.age) || null,
+        weight: parseFloat(formData.weight) || null,
+        gender: formData.gender || null,
+        fitness_level: formData.fitness_level || null,
+        goal: formData.goal || null,
+        completed_onboarding: true,
+        challenge_start_date: new Date().toISOString()
+      }
+
+      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+
+      if (!error) {
+        setStep(STEPS.COMPLETE)
+        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#FF3B00', '#ffffff', '#22c55e'] })
+        setTimeout(() => router.push('/train'), 2000)
+      } else {
+        console.error('Supabase Save Error:', error)
+        setLoading(false)
+      }
+    } catch (err) {
+      console.error('Onboarding error:', err)
+      setLoading(false)
     }
-
-    // RPC call or direct update
-    const { error, status } = await supabase.from('profiles').update(updates).eq('id', user.id)
-
-    console.log('SAVE DEBUG:', { error, status });
-
-    if (!error) {
-      router.push('/train')
-    } else {
-      console.error('Supabase Save Error:', error)
-      alert("Error saving profile. Please try again.")
-    }
-    setLoading(false)
   }
 
   if (checkingUser) {
