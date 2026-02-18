@@ -4,7 +4,25 @@ import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
 import ShareActionCard from '../components/train/ShareActionCard'
+import VoiceInput from '../components/train/VoiceInput'
+import WorkoutArt from '../components/train/WorkoutArt'
 import { useRouter } from 'next/router'
+
+// Icons
+const MicIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+    <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+  </svg>
+)
+
+const ImageIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+    <polyline points="21 15 16 10 5 21"/>
+  </svg>
+)
 
 // Components
 const NumberTicker = ({ value }) => {
@@ -60,6 +78,13 @@ export default function Train() {
   // Success/Share Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [lastWorkoutData, setLastWorkoutData] = useState(null)
+
+  // Voice Input & Art States
+  const [showVoiceInput, setShowVoiceInput] = useState(false)
+  const [showWorkoutArt, setShowWorkoutArt] = useState(false)
+  const [reps, setReps] = useState('')
+  const [sets, setSets] = useState('')
+  const [rpe, setRpe] = useState('')
 
   // Get current exercise for unit display
   const currentExercise = exercises.find(e => e.id === selectedExId)
@@ -281,13 +306,18 @@ export default function Train() {
       const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
       // Save to DB first
-      const { error: logError } = await supabase.from('workout_logs').insert({
+      const logPayload = {
         user_id: user.id,
         exercise_id: selectedExId,
         value: valNum,
         is_new_pb: isPB,
-        points_awarded: pointsEarned
-      })
+        points_awarded: pointsEarned,
+      }
+      if (reps) logPayload.reps = parseInt(reps, 10)
+      if (sets) logPayload.sets = parseInt(sets, 10)
+      if (rpe) logPayload.rpe = parseInt(rpe, 10)
+
+      const { error: logError } = await supabase.from('workout_logs').insert(logPayload)
 
       if (logError) {
         console.error('Error logging workout:', logError)
@@ -328,11 +358,63 @@ export default function Train() {
       setShowSuccessModal(true)
 
       setValue('')
+      setReps('')
+      setSets('')
+      setRpe('')
     } catch (err) {
       console.error('Unexpected error:', err)
       showToast('Something went wrong')
     } finally {
       setIsLogging(false)
+    }
+  }
+
+  // Voice Input Result Handler
+  const handleVoiceResult = (parsed) => {
+    // Match exercise
+    if (parsed.matched && parsed.exercise) {
+      const match = exercises.find(e => e.name.toLowerCase() === parsed.exercise.toLowerCase())
+      if (match) setSelectedExId(match.id)
+    }
+    // Fill values
+    if (parsed.weight !== null) setValue(String(parsed.weight))
+    if (parsed.reps !== null) setReps(String(parsed.reps))
+    if (parsed.sets !== null) setSets(String(parsed.sets))
+    if (parsed.rpe !== null) setRpe(String(parsed.rpe))
+    setShowVoiceInput(false)
+    showToast('Voice data loaded')
+  }
+
+  // Build session data for Workout Art
+  const buildSessionArt = () => {
+    const sessionExercises = logs.map(log => ({
+      name: log.name,
+      value: log.val,
+      metricType: log.metricType,
+      isPB: log.isPB,
+      reps: null,
+      sets: null,
+      rpe: null,
+    }))
+
+    // Deduplicate by exercise name, keep latest
+    const unique = []
+    const seen = new Set()
+    for (const ex of sessionExercises) {
+      if (!seen.has(ex.name)) {
+        seen.add(ex.name)
+        unique.push(ex)
+      }
+    }
+
+    return {
+      exercises: unique,
+      totalPoints: logs.reduce((acc, l) => acc + l.points, 0),
+      totalSets: logs.length,
+      date: new Date().toISOString(),
+      username: null,
+      isPB: logs.some(l => l.isPB),
+      duration: null,
     }
   }
 
@@ -356,6 +438,7 @@ export default function Train() {
                     workoutData={lastWorkoutData}
                     onClose={() => setShowSuccessModal(false)}
                     onShareComplete={() => showToast('Shared to Community!')}
+                    onCreateArt={() => setShowWorkoutArt(true)}
                 />
             )}
         </AnimatePresence>
@@ -408,9 +491,14 @@ export default function Train() {
                     
                     <div className="flex justify-between items-center">
                         <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Select Movement</label>
-                        <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest hover:text-white transition-colors">
-                            + Create New
-                        </button>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowVoiceInput(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest hover:text-white transition-colors flex items-center gap-1">
+                                <MicIcon /> Voice
+                            </button>
+                            <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest hover:text-white transition-colors">
+                                + Create New
+                            </button>
+                        </div>
                     </div>
 
                     <div className="relative">
@@ -446,6 +534,34 @@ export default function Train() {
                         <span className="absolute right-0 bottom-6 text-arc-muted font-bold text-sm">{unitLabel}</span>
                     </div>
 
+                    {/* Reps / Sets / RPE Row */}
+                    <div className="grid grid-cols-3 gap-3">
+                        <div>
+                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-widest mb-1 block text-center">Reps</label>
+                            <input
+                                type="number" value={reps} onChange={(e) => setReps(e.target.value)}
+                                placeholder="—" min="1"
+                                className="w-full bg-arc-surface border border-white/5 text-center font-mono text-lg font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/50 transition-colors placeholder-white/10"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-widest mb-1 block text-center">Sets</label>
+                            <input
+                                type="number" value={sets} onChange={(e) => setSets(e.target.value)}
+                                placeholder="—" min="1"
+                                className="w-full bg-arc-surface border border-white/5 text-center font-mono text-lg font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/50 transition-colors placeholder-white/10"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-widest mb-1 block text-center">RPE</label>
+                            <input
+                                type="number" value={rpe} onChange={(e) => setRpe(e.target.value)}
+                                placeholder="—" min="1" max="10"
+                                className="w-full bg-arc-surface border border-white/5 text-center font-mono text-lg font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/50 transition-colors placeholder-white/10"
+                            />
+                        </div>
+                    </div>
+
                     <motion.button
                         whileTap={{ scale: 0.98 }}
                         onClick={handleLog}
@@ -473,7 +589,17 @@ export default function Train() {
 
             {/* Recent Activity Feed */}
             <section className="space-y-4">
-                 <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-2">Recent Activity</h3>
+                 <div className="flex justify-between items-center px-2">
+                     <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Recent Activity</h3>
+                     {logs.length > 0 && (
+                         <button
+                             onClick={() => setShowWorkoutArt(true)}
+                             className="text-[10px] font-bold text-arc-accent uppercase tracking-widest hover:text-white transition-colors flex items-center gap-1"
+                         >
+                             <ImageIcon /> Create Art
+                         </button>
+                     )}
+                 </div>
                  <div className="space-y-3 pb-10">
                     <AnimatePresence initial={false}>
                         {logs.map((log) => (
@@ -559,6 +685,27 @@ export default function Train() {
                         </button>
                     </motion.div>
                 </>
+            )}
+        </AnimatePresence>
+
+        {/* Voice Input Modal */}
+        <AnimatePresence>
+            {showVoiceInput && (
+                <VoiceInput
+                    exercises={exercises}
+                    onResult={handleVoiceResult}
+                    onClose={() => setShowVoiceInput(false)}
+                />
+            )}
+        </AnimatePresence>
+
+        {/* Workout Art Modal */}
+        <AnimatePresence>
+            {showWorkoutArt && logs.length > 0 && (
+                <WorkoutArt
+                    workoutData={buildSessionArt()}
+                    onClose={() => setShowWorkoutArt(false)}
+                />
             )}
         </AnimatePresence>
 

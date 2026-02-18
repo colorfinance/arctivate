@@ -60,10 +60,18 @@ const CloseIcon = () => (
   </svg>
 )
 
+const ArtIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+    <polyline points="21 15 16 10 5 21"/>
+  </svg>
+)
+
 export default function ShareActionCard({
   workoutData,
   onClose,
-  onShareComplete
+  onShareComplete,
+  onCreateArt,
 }) {
   const [shareToFeed, setShareToFeed] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
@@ -297,6 +305,17 @@ export default function ShareActionCard({
             <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Or share to</span>
             <div className="flex-1 h-px bg-white/10" />
           </div>
+
+          {/* Create Shareable Art */}
+          {onCreateArt && (
+            <button
+              onClick={() => { onClose(); onCreateArt() }}
+              className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-arc-accent to-orange-600 text-white font-bold py-4 rounded-xl hover:opacity-90 transition-opacity"
+            >
+              <ArtIcon />
+              <span>Create Shareable Art</span>
+            </button>
+          )}
 
           {/* Facebook Share Button */}
           <button
