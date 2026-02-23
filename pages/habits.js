@@ -144,7 +144,7 @@ export default function Habits() {
       setNewGoal(goal)
       if (restart) {
         setChallengeDay(1)
-        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#FF3B00', '#ffffff'] })
+        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
       }
       setIsEditingGoal(false)
     } catch (err) {
@@ -241,7 +241,7 @@ export default function Habits() {
 
         // Mini celebration if all done
         if (newLogs.size === habits.length && habits.length > 0) {
-          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
           showToast('All habits complete! Great job!')
         }
       }
@@ -465,7 +465,7 @@ export default function Habits() {
       await fetchProgressPhotos(user.id)
 
       showToast('Progress photo saved!')
-      confetti({ particleCount: 60, spread: 50, origin: { y: 0.7 }, colors: ['#FF3B00', '#22c55e'] })
+      confetti({ particleCount: 60, spread: 50, origin: { y: 0.7 }, colors: ['#00D4AA', '#22c55e'] })
     } catch (err) {
       console.error('Upload error:', err)
       setPhotoError('Something went wrong during upload')
@@ -521,7 +521,7 @@ export default function Habits() {
             {/* Points Display */}
             <div className="mt-3 flex items-center gap-2">
                 <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Earned</span>
-                <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
+                <span className="text-lg font-black font-mono text-arc-cyan">{totalPoints.toLocaleString()}</span>
                 <span className="text-xs text-arc-muted">PTS</span>
             </div>
         </header>
@@ -550,7 +550,7 @@ export default function Habits() {
                     <motion.div 
                         initial={{ width: 0 }} 
                         animate={{ width: `${challengeProgress}%` }} 
-                        className="h-full bg-gradient-to-r from-arc-accent to-orange-400"
+                        className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan"
                     />
                  </div>
             </section>

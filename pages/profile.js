@@ -312,7 +312,7 @@ export default function Profile() {
                 />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-arc-surface border-2 border-arc-accent/30 flex items-center justify-center">
-                  <span className="text-3xl font-black text-arc-orange">
+                  <span className="text-3xl font-black text-arc-accent">
                     {profile?.username?.[0]?.toUpperCase() || '?'}
                   </span>
                 </div>
@@ -326,7 +326,7 @@ export default function Profile() {
               </h2>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Total Points</span>
-                <span className="text-lg font-black font-mono text-arc-orange">
+                <span className="text-lg font-black font-mono text-arc-accent">
                   {(profile?.total_points || 0).toLocaleString()}
                 </span>
               </div>
@@ -343,8 +343,8 @@ export default function Profile() {
             transition={{ delay: 0.05 }}
             className="bg-arc-card border border-white/5 rounded-2xl p-4 relative overflow-hidden"
           >
-            <div className="absolute top-0 right-0 w-16 h-16 bg-arc-orange/10 blur-2xl rounded-full pointer-events-none" />
-            <div className="flex items-center gap-2 mb-2 text-arc-orange">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-arc-accent/10 blur-2xl rounded-full pointer-events-none" />
+            <div className="flex items-center gap-2 mb-2 text-arc-accent">
               <StarIcon />
               <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Points</span>
             </div>
@@ -374,7 +374,7 @@ export default function Profile() {
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${challengeProgress}%` }}
-                className="h-full bg-gradient-to-r from-arc-accent to-orange-400 rounded-full"
+                className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan rounded-full"
               />
             </div>
           </motion.div>
@@ -435,7 +435,7 @@ export default function Profile() {
               initial={{ width: 0 }}
               animate={{ width: `${calorieProgress}%` }}
               transition={{ duration: 0.8, ease: 'easeOut' }}
-              className={`h-full rounded-full transition-colors ${calorieProgress >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-arc-accent to-orange-400'}`}
+              className={`h-full rounded-full transition-colors ${calorieProgress >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-arc-accent to-arc-cyan'}`}
             />
           </div>
           <div className="flex justify-between mt-2">

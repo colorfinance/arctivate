@@ -179,7 +179,7 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
             className={`w-20 h-20 rounded-full flex items-center justify-center transition-all ${
               isListening
                 ? 'bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.4)]'
-                : 'bg-arc-accent shadow-glow'
+                : 'bg-accent-gradient shadow-glow-accent'
             }`}
           >
             {isListening ? <StopIcon /> : <MicIcon />}
@@ -202,8 +202,8 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
 
         {/* Transcript */}
         {transcript && (
-          <div className="bg-arc-surface border border-white/10 rounded-xl p-4">
-            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1 block">Heard</span>
+          <div className="bg-arc-surface border border-white/[0.06] rounded-xl p-4">
+            <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1 block">Heard</span>
             <p className="text-sm text-white font-medium">&ldquo;{transcript}&rdquo;</p>
           </div>
         )}
@@ -225,41 +225,41 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
           {parsedData && (
             <motion.div
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="bg-arc-bg border border-arc-accent/30 rounded-2xl p-5 space-y-3"
+              className="bg-arc-bg border border-arc-accent/20 rounded-2xl p-5 space-y-3"
             >
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">Parsed Result</span>
+                <span className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.2em]">Parsed Result</span>
                 {!parsedData.matched && (
-                  <span className="text-[9px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-bold">NEW EXERCISE</span>
+                  <span className="text-[8px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-bold">NEW EXERCISE</span>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
-                  <span className="text-[9px] text-arc-muted font-bold uppercase">Exercise</span>
+                  <span className="text-[8px] text-arc-muted font-bold uppercase">Exercise</span>
                   <p className="text-white font-bold">{parsedData.exercise}</p>
                 </div>
                 {parsedData.weight !== null && (
                   <div>
-                    <span className="text-[9px] text-arc-muted font-bold uppercase">Weight</span>
+                    <span className="text-[8px] text-arc-muted font-bold uppercase">Weight</span>
                     <p className="text-white font-bold font-mono">{parsedData.weight} <span className="text-arc-muted text-xs">kg</span></p>
                   </div>
                 )}
                 {parsedData.reps !== null && (
                   <div>
-                    <span className="text-[9px] text-arc-muted font-bold uppercase">Reps</span>
+                    <span className="text-[8px] text-arc-muted font-bold uppercase">Reps</span>
                     <p className="text-white font-bold font-mono">{parsedData.reps}</p>
                   </div>
                 )}
                 {parsedData.sets !== null && (
                   <div>
-                    <span className="text-[9px] text-arc-muted font-bold uppercase">Sets</span>
+                    <span className="text-[8px] text-arc-muted font-bold uppercase">Sets</span>
                     <p className="text-white font-bold font-mono">{parsedData.sets}</p>
                   </div>
                 )}
                 {parsedData.rpe !== null && (
                   <div>
-                    <span className="text-[9px] text-arc-muted font-bold uppercase">RPE</span>
+                    <span className="text-[8px] text-arc-muted font-bold uppercase">RPE</span>
                     <p className="text-white font-bold font-mono">{parsedData.rpe}/10</p>
                   </div>
                 )}
@@ -272,7 +272,7 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={confirmResult}
-                  className="flex-1 bg-arc-accent text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-glow active:scale-95 transition-transform"
+                  className="flex-1 bg-accent-gradient text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-glow-accent active:scale-95 transition-transform"
                 >
                   <CheckIcon /> Confirm & Log
                 </button>
@@ -295,9 +295,9 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
         {/* Help Text */}
         <div className="text-center space-y-1">
           <p className="text-[10px] text-arc-muted">Try saying:</p>
-          <p className="text-[11px] text-white/60 italic">&ldquo;Bench press, 100kg for 8 reps at RPE 8&rdquo;</p>
-          <p className="text-[11px] text-white/60 italic">&ldquo;Incline bench, two plates and a ten&rdquo;</p>
-          <p className="text-[11px] text-white/60 italic">&ldquo;225 for 5 sets of 3&rdquo;</p>
+          <p className="text-[10px] text-white/50 italic">&ldquo;Bench press, 100kg for 8 reps at RPE 8&rdquo;</p>
+          <p className="text-[10px] text-white/50 italic">&ldquo;Incline bench, two plates and a ten&rdquo;</p>
+          <p className="text-[10px] text-white/50 italic">&ldquo;225 for 5 sets of 3&rdquo;</p>
         </div>
       </motion.div>
     </>

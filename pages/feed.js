@@ -516,7 +516,7 @@ export default function Feed() {
                   onClick={() => openDM(conv.userId, conv.username, conv.avatar_url)}
                   className="w-full flex items-center gap-3 bg-arc-card border border-white/5 rounded-2xl p-4 text-left hover:border-white/10 transition-colors"
                 >
-                  <div className="w-12 h-12 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold shrink-0">
+                  <div className="w-12 h-12 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold shrink-0">
                     {conv.username?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -550,7 +550,7 @@ export default function Feed() {
             <button onClick={() => { setActiveDM(null); fetchConversations() }} className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
               <ArrowLeftIcon />
             </button>
-            <div className="w-8 h-8 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold text-sm">
+            <div className="w-8 h-8 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold text-sm">
               {activeDM.username?.[0]?.toUpperCase() || '?'}
             </div>
             <span className="font-bold text-white">{activeDM.username}</span>
@@ -682,7 +682,7 @@ export default function Feed() {
       <main className="pt-32 px-4 max-w-lg mx-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-8 h-8 border-2 border-arc-orange/30 border-t-arc-orange rounded-full" />
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full" />
           </div>
         ) : (
           <div className="space-y-4 pb-10">
@@ -716,7 +716,7 @@ export default function Feed() {
                                 }
                               }}
                               disabled={isOwnPost}
-                              className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold disabled:cursor-default"
+                              className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold disabled:cursor-default"
                             >
                               {post.profiles?.username?.[0]?.toUpperCase() || '?'}
                             </button>
@@ -725,7 +725,7 @@ export default function Feed() {
                               <span className="block text-[11px] text-arc-muted">{formatTimeAgo(post.created_at)}</span>
                             </div>
                             {workout.is_new_pb && (
-                              <span className="flex items-center gap-1 text-[10px] bg-arc-orange/20 text-arc-orange px-2 py-1 rounded-full font-bold">
+                              <span className="flex items-center gap-1 text-[10px] bg-arc-accent/20 text-arc-accent px-2 py-1 rounded-full font-bold">
                                 <FireIcon />PB
                               </span>
                             )}
@@ -740,7 +740,7 @@ export default function Feed() {
                               <div className="text-center">
                                 <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">{workout.metric_type === 'time' ? 'Time' : 'Weight'}</span>
                                 <div className="flex items-baseline justify-center gap-1 mt-1">
-                                  <span className="text-2xl font-black font-mono text-arc-orange">{workout.value}</span>
+                                  <span className="text-2xl font-black font-mono text-arc-accent">{workout.value}</span>
                                   <span className="text-sm text-arc-muted font-bold">{getUnit(workout.metric_type)}</span>
                                 </div>
                               </div>
@@ -756,7 +756,7 @@ export default function Feed() {
 
                           <div className="flex items-center justify-between px-4 py-3 bg-arc-bg/50 border-t border-white/5">
                             <div className="flex items-center gap-3">
-                              <button onClick={() => handleHighFive(post.id)} disabled={isOwnPost} className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${hasHighFived ? 'bg-arc-orange/20 text-arc-orange' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnPost ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                              <button onClick={() => handleHighFive(post.id)} disabled={isOwnPost} className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${hasHighFived ? 'bg-arc-accent/20 text-arc-accent' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnPost ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                 <HighFiveIcon filled={hasHighFived} />
                                 <span className="font-bold text-sm">{post.likes_count || 0}</span>
                               </button>
@@ -818,7 +818,7 @@ export default function Feed() {
                                   }
                                 }}
                                 disabled={isOwnMessage}
-                                className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-orange font-bold shrink-0 disabled:cursor-default"
+                                className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold shrink-0 disabled:cursor-default"
                               >
                                 {msg.profiles?.username?.[0]?.toUpperCase() || '?'}
                               </button>
@@ -867,7 +867,7 @@ export default function Feed() {
                           {/* Actions */}
                           <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
                             <div className="flex items-center gap-3">
-                              <button onClick={() => handleMessageLike(msg.id)} disabled={isOwnMessage} className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm transition-all ${hasLiked ? 'bg-arc-orange/20 text-arc-orange' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnMessage ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                              <button onClick={() => handleMessageLike(msg.id)} disabled={isOwnMessage} className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm transition-all ${hasLiked ? 'bg-arc-accent/20 text-arc-accent' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnMessage ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                 <HighFiveIcon filled={hasLiked} />
                                 <span className="font-bold">{msg.likes_count || 0}</span>
                               </button>

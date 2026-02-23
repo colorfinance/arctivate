@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
 import ShareActionCard from '../components/train/ShareActionCard'
 import VoiceInput from '../components/train/VoiceInput'
+import VoiceMemo from '../components/train/VoiceMemo'
 import WorkoutArt from '../components/train/WorkoutArt'
 import { useRouter } from 'next/router'
 
@@ -21,6 +22,32 @@ const ImageIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
     <polyline points="21 15 16 10 5 21"/>
+  </svg>
+)
+
+const VoiceMemoIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+    <circle cx="12" cy="21" r="2"/>
+    <line x1="12" y1="19" x2="12" y2="23"/>
+  </svg>
+)
+
+const FireIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-arc-accent">
+    <path d="M12 23c-3.6 0-7-2.4-7-7 0-3.1 2.1-5.7 3.5-7.1L12 5.5l3.5 3.4C16.9 10.3 19 12.9 19 16c0 4.6-3.4 7-7 7z"/>
+  </svg>
+)
+
+const TrophyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+    <path d="M4 22h16"/>
+    <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+    <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+    <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
   </svg>
 )
 
@@ -49,7 +76,7 @@ const Toast = ({ message, onClose }) => {
       initial={{ opacity: 0, y: -50, x: '-50%' }}
       animate={{ opacity: 1, y: 20, x: '-50%' }}
       exit={{ opacity: 0, y: -20, x: '-50%' }}
-      className="fixed top-0 left-1/2 z-50 bg-arc-surface border border-white/10 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md"
+      className="fixed top-0 left-1/2 z-50 bg-arc-surface/90 border border-arc-accent/20 text-white px-6 py-3 rounded-full shadow-glow flex items-center gap-3 backdrop-blur-xl"
     >
       <div className="w-2 h-2 rounded-full bg-arc-accent animate-pulse" />
       <span className="text-sm font-medium">{message}</span>
@@ -79,8 +106,9 @@ export default function Train() {
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [lastWorkoutData, setLastWorkoutData] = useState(null)
 
-  // Voice Input & Art States
+  // Voice Input, Voice Memo & Art States
   const [showVoiceInput, setShowVoiceInput] = useState(false)
+  const [showVoiceMemo, setShowVoiceMemo] = useState(false)
   const [showWorkoutArt, setShowWorkoutArt] = useState(false)
   const [reps, setReps] = useState('')
   const [sets, setSets] = useState('')
@@ -122,7 +150,6 @@ export default function Train() {
 
   async function fetchProfile() {
     try {
-      // No manual auth check needed here, parent effect handles routing
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
@@ -182,7 +209,6 @@ export default function Train() {
 
       const isTime = ex.metric_type === 'time'
 
-      // For time exercises, lower is better; for weight, higher is better
       const { data } = await supabase
         .from('workout_logs')
         .select('value')
@@ -194,7 +220,6 @@ export default function Train() {
 
       setCurrentPB(data?.value || 0)
     } catch (err) {
-      // No PB found is not an error
       setCurrentPB(0)
     }
   }
@@ -218,7 +243,8 @@ export default function Train() {
             points: log.points_awarded || 50,
             time: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             isPB: log.is_new_pb || false,
-            metricType: log.exercises?.metric_type || 'weight'
+            metricType: log.exercises?.metric_type || 'weight',
+            voiceMemoUrl: log.voice_memo_url || null
           }
         })
         setLogs(history)
@@ -233,7 +259,7 @@ export default function Train() {
   const createExercise = async () => {
     if(!newExName) return
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     const { data, error } = await supabase.from('exercises').insert({
         user_id: user.id,
         name: newExName,
@@ -286,10 +312,8 @@ export default function Train() {
       let pointsEarned = 50
 
       if (ex.metric_type === 'time') {
-        // For time, lower is better
         if ((valNum < currentPB || currentPB === 0) && valNum > 0) isPB = true
       } else {
-        // For weight, higher is better
         if (valNum > currentPB) isPB = true
       }
 
@@ -298,14 +322,10 @@ export default function Train() {
         triggerCelebration()
       }
 
-      // Generate unique ID for log entry
       const logId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-
-      // Formatted Date
       const now = new Date()
       const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
-      // Save to DB first
       const logPayload = {
         user_id: user.id,
         exercise_id: selectedExId,
@@ -330,10 +350,8 @@ export default function Train() {
 
       if (pointsError) {
         console.error('Error updating points:', pointsError)
-        // Continue anyway as workout was saved
       }
 
-      // Update UI after successful save
       if (isPB) setCurrentPB(valNum)
       setPoints(prev => prev + pointsEarned)
       setLogs(prev => [{
@@ -343,10 +361,10 @@ export default function Train() {
         points: pointsEarned,
         time: timeString,
         isPB: isPB,
-        metricType: ex.metric_type
+        metricType: ex.metric_type,
+        voiceMemoUrl: null
       }, ...prev])
 
-      // Set workout data for sharing and show success modal
       setLastWorkoutData({
         exerciseName: ex.name,
         value: valNum,
@@ -371,18 +389,22 @@ export default function Train() {
 
   // Voice Input Result Handler
   const handleVoiceResult = (parsed) => {
-    // Match exercise
     if (parsed.matched && parsed.exercise) {
       const match = exercises.find(e => e.name.toLowerCase() === parsed.exercise.toLowerCase())
       if (match) setSelectedExId(match.id)
     }
-    // Fill values
     if (parsed.weight !== null) setValue(String(parsed.weight))
     if (parsed.reps !== null) setReps(String(parsed.reps))
     if (parsed.sets !== null) setSets(String(parsed.sets))
     if (parsed.rpe !== null) setRpe(String(parsed.rpe))
     setShowVoiceInput(false)
     showToast('Voice data loaded')
+  }
+
+  // Voice Memo Saved Handler
+  const handleVoiceMemoSaved = (memoData) => {
+    showToast('Voice memo saved to workout')
+    setShowVoiceMemo(false)
   }
 
   // Build session data for Workout Art
@@ -397,7 +419,6 @@ export default function Train() {
       rpe: null,
     }))
 
-    // Deduplicate by exercise name, keep latest
     const unique = []
     const seen = new Set()
     for (const ex of sessionExercises) {
@@ -419,14 +440,17 @@ export default function Train() {
   }
 
   const triggerCelebration = () => {
-    const duration = 2 * 1000
-    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0, colors: ['#FF3B00', '#ffffff'] }
-    confetti({ ...defaults, particleCount: 50, origin: { y: 0.6 } })
-    setTimeout(() => confetti({ ...defaults, particleCount: 50, origin: { y: 0.6 } }), 200)
+    confetti({ particleCount: 50, spread: 360, startVelocity: 30, ticks: 60, zIndex: 0, colors: ['#00D4AA', '#06B6D4', '#ffffff'], origin: { y: 0.6 } })
+    setTimeout(() => confetti({ particleCount: 50, spread: 360, startVelocity: 30, ticks: 60, zIndex: 0, colors: ['#00D4AA', '#06B6D4', '#ffffff'], origin: { y: 0.6 } }), 200)
   }
 
+  // Today's stats
+  const todayPoints = logs.reduce((acc, curr) => acc + curr.points, 0)
+  const todaySets = logs.length
+  const todayPBs = logs.filter(l => l.isPB).length
+
   return (
-    <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent selection:text-white">
+    <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent/30 selection:text-white">
         <AnimatePresence>
             {toast && <Toast message={toast} onClose={() => setToast(null)} />}
         </AnimatePresence>
@@ -444,183 +468,230 @@ export default function Train() {
         </AnimatePresence>
 
         {/* Header */}
-        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-6 flex justify-between items-center">
-            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-                ARCTIVATE
-            </h1>
-            <div className="flex items-center gap-2 bg-arc-card px-4 py-1.5 rounded-full border border-white/5 shadow-inner">
-                <span className="text-arc-accent text-lg drop-shadow-[0_0_8px_rgba(255,59,0,0.5)]">★</span>
-                <NumberTicker value={points} />
+        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/[0.04]">
+            <div className="p-5 flex justify-between items-center max-w-lg mx-auto">
+                <div>
+                    <h1 className="text-xl font-black italic tracking-tighter text-gradient-accent">
+                        ARCTIVATE
+                    </h1>
+                    <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Training</span>
+                </div>
+                <div className="flex items-center gap-2 bg-arc-card/80 px-4 py-2 rounded-2xl border border-arc-accent/10 shadow-inner-glow">
+                    <span className="text-arc-accent text-sm drop-shadow-[0_0_8px_rgba(0,212,170,0.5)]">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    </span>
+                    <NumberTicker value={points} />
+                </div>
             </div>
         </header>
 
-        <main className="pt-28 px-6 space-y-8 max-w-lg mx-auto">
-            
-            {/* Stats Cards */}
-            <section className="grid grid-cols-2 gap-4">
-                <motion.div 
+        <main className="pt-24 px-5 space-y-6 max-w-lg mx-auto">
+
+            {/* Stats Row - Three Cards */}
+            <section className="grid grid-cols-3 gap-3">
+                <motion.div
                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-                    className="bg-glass-gradient border border-white/5 p-5 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group"
+                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group"
                 >
-                    <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <span className="text-arc-muted text-[10px] font-bold uppercase tracking-widest mb-1">Streak</span>
-                    <span className="text-4xl font-black font-mono tracking-tighter">{streak}</span>
-                    <span className="text-[10px] text-green-500 font-bold tracking-wider mt-1">DAYS ACTIVE</span>
+                    <div className="absolute inset-0 bg-gradient-to-br from-arc-accent/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Streak</span>
+                    <span className="text-3xl font-black font-mono tracking-tighter">{streak}</span>
+                    <span className="text-[9px] text-emerald-400 font-bold tracking-wider mt-0.5">DAYS</span>
                 </motion.div>
-                
-                <motion.div 
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-                    className="bg-glass-gradient border border-white/5 p-5 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden"
+
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden"
                 >
-                     <div className="absolute top-0 right-0 w-16 h-16 bg-arc-accent/10 blur-2xl rounded-full" />
-                    <span className="text-arc-muted text-[10px] font-bold uppercase tracking-widest mb-1">Today</span>
-                    <div className="flex items-baseline gap-1 text-arc-accent">
-                        <span className="text-lg font-bold">+</span>
-                        <span className="text-4xl font-black font-mono tracking-tighter">{logs.reduce((acc, curr) => acc + curr.points, 0)}</span>
+                    <div className="absolute top-0 right-0 w-12 h-12 bg-arc-accent/5 blur-2xl rounded-full" />
+                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Today</span>
+                    <div className="flex items-baseline gap-0.5 text-arc-accent">
+                        <span className="text-sm font-bold">+</span>
+                        <span className="text-3xl font-black font-mono tracking-tighter">{todayPoints}</span>
                     </div>
-                    <span className="text-[10px] text-arc-muted font-bold tracking-wider mt-1">EARNED</span>
+                    <span className="text-[9px] text-arc-muted font-bold tracking-wider mt-0.5">PTS</span>
+                </motion.div>
+
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden"
+                >
+                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Sets</span>
+                    <span className="text-3xl font-black font-mono tracking-tighter">{todaySets}</span>
+                    <span className="text-[9px] text-arc-cyan font-bold tracking-wider mt-0.5 flex items-center gap-0.5">
+                        {todayPBs > 0 && <><TrophyIcon /> {todayPBs} PB{todayPBs > 1 ? 's' : ''}</>}
+                        {todayPBs === 0 && 'LOGGED'}
+                    </span>
                 </motion.div>
             </section>
 
-            {/* Logger Input */}
-            <motion.section 
-                initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 }}
-                className="bg-arc-card border border-white/5 p-1 rounded-[2rem] shadow-2xl relative"
+            {/* Logger Input - Main Card */}
+            <motion.section
+                initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.25 }}
+                className="relative"
             >
-                <div className="bg-arc-bg rounded-[1.8rem] p-6 space-y-6 border border-white/5 relative z-10">
-                    
-                    <div className="flex justify-between items-center">
-                        <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Select Movement</label>
-                        <div className="flex gap-3">
-                            <button onClick={() => setShowVoiceInput(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest hover:text-white transition-colors flex items-center gap-1">
-                                <MicIcon /> Voice
-                            </button>
-                            <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest hover:text-white transition-colors">
-                                + Create New
-                            </button>
-                        </div>
-                    </div>
+                {/* Outer glow */}
+                <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-accent/20 via-arc-cyan/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
 
-                    <div className="relative">
-                        <select 
-                            value={selectedExId} 
-                            onChange={(e) => setSelectedExId(e.target.value)} 
-                            className="w-full bg-arc-surface border border-white/5 text-white p-4 rounded-xl font-bold appearance-none outline-none focus:border-arc-accent/50 transition-colors"
+                <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
+                    {/* Subtle top gradient line */}
+                    <div className="h-[2px] bg-accent-gradient-r" />
+
+                    <div className="p-6 space-y-5">
+
+                        {/* Exercise Selection Header */}
+                        <div className="flex justify-between items-center">
+                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Movement</label>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                    <VoiceMemoIcon /> Memo
+                                </button>
+                                <button onClick={() => setShowVoiceInput(true)} className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                    <MicIcon /> Voice
+                                </button>
+                                <button onClick={() => setIsAdding(true)} className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
+                                    + New
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Exercise Dropdown */}
+                        <div className="relative">
+                            <select
+                                value={selectedExId}
+                                onChange={(e) => setSelectedExId(e.target.value)}
+                                className="w-full bg-arc-surface border border-white/[0.06] text-white p-4 rounded-xl font-bold appearance-none outline-none focus:border-arc-accent/40 transition-colors"
+                            >
+                                {exercises.map(ex => (
+                                    <option key={ex.id} value={ex.id}>{ex.name}</option>
+                                ))}
+                            </select>
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-arc-muted">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                            </div>
+                        </div>
+
+                        {/* Personal Best Display */}
+                        <div className="flex items-center justify-between px-1">
+                             <span className="text-[10px] text-arc-muted font-medium uppercase tracking-wider">Personal Best</span>
+                             <div className="flex items-center gap-1.5">
+                                {currentPB > 0 && <TrophyIcon />}
+                                <span className="font-mono font-bold text-arc-accent text-lg">{currentPB} <span className="text-xs text-arc-muted">{unitLabelLower}</span></span>
+                             </div>
+                        </div>
+
+                        {/* Main Value Input */}
+                        <div className="relative group">
+                             <input
+                                type="number"
+                                value={value}
+                                onChange={(e) => setValue(e.target.value)}
+                                placeholder="0.0"
+                                step={isTimeExercise ? '0.1' : '0.5'}
+                                min="0"
+                                className="w-full bg-transparent border-b-2 border-white/[0.08] text-center font-mono text-5xl font-black text-white py-4 outline-none focus:border-arc-accent/60 transition-colors placeholder-white/[0.04]"
+                             />
+                             <span className="absolute right-0 bottom-6 text-arc-muted font-bold text-sm">{unitLabel}</span>
+                             {/* Glow line under input on focus */}
+                             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 group-focus-within:w-full h-[2px] bg-accent-gradient transition-all duration-300" />
+                        </div>
+
+                        {/* Reps / Sets / RPE Row */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">Reps</label>
+                                <input
+                                    type="number" value={reps} onChange={(e) => setReps(e.target.value)}
+                                    placeholder="—" min="1"
+                                    className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono text-lg font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40 transition-colors placeholder-white/10"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">Sets</label>
+                                <input
+                                    type="number" value={sets} onChange={(e) => setSets(e.target.value)}
+                                    placeholder="—" min="1"
+                                    className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono text-lg font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40 transition-colors placeholder-white/10"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">RPE</label>
+                                <input
+                                    type="number" value={rpe} onChange={(e) => setRpe(e.target.value)}
+                                    placeholder="—" min="1" max="10"
+                                    className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono text-lg font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40 transition-colors placeholder-white/10"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Log Button */}
+                        <motion.button
+                            whileTap={{ scale: 0.98 }}
+                            onClick={handleLog}
+                            disabled={!value || isLogging}
+                            className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow-accent text-lg disabled:opacity-40 disabled:shadow-none transition-all flex items-center justify-center gap-2"
                         >
-                            {exercises.map(ex => (
-                                <option key={ex.id} value={ex.id}>{ex.name}</option>
-                            ))}
-                        </select>
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-arc-muted">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
-                        </div>
+                            {isLogging ? (
+                              <>
+                                <motion.div
+                                  animate={{ rotate: 360 }}
+                                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                  className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                                />
+                                <span>LOGGING...</span>
+                              </>
+                            ) : (
+                              'LOG SET'
+                            )}
+                        </motion.button>
                     </div>
-
-                    <div className="flex items-center justify-between px-2">
-                         <span className="text-xs text-arc-muted font-medium">Personal Best</span>
-                         <span className="font-mono font-bold text-arc-accent text-lg">{currentPB} <span className="text-xs text-arc-muted">{unitLabelLower}</span></span>
-                    </div>
-
-                    <div className="relative group">
-                         <input
-                            type="number"
-                            value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            placeholder="0.0"
-                            step={isTimeExercise ? '0.1' : '0.5'}
-                            min="0"
-                            className="w-full bg-transparent border-b-2 border-white/10 text-center font-mono text-5xl font-black text-white py-4 outline-none focus:border-arc-accent transition-colors placeholder-white/5"
-                        />
-                        <span className="absolute right-0 bottom-6 text-arc-muted font-bold text-sm">{unitLabel}</span>
-                    </div>
-
-                    {/* Reps / Sets / RPE Row */}
-                    <div className="grid grid-cols-3 gap-3">
-                        <div>
-                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-widest mb-1 block text-center">Reps</label>
-                            <input
-                                type="number" value={reps} onChange={(e) => setReps(e.target.value)}
-                                placeholder="—" min="1"
-                                className="w-full bg-arc-surface border border-white/5 text-center font-mono text-lg font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/50 transition-colors placeholder-white/10"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-widest mb-1 block text-center">Sets</label>
-                            <input
-                                type="number" value={sets} onChange={(e) => setSets(e.target.value)}
-                                placeholder="—" min="1"
-                                className="w-full bg-arc-surface border border-white/5 text-center font-mono text-lg font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/50 transition-colors placeholder-white/10"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-widest mb-1 block text-center">RPE</label>
-                            <input
-                                type="number" value={rpe} onChange={(e) => setRpe(e.target.value)}
-                                placeholder="—" min="1" max="10"
-                                className="w-full bg-arc-surface border border-white/5 text-center font-mono text-lg font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/50 transition-colors placeholder-white/10"
-                            />
-                        </div>
-                    </div>
-
-                    <motion.button
-                        whileTap={{ scale: 0.98 }}
-                        onClick={handleLog}
-                        disabled={!value || isLogging}
-                        className="w-full bg-arc-accent text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow text-lg disabled:opacity-50 disabled:shadow-none transition-all hover:bg-[#ff5522] flex items-center justify-center gap-2"
-                    >
-                        {isLogging ? (
-                          <>
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                              className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                            />
-                            <span>LOGGING...</span>
-                          </>
-                        ) : (
-                          'LOG SET'
-                        )}
-                    </motion.button>
                 </div>
-                
-                {/* Glow behind card */}
-                <div className="absolute -inset-1 bg-gradient-to-b from-arc-accent/20 to-transparent blur-xl opacity-30 rounded-[2rem] -z-10" />
             </motion.section>
 
             {/* Recent Activity Feed */}
             <section className="space-y-4">
-                 <div className="flex justify-between items-center px-2">
-                     <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Recent Activity</h3>
+                 <div className="flex justify-between items-center px-1">
+                     <h3 className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Recent Activity</h3>
                      {logs.length > 0 && (
                          <button
                              onClick={() => setShowWorkoutArt(true)}
-                             className="text-[10px] font-bold text-arc-accent uppercase tracking-widest hover:text-white transition-colors flex items-center gap-1"
+                             className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1"
                          >
                              <ImageIcon /> Create Art
                          </button>
                      )}
                  </div>
-                 <div className="space-y-3 pb-10">
+                 <div className="space-y-2.5 pb-10">
                     <AnimatePresence initial={false}>
-                        {logs.map((log) => (
+                        {logs.map((log, index) => (
                             <motion.div
                                 key={log.id}
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, height: 0 }}
-                                className={`bg-arc-surface/50 border ${log.isPB ? 'border-arc-accent/50 shadow-glow' : 'border-white/5'} p-4 rounded-xl flex justify-between items-center backdrop-blur-md`}
+                                transition={{ delay: index * 0.03 }}
+                                className={`bg-arc-card/60 border ${log.isPB ? 'border-arc-accent/30 shadow-glow' : 'border-white/[0.04]'} p-4 rounded-xl flex justify-between items-center backdrop-blur-sm`}
                             >
-                                <div>
+                                <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="font-bold text-sm text-white">{log.name}</span>
-                                        {log.isPB && <span className="text-[9px] bg-arc-accent text-black px-1.5 py-0.5 rounded font-black tracking-tighter uppercase">NEW PB</span>}
+                                        {log.isPB && (
+                                            <span className="text-[8px] bg-accent-gradient text-arc-bg px-2 py-0.5 rounded-md font-black tracking-tight uppercase">
+                                                NEW PB
+                                            </span>
+                                        )}
+                                        {log.voiceMemoUrl && (
+                                            <span className="text-arc-cyan">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/></svg>
+                                            </span>
+                                        )}
                                     </div>
-                                    <div className="text-[11px] text-arc-muted font-mono">
-                                        {log.time} • <span className="text-white">{log.val}</span>
-                                        <span className="text-arc-muted ml-1">{log.metricType === 'time' ? 'min' : 'kg'}</span>
+                                    <div className="text-[10px] text-arc-muted font-mono">
+                                        {log.time} • <span className="text-white/80">{log.val}</span>
+                                        <span className="text-arc-muted ml-0.5">{log.metricType === 'time' ? 'min' : 'kg'}</span>
                                     </div>
                                 </div>
-                                <div className="font-mono text-arc-accent font-bold text-sm bg-arc-accent/10 px-2 py-1 rounded">+{log.points}</div>
+                                <div className="font-mono text-arc-accent font-bold text-sm bg-arc-accent/10 px-2.5 py-1 rounded-lg">+{log.points}</div>
                             </motion.div>
                         ))}
                     </AnimatePresence>
@@ -632,24 +703,24 @@ export default function Train() {
         <AnimatePresence>
             {isAdding && (
                 <>
-                    <motion.div 
+                    <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                         onClick={() => setIsAdding(false)}
                         className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
                     />
-                    <motion.div 
+                    <motion.div
                         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
                         transition={{ type: "spring", damping: 25, stiffness: 300 }}
                         className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
                     >
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
                         <h2 className="text-xl font-black italic tracking-tighter text-center">NEW MOVEMENT</h2>
-                        
+
                         <div className="space-y-4">
                             <div>
-                                <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Name</label>
-                                <input 
-                                    type="text" 
+                                <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Name</label>
+                                <input
+                                    type="text"
                                     value={newExName}
                                     onChange={(e) => setNewExName(e.target.value)}
                                     placeholder="e.g. Incline Dumbbell Press"
@@ -657,19 +728,19 @@ export default function Train() {
                                     autoFocus
                                 />
                             </div>
-                            
+
                             <div>
-                                <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Metric</label>
+                                <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Metric</label>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button 
+                                    <button
                                         onClick={() => setNewExType('weight')}
-                                        className={`p-4 rounded-xl font-bold text-sm transition-all ${newExType === 'weight' ? 'bg-white text-black' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                                        className={`p-4 rounded-xl font-bold text-sm transition-all ${newExType === 'weight' ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
                                     >
                                         Weight (KG)
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => setNewExType('time')}
-                                        className={`p-4 rounded-xl font-bold text-sm transition-all ${newExType === 'time' ? 'bg-white text-black' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                                        className={`p-4 rounded-xl font-bold text-sm transition-all ${newExType === 'time' ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
                                     >
                                         Time (Min)
                                     </button>
@@ -677,9 +748,9 @@ export default function Train() {
                             </div>
                         </div>
 
-                        <button 
+                        <button
                             onClick={createExercise}
-                            className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                            className="w-full bg-accent-gradient text-white font-bold py-4 rounded-xl text-lg shadow-glow-accent active:scale-95 transition-transform"
                         >
                             CREATE EXERCISE
                         </button>
@@ -695,6 +766,18 @@ export default function Train() {
                     exercises={exercises}
                     onResult={handleVoiceResult}
                     onClose={() => setShowVoiceInput(false)}
+                />
+            )}
+        </AnimatePresence>
+
+        {/* Voice Memo Modal */}
+        <AnimatePresence>
+            {showVoiceMemo && (
+                <VoiceMemo
+                    exercises={exercises}
+                    selectedExercise={currentExercise}
+                    onSaved={handleVoiceMemoSaved}
+                    onClose={() => setShowVoiceMemo(false)}
                 />
             )}
         </AnimatePresence>

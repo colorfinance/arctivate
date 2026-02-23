@@ -366,7 +366,7 @@ export default function CheckIn() {
           particleCount: 150,
           spread: 100,
           origin: { y: 0.6 },
-          colors: ['#FF4500', '#FFD700', '#ffffff']
+          colors: ['#00D4AA', '#06B6D4', '#ffffff']
         })
 
         loadData()
@@ -391,7 +391,7 @@ export default function CheckIn() {
           particleCount: 150,
           spread: 100,
           origin: { y: 0.6 },
-          colors: ['#FF4500', '#FFD700', '#ffffff']
+          colors: ['#00D4AA', '#06B6D4', '#ffffff']
         })
 
         loadData()
@@ -494,7 +494,7 @@ export default function CheckIn() {
             </h1>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Points</span>
-              <span className="text-lg font-black font-mono text-arc-orange">{totalPoints.toLocaleString()}</span>
+              <span className="text-lg font-black font-mono text-arc-accent">{totalPoints.toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -537,14 +537,14 @@ export default function CheckIn() {
                   {/* Scanner Overlay */}
                   {isScanning && (
                     <div className="absolute inset-0 pointer-events-none">
-                      <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-arc-orange rounded-tl-lg" />
-                      <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-arc-orange rounded-tr-lg" />
-                      <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-arc-orange rounded-bl-lg" />
-                      <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-arc-orange rounded-br-lg" />
+                      <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-arc-accent rounded-tl-lg" />
+                      <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-arc-accent rounded-tr-lg" />
+                      <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-arc-accent rounded-bl-lg" />
+                      <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-arc-accent rounded-br-lg" />
                       <motion.div
                         animate={{ top: ['15%', '85%', '15%'] }}
                         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                        className="absolute left-8 right-8 h-0.5 bg-gradient-to-r from-transparent via-arc-orange to-transparent"
+                        className="absolute left-8 right-8 h-0.5 bg-gradient-to-r from-transparent via-arc-accent to-transparent"
                       />
                     </div>
                   )}
@@ -556,7 +556,7 @@ export default function CheckIn() {
                         <motion.div
                           animate={{ rotate: 360 }}
                           transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                          className="w-12 h-12 border-4 border-arc-orange/30 border-t-arc-orange rounded-full mx-auto mb-4"
+                          className="w-12 h-12 border-4 border-arc-accent/30 border-t-arc-accent rounded-full mx-auto mb-4"
                         />
                         <p className="text-white font-bold">Checking in...</p>
                       </div>
@@ -575,7 +575,7 @@ export default function CheckIn() {
                           initial={{ scale: 0 }}
                           animate={{ scale: 1 }}
                           transition={{ type: 'spring', damping: 10 }}
-                          className="inline-flex items-center justify-center w-24 h-24 bg-arc-orange/20 rounded-full mb-6 text-arc-orange"
+                          className="inline-flex items-center justify-center w-24 h-24 bg-arc-accent/20 rounded-full mb-6 text-arc-accent"
                         >
                           <GiftIcon />
                         </motion.div>
@@ -587,7 +587,7 @@ export default function CheckIn() {
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
                             transition={{ delay: 0.2, type: 'spring' }}
-                            className="text-5xl font-black font-mono text-arc-orange mb-4"
+                            className="text-5xl font-black font-mono text-arc-accent mb-4"
                           >
                             +{scanResult.points_awarded}
                           </motion.div>
@@ -603,7 +603,7 @@ export default function CheckIn() {
                         )}
                         <button
                           onClick={() => setScanResult(null)}
-                          className="mt-6 w-full bg-arc-orange text-white font-bold py-4 rounded-xl"
+                          className="mt-6 w-full bg-arc-accent text-white font-bold py-4 rounded-xl"
                         >
                           AWESOME!
                         </button>
@@ -665,7 +665,7 @@ export default function CheckIn() {
                         <div className="font-bold text-white">{checkIn.partners?.name || 'Unknown'}</div>
                         <div className="text-xs text-arc-muted">{formatDate(checkIn.checked_in_at)}</div>
                       </div>
-                      <div className="text-arc-orange font-bold">+{checkIn.awarded_points}</div>
+                      <div className="text-arc-accent font-bold">+{checkIn.awarded_points}</div>
                     </div>
                   ))}
                 </div>
@@ -678,7 +678,7 @@ export default function CheckIn() {
         {activeTab === 'businesses' && (
           <section className="space-y-6">
             {/* List Your Business CTA */}
-            <div className="bg-gradient-to-br from-arc-accent/20 to-arc-orange/10 border border-arc-accent/30 rounded-2xl p-5">
+            <div className="bg-gradient-to-br from-arc-accent/20 to-arc-cyan/10 border border-arc-accent/30 rounded-2xl p-5">
               <div className="flex items-start gap-4">
                 <div className="p-3 bg-arc-accent/20 rounded-xl shrink-0">
                   <StoreIcon />
@@ -713,7 +713,7 @@ export default function CheckIn() {
                           <div className="font-bold text-white">{biz.name}</div>
                           {biz.discount_text && <div className="text-sm text-green-400 mt-0.5">{biz.discount_text}</div>}
                           <div className="flex items-center gap-3 mt-2 text-xs">
-                            <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS per scan</span>
+                            <span className="text-arc-accent font-bold">{biz.points_value || 150} PTS per scan</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -766,7 +766,7 @@ export default function CheckIn() {
                           )}
                           {biz.description && <div className="text-xs text-arc-muted mt-1">{biz.description}</div>}
                           <div className="flex items-center gap-3 mt-2 text-xs">
-                            <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS</span>
+                            <span className="text-arc-accent font-bold">{biz.points_value || 150} PTS</span>
                             <span className="text-arc-muted">per check-in</span>
                           </div>
                         </div>
@@ -814,7 +814,7 @@ export default function CheckIn() {
                           <div className="font-mono font-bold text-white text-lg">{code.code}</div>
                           {code.name && <div className="text-sm text-arc-muted">{code.name}</div>}
                           <div className="flex items-center gap-3 mt-2 text-xs">
-                            <span className="text-arc-orange font-bold">{code.points_value} PTS</span>
+                            <span className="text-arc-accent font-bold">{code.points_value} PTS</span>
                             <span className={code.is_used ? 'text-red-400' : 'text-green-400'}>
                               {code.is_used ? 'Used' : 'Active'}
                             </span>
@@ -848,7 +848,7 @@ export default function CheckIn() {
                           {biz.discount_text && <div className="text-sm text-green-400 mt-0.5">{biz.discount_text}</div>}
                           {biz.description && <div className="text-xs text-arc-muted mt-1">{biz.description}</div>}
                           <div className="flex items-center gap-3 mt-2 text-xs">
-                            <span className="text-arc-orange font-bold">{biz.points_value || 150} PTS</span>
+                            <span className="text-arc-accent font-bold">{biz.points_value || 150} PTS</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">

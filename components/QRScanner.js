@@ -129,7 +129,7 @@ export default function QRScanner({ onPointsEarned }) {
           particleCount: 150,
           spread: 100,
           origin: { y: 0.6 },
-          colors: ['#FF4500', '#FFD700', '#ffffff']
+          colors: ['#00D4AA', '#06B6D4', '#ffffff']
         })
 
         // Notify parent about points earned
@@ -165,7 +165,7 @@ export default function QRScanner({ onPointsEarned }) {
       {/* QR Scanner Button */}
       <button
         onClick={handleOpen}
-        className="flex items-center gap-2 text-[10px] font-bold text-arc-orange uppercase tracking-widest border border-arc-orange/30 px-3 py-1.5 rounded-full hover:bg-arc-orange hover:text-white transition-colors"
+        className="flex items-center gap-2 text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors"
       >
         <QRIcon />
         <span>Scan</span>
@@ -218,7 +218,7 @@ export default function QRScanner({ onPointsEarned }) {
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={{ type: 'spring', damping: 10 }}
-                      className="inline-flex items-center justify-center w-24 h-24 bg-arc-orange/20 rounded-full mb-6"
+                      className="inline-flex items-center justify-center w-24 h-24 bg-arc-accent/20 rounded-full mb-6"
                     >
                       <GiftIcon />
                     </motion.div>
@@ -232,7 +232,7 @@ export default function QRScanner({ onPointsEarned }) {
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring', damping: 12 }}
-                        className="text-5xl font-black font-mono text-arc-orange mb-4"
+                        className="text-5xl font-black font-mono text-arc-accent mb-4"
                       >
                         +{scanResult.points_awarded}
                       </motion.div>
@@ -244,7 +244,7 @@ export default function QRScanner({ onPointsEarned }) {
 
                     <button
                       onClick={handleClose}
-                      className="mt-8 w-full bg-arc-orange text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(255,69,0,0.3)] hover:bg-[#ff5500] transition-all"
+                      className="mt-8 w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow-accent hover:brightness-110 transition-all"
                     >
                       AWESOME!
                     </button>
@@ -284,16 +284,16 @@ export default function QRScanner({ onPointsEarned }) {
                       {isScanning && (
                         <div className="absolute inset-0 pointer-events-none">
                           {/* Corner brackets */}
-                          <div className="absolute top-4 left-4 w-12 h-12 border-l-4 border-t-4 border-arc-orange rounded-tl-lg" />
-                          <div className="absolute top-4 right-4 w-12 h-12 border-r-4 border-t-4 border-arc-orange rounded-tr-lg" />
-                          <div className="absolute bottom-4 left-4 w-12 h-12 border-l-4 border-b-4 border-arc-orange rounded-bl-lg" />
-                          <div className="absolute bottom-4 right-4 w-12 h-12 border-r-4 border-b-4 border-arc-orange rounded-br-lg" />
+                          <div className="absolute top-4 left-4 w-12 h-12 border-l-4 border-t-4 border-arc-accent rounded-tl-lg" />
+                          <div className="absolute top-4 right-4 w-12 h-12 border-r-4 border-t-4 border-arc-accent rounded-tr-lg" />
+                          <div className="absolute bottom-4 left-4 w-12 h-12 border-l-4 border-b-4 border-arc-accent rounded-bl-lg" />
+                          <div className="absolute bottom-4 right-4 w-12 h-12 border-r-4 border-b-4 border-arc-accent rounded-br-lg" />
 
                           {/* Scanning line animation */}
                           <motion.div
                             animate={{ top: ['10%', '90%', '10%'] }}
                             transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                            className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-arc-orange to-transparent"
+                            className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-arc-accent to-transparent"
                           />
                         </div>
                       )}
@@ -305,7 +305,7 @@ export default function QRScanner({ onPointsEarned }) {
                             <motion.div
                               animate={{ rotate: 360 }}
                               transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                              className="w-12 h-12 border-4 border-arc-orange/30 border-t-arc-orange rounded-full mx-auto mb-4"
+                              className="w-12 h-12 border-4 border-arc-accent/30 border-t-arc-accent rounded-full mx-auto mb-4"
                             />
                             <p className="text-white font-bold">Redeeming...</p>
                           </div>

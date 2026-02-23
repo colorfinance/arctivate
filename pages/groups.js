@@ -363,7 +363,7 @@ export default function Groups() {
                 <div className="space-y-2">
                   {groupMembers.map(m => (
                     <div key={m.id} className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-arc-surface flex items-center justify-center text-xs font-bold text-arc-orange overflow-hidden">
+                      <div className="w-8 h-8 rounded-full bg-arc-surface flex items-center justify-center text-xs font-bold text-arc-accent overflow-hidden">
                         {m.profiles?.avatar_url ? (
                           <img src={m.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
                         ) : (
@@ -372,7 +372,7 @@ export default function Groups() {
                       </div>
                       <span className="text-sm font-medium flex-1">{m.profiles?.username || 'Unknown'}</span>
                       {m.role === 'owner' && (
-                        <span className="text-[10px] font-bold text-arc-orange bg-arc-orange/10 px-2 py-0.5 rounded-full">Owner</span>
+                        <span className="text-[10px] font-bold text-arc-accent bg-arc-accent/10 px-2 py-0.5 rounded-full">Owner</span>
                       )}
                       {m.role === 'admin' && (
                         <span className="text-[10px] font-bold text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">Admin</span>
@@ -513,7 +513,7 @@ export default function Groups() {
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              className="w-8 h-8 border-2 border-arc-orange/30 border-t-arc-orange rounded-full"
+              className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full"
             />
           </div>
         ) : groups.length === 0 ? (
@@ -671,7 +671,7 @@ function GroupCard({ group, isMember, onJoin, onLeave, onChat }) {
       <div className="flex items-start gap-4">
         <div
           onClick={isMember && onChat ? onChat : undefined}
-          className={`w-12 h-12 bg-arc-surface rounded-xl flex items-center justify-center text-arc-orange font-bold text-lg shrink-0 ${isMember ? 'cursor-pointer hover:bg-arc-surface/80' : ''}`}
+          className={`w-12 h-12 bg-arc-surface rounded-xl flex items-center justify-center text-arc-accent font-bold text-lg shrink-0 ${isMember ? 'cursor-pointer hover:bg-arc-surface/80' : ''}`}
         >
           {group.name[0]?.toUpperCase()}
         </div>

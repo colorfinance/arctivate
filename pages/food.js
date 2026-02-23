@@ -631,7 +631,7 @@ export default function Food() {
                 <motion.div
                   animate={{ top: ['10%', '90%', '10%'] }}
                   transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#ff4d00] z-10"
+                  className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#00D4AA] z-10"
                 />
               )}
 
@@ -671,7 +671,7 @@ export default function Food() {
               <button
                 onClick={capturePhoto}
                 disabled={scanning}
-                className="bg-white w-16 h-16 rounded-full border-4 border-arc-accent flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.4)] active:scale-95 transition"
+                className="bg-white w-16 h-16 rounded-full border-4 border-arc-accent flex items-center justify-center shadow-[0_0_20px_rgba(0,212,170,0.3)] active:scale-95 transition"
               >
                 <div className="w-10 h-10 rounded-full bg-arc-accent" />
               </button>
@@ -682,7 +682,7 @@ export default function Food() {
                   startCamera()
                 }}
                 disabled={scanning}
-                className={`bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(255,77,0,0.4)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
+                className={`bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(0,212,170,0.3)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
               >
                 {scanning ? (
                   <motion.div
@@ -741,7 +741,7 @@ export default function Food() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-black text-arc-orange">{log.calories} cal</span>
+                    <span className="text-sm font-black text-arc-cyan">{log.calories} cal</span>
                     <button
                       onClick={() => shareToFeed({ name: log.item_name, cals: log.calories, p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 })}
                       className="text-white/20 hover:text-arc-accent transition-colors p-1"
@@ -818,7 +818,7 @@ export default function Food() {
               <button
                 onClick={addToLog}
                 disabled={isLogging}
-                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-lg shadow-orange-900/20 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-lg shadow-black/20 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isLogging ? (
                   <>

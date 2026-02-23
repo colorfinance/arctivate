@@ -32,17 +32,19 @@ function renderWorkoutArt(canvas, workoutData, style) {
 
   const styles = {
     dark: {
-      bg: '#050505',
-      card: '#121214',
-      accent: '#FF3B00',
+      bg: '#030808',
+      card: '#0A1414',
+      accent: '#00D4AA',
+      accentAlt: '#06B6D4',
       text: '#FFFFFF',
-      muted: '#71717A',
-      surface: '#1E1E22',
+      muted: '#5E7D7D',
+      surface: '#132020',
     },
     fire: {
       bg: '#0A0000',
       card: '#1A0505',
       accent: '#FF6B35',
+      accentAlt: '#FF3B00',
       text: '#FFFFFF',
       muted: '#8B6B5A',
       surface: '#1F0E0A',
@@ -51,6 +53,7 @@ function renderWorkoutArt(canvas, workoutData, style) {
       bg: '#000510',
       card: '#050E1A',
       accent: '#00B4D8',
+      accentAlt: '#0EA5E9',
       text: '#FFFFFF',
       muted: '#5A7B8B',
       surface: '#0A1520',
@@ -105,7 +108,7 @@ function renderWorkoutArt(canvas, workoutData, style) {
   const glowGrad = ctx.createLinearGradient(40, statsY, W - 40, statsY)
   glowGrad.addColorStop(0, s.accent + '10')
   glowGrad.addColorStop(0.5, s.accent + '20')
-  glowGrad.addColorStop(1, s.accent + '10')
+  glowGrad.addColorStop(1, s.accentAlt + '10')
   ctx.fillStyle = glowGrad
   roundRect(ctx, 40, statsY, W - 80, 180, 24)
   ctx.fill()
@@ -162,7 +165,6 @@ function renderWorkoutArt(canvas, workoutData, style) {
   exercises.slice(0, maxExercises).forEach((ex, i) => {
     const y = listY + 55 + i * rowHeight
 
-    // Separator
     if (i > 0) {
       ctx.strokeStyle = 'rgba(255,255,255,0.05)'
       ctx.lineWidth = 1
@@ -172,13 +174,11 @@ function renderWorkoutArt(canvas, workoutData, style) {
       ctx.stroke()
     }
 
-    // Exercise name
     ctx.font = '700 22px Inter, sans-serif'
     ctx.fillStyle = s.text
     ctx.textAlign = 'left'
     ctx.fillText(truncateText(ctx, ex.name, 500), 80, y + 10)
 
-    // PB badge
     if (ex.isPB) {
       const nameWidth = ctx.measureText(truncateText(ctx, ex.name, 500)).width
       ctx.fillStyle = s.accent
@@ -189,14 +189,12 @@ function renderWorkoutArt(canvas, workoutData, style) {
       ctx.fillText('NEW PB', 95 + nameWidth, y + 10)
     }
 
-    // Stats
     ctx.textAlign = 'right'
     ctx.font = '700 22px "JetBrains Mono", monospace'
     ctx.fillStyle = s.accent
     const unit = ex.metricType === 'time' ? 'min' : 'kg'
     ctx.fillText(`${ex.value}${unit}`, W - 80, y + 10)
 
-    // Reps/Sets
     if (ex.reps || ex.sets) {
       ctx.font = '600 14px Inter, sans-serif'
       ctx.fillStyle = s.muted
@@ -292,7 +290,7 @@ export default function WorkoutArt({ workoutData, onClose }) {
   const [isRendered, setIsRendered] = useState(false)
 
   const styleOptions = [
-    { key: 'dark', label: 'DARK', color: '#FF3B00' },
+    { key: 'dark', label: 'TEAL', color: '#00D4AA' },
     { key: 'fire', label: 'FIRE', color: '#FF6B35' },
     { key: 'ice', label: 'ICE', color: '#00B4D8' },
   ]
@@ -326,7 +324,6 @@ export default function WorkoutArt({ workoutData, onClose }) {
           text: 'Check out my workout session!'
         })
       } else {
-        // Fallback: download
         downloadImage()
       }
     } catch (err) {
@@ -352,9 +349,8 @@ export default function WorkoutArt({ workoutData, onClose }) {
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.9, opacity: 0, y: 20 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="relative w-full max-w-sm bg-arc-card border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
+        className="relative w-full max-w-sm bg-arc-card border border-white/[0.06] rounded-3xl overflow-hidden shadow-2xl"
       >
-        {/* Close */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 z-10 p-2 text-arc-muted hover:text-white transition-colors"
@@ -362,15 +358,13 @@ export default function WorkoutArt({ workoutData, onClose }) {
           <CloseIcon />
         </button>
 
-        {/* Header */}
         <div className="p-5 pb-3">
           <h2 className="text-lg font-black italic tracking-tight text-center">SHARE YOUR SESSION</h2>
-          <p className="text-[10px] text-arc-muted text-center mt-1 uppercase tracking-widest">Export for social media</p>
+          <p className="text-[9px] text-arc-muted text-center mt-1 uppercase tracking-[0.2em]">Export for social media</p>
         </div>
 
-        {/* Canvas Preview */}
         <div className="px-4 pb-3">
-          <div className="relative rounded-2xl overflow-hidden border border-white/10">
+          <div className="relative rounded-2xl overflow-hidden border border-white/[0.06]">
             <canvas
               ref={canvasRef}
               className="w-full h-auto"
@@ -388,9 +382,8 @@ export default function WorkoutArt({ workoutData, onClose }) {
           </div>
         </div>
 
-        {/* Style Picker */}
         <div className="px-4 pb-3">
-          <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Style</span>
+          <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Style</span>
           <div className="flex gap-2">
             {styleOptions.map(opt => (
               <button
@@ -409,11 +402,10 @@ export default function WorkoutArt({ workoutData, onClose }) {
           </div>
         </div>
 
-        {/* Actions */}
         <div className="p-4 pt-2 space-y-2">
           <button
             onClick={shareImage}
-            className="w-full flex items-center justify-center gap-2 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow hover:bg-[#ff5522] transition-all"
+            className="w-full flex items-center justify-center gap-2 bg-accent-gradient text-white font-bold py-4 rounded-xl shadow-glow-accent transition-all"
           >
             <ShareIcon /> Share to Instagram
           </button>
