@@ -73,6 +73,7 @@ export default function Profile() {
   const [habitsCompletedToday, setHabitsCompletedToday] = useState(0)
   const [totalHabitsToday, setTotalHabitsToday] = useState(0)
   const [dailyCalories, setDailyCalories] = useState(0)
+  const [connectedWearables, setConnectedWearables] = useState([])
 
   // Edit modal
   const [showEditModal, setShowEditModal] = useState(false)
@@ -131,6 +132,9 @@ export default function Profile() {
 
       // Fetch today's calories
       await fetchTodayCalories(user.id)
+
+      // Fetch wearable connections
+      await fetchWearableConnections()
     } catch (err) {
       console.error('Error loading profile:', err)
     } finally {
@@ -178,6 +182,21 @@ export default function Profile() {
       }
     } catch (err) {
       console.error('Error fetching calories:', err)
+    }
+  }
+
+  async function fetchWearableConnections() {
+    try {
+      const res = await fetch('/api/wearables/status')
+      if (res.ok) {
+        const data = await res.json()
+        const connected = Object.entries(data.status || {})
+          .filter(([, v]) => v.connected)
+          .map(([k]) => k)
+        setConnectedWearables(connected)
+      }
+    } catch (err) {
+      console.error('Error fetching wearable status:', err)
     }
   }
 
@@ -441,6 +460,38 @@ export default function Profile() {
           <div className="flex justify-between mt-2">
             <span className="text-xs text-arc-muted">{dailyCalories} cal consumed</span>
             <span className="text-xs text-arc-muted">{Math.max(0, calorieGoal - dailyCalories)} cal remaining</span>
+          </div>
+        </motion.div>
+
+        {/* Wearable Connections */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-arc-card border border-white/5 rounded-2xl p-5 mt-4"
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Wearable Devices</span>
+              <div className="flex gap-2 mt-2">
+                {connectedWearables.length > 0 ? (
+                  connectedWearables.map(p => (
+                    <span key={p} className="inline-flex items-center gap-1 text-xs">
+                      <span className="w-2 h-2 rounded-full bg-green-400" />
+                      <span className="capitalize font-bold text-white">{p}</span>
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-arc-muted">No devices connected</span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => router.push('/settings/wearables')}
+              className="text-xs font-bold text-arc-accent hover:text-white transition-colors"
+            >
+              Manage
+            </button>
           </div>
         </motion.div>
 

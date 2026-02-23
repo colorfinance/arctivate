@@ -154,6 +154,22 @@ function calculateReadiness(wearableData, workoutLogs) {
       const qualityScore = qualityMap[wearableData.sleep_quality] || 5
       score = score - 15 + sleepBase + qualityScore
     }
+
+    // Stress score component: Lower stress = better recovery (Garmin)
+    if (wearableData.stress_score) {
+      const stressBonus = wearableData.stress_score < 30 ? 5
+        : wearableData.stress_score < 50 ? 2
+        : wearableData.stress_score > 70 ? -5 : 0
+      score += stressBonus
+    }
+
+    // Body Battery component (Garmin): Higher = better readiness
+    if (wearableData.body_battery) {
+      const batteryBonus = wearableData.body_battery > 75 ? 5
+        : wearableData.body_battery > 50 ? 2
+        : wearableData.body_battery < 25 ? -5 : 0
+      score += batteryBonus
+    }
   }
 
   // Training load component: Recent volume reduces readiness
@@ -299,10 +315,22 @@ export default function Coach() {
         rhr: wearableData.rhr,
         sleepHours: wearableData.sleep_hours,
         sleepQuality: wearableData.sleep_quality,
+        sleepDeep: wearableData.sleep_deep_hours,
+        sleepLight: wearableData.sleep_light_hours,
+        sleepRem: wearableData.sleep_rem_hours,
+        steps: wearableData.steps,
+        caloriesBurned: wearableData.calories_burned,
+        stressScore: wearableData.stress_score,
+        bodyBattery: wearableData.body_battery,
+        spo2: wearableData.spo2,
+        activeMinutes: wearableData.active_minutes,
+        source: wearableData.source,
         date: wearableData.logged_at
       } : null,
       wearableTrend: wearableHistory.slice(0, 7).map(w => ({
-        hrv: w.hrv, rhr: w.rhr, sleep: w.sleep_hours, date: w.logged_at
+        hrv: w.hrv, rhr: w.rhr, sleep: w.sleep_hours,
+        steps: w.steps, stress: w.stress_score,
+        bodyBattery: w.body_battery, date: w.logged_at
       }))
     }
   }
@@ -528,32 +556,72 @@ export default function Coach() {
 
               {/* Wearable Metrics */}
               {wearableData ? (
-                <div className="grid grid-cols-3 gap-3 mt-4">
-                  <div className="bg-arc-surface rounded-xl p-3">
-                    <ActivityIcon />
-                    <span className="block text-lg font-black font-mono mt-1">{wearableData.hrv || '—'}</span>
-                    <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">HRV ms</span>
+                <>
+                  <div className="grid grid-cols-3 gap-3 mt-4">
+                    <div className="bg-arc-surface rounded-xl p-3">
+                      <ActivityIcon />
+                      <span className="block text-lg font-black font-mono mt-1">{wearableData.hrv || '—'}</span>
+                      <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">HRV ms</span>
+                    </div>
+                    <div className="bg-arc-surface rounded-xl p-3">
+                      <HeartIcon />
+                      <span className="block text-lg font-black font-mono mt-1">{wearableData.rhr || '—'}</span>
+                      <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">RHR bpm</span>
+                    </div>
+                    <div className="bg-arc-surface rounded-xl p-3">
+                      <MoonIcon />
+                      <span className="block text-lg font-black font-mono mt-1">{wearableData.sleep_hours || '—'}</span>
+                      <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">Sleep hrs</span>
+                    </div>
                   </div>
-                  <div className="bg-arc-surface rounded-xl p-3">
-                    <HeartIcon />
-                    <span className="block text-lg font-black font-mono mt-1">{wearableData.rhr || '—'}</span>
-                    <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">RHR bpm</span>
-                  </div>
-                  <div className="bg-arc-surface rounded-xl p-3">
-                    <MoonIcon />
-                    <span className="block text-lg font-black font-mono mt-1">{wearableData.sleep_hours || '—'}</span>
-                    <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">Sleep hrs</span>
-                  </div>
-                </div>
+                  {/* Extended metrics from wearables */}
+                  {(wearableData.steps || wearableData.stress_score || wearableData.body_battery) && (
+                    <div className="grid grid-cols-3 gap-3 mt-3">
+                      {wearableData.steps != null && (
+                        <div className="bg-arc-surface rounded-xl p-3">
+                          <span className="block text-lg font-black font-mono mt-1">{wearableData.steps?.toLocaleString() || '—'}</span>
+                          <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">Steps</span>
+                        </div>
+                      )}
+                      {wearableData.stress_score != null && (
+                        <div className="bg-arc-surface rounded-xl p-3">
+                          <span className="block text-lg font-black font-mono mt-1">{wearableData.stress_score || '—'}</span>
+                          <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">Stress</span>
+                        </div>
+                      )}
+                      {wearableData.body_battery != null && (
+                        <div className="bg-arc-surface rounded-xl p-3">
+                          <ZapIcon />
+                          <span className="block text-lg font-black font-mono mt-1">{wearableData.body_battery || '—'}</span>
+                          <span className="text-[9px] text-arc-muted font-bold uppercase tracking-wider">Battery</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {wearableData.source && wearableData.source !== 'manual' && (
+                    <div className="flex items-center justify-center gap-1.5 mt-3">
+                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                      <span className="text-[9px] text-arc-muted capitalize">Auto-synced from {wearableData.source}</span>
+                    </div>
+                  )}
+                </>
               ) : (
-                <p className="text-xs text-arc-muted mt-2">No wearable data logged yet. Add your metrics below.</p>
+                <div className="mt-4 space-y-3">
+                  <p className="text-xs text-arc-muted">No wearable data logged yet.</p>
+                  <a
+                    href="/settings/wearables"
+                    className="block text-xs font-bold text-arc-accent bg-arc-accent/10 border border-arc-accent/20 rounded-xl py-3 text-center hover:bg-arc-accent/20 transition-colors"
+                  >
+                    Connect Garmin or Fitbit for auto-tracking
+                  </a>
+                </div>
               )}
 
               <button
                 onClick={() => setShowWearableModal(true)}
                 className="mt-4 text-xs font-bold text-arc-accent hover:text-white transition-colors"
               >
-                + Log Today&apos;s Metrics
+                + Log Manually
               </button>
             </motion.div>
 

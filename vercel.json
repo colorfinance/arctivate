@@ -1,5 +1,11 @@
 {
   "framework": "nextjs",
   "buildCommand": "next build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [
+    {
+      "path": "/api/wearables/fitbit/sync",
+      "schedule": "0 */4 * * *"
+    }
+  ]
 }
