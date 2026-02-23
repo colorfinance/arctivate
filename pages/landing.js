@@ -47,7 +47,7 @@ const Step = ({ number, title, description }) => (
     variants={fadeUp}
     className="text-center"
   >
-    <div className="w-16 h-16 rounded-full bg-arc-accent text-white text-2xl font-black flex items-center justify-center mx-auto mb-4 shadow-glow">
+    <div className="w-16 h-16 rounded-full bg-accent-gradient text-white text-2xl font-black flex items-center justify-center mx-auto mb-4 shadow-glow-accent">
       {number}
     </div>
     <h3 className="text-xl font-bold text-white mb-2">{title}</h3>
@@ -66,7 +66,7 @@ export default function Landing() {
           </Link>
           <Link
             href="/"
-            className="bg-arc-accent text-white px-5 py-2 rounded-full font-bold text-sm hover:bg-arc-accent/90 transition shadow-glow"
+            className="bg-accent-gradient text-white px-5 py-2 rounded-full font-bold text-sm hover:opacity-90 transition shadow-glow-accent"
           >
             Start Free
           </Link>
@@ -95,7 +95,7 @@ export default function Landing() {
 
           <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
             Your Discipline.<br />
-            <span className="text-arc-accent">Verified.</span>
+            <span className="text-gradient-accent">Verified.</span>
           </h1>
 
           <p className="text-xl md:text-2xl text-arc-muted mb-10 max-w-2xl mx-auto">
@@ -105,7 +105,7 @@ export default function Landing() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/"
-              className="bg-arc-accent text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-arc-accent/90 transition shadow-glow flex items-center justify-center gap-2"
+              className="bg-accent-gradient text-white px-8 py-4 rounded-xl font-bold text-lg hover:opacity-90 transition shadow-glow-accent flex items-center justify-center gap-2"
             >
               Start Your Challenge
               <ChevronRight className="w-5 h-5" />
@@ -411,7 +411,7 @@ export default function Landing() {
 
           <Link
             href="/"
-            className="inline-flex items-center gap-2 bg-arc-accent text-white px-10 py-5 rounded-xl font-bold text-xl hover:bg-arc-accent/90 transition shadow-glow"
+            className="inline-flex items-center gap-2 bg-accent-gradient text-white px-10 py-5 rounded-xl font-bold text-xl hover:opacity-90 transition shadow-glow-accent"
           >
             Start Your 75-Day Challenge
             <ChevronRight className="w-6 h-6" />

@@ -7,7 +7,7 @@ export default function Nav() {
   const isActive = (path) => router.pathname === path ? "text-arc-accent" : "hover:text-white transition"
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/5 p-3 flex justify-around text-[10px] font-bold text-arc-muted z-40 safe-area-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 bg-arc-card/90 backdrop-blur-xl border-t border-white/[0.04] p-3 flex justify-around text-[10px] font-bold text-arc-muted z-40 safe-area-bottom">
         <Link href="/train" className={`flex flex-col items-center gap-1 ${isActive('/train')}`}>
             <span className="text-base">💪</span>
             <span>Train</span>

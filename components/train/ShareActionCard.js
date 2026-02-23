@@ -10,10 +10,8 @@ const shareFacebook = (workoutData) => {
   const pbText = isNewPB ? ' - NEW PERSONAL BEST!' : ''
   const shareText = `Just logged ${exerciseName}: ${value}${unit}${pbText} on Arctivate!`
 
-  // Facebook Share Dialog URL
   const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.origin)}&quote=${encodeURIComponent(shareText)}`
 
-  // Open in popup window for better UX
   window.open(
     shareUrl,
     'facebook-share',
@@ -147,7 +145,7 @@ export default function ShareActionCard({
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.9, opacity: 0, y: 20 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="relative w-full max-w-sm bg-arc-card border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
+        className="relative w-full max-w-sm bg-arc-card border border-white/[0.06] rounded-3xl overflow-hidden shadow-2xl"
       >
         {/* Close Button */}
         <button
@@ -158,14 +156,14 @@ export default function ShareActionCard({
         </button>
 
         {/* Success Header */}
-        <div className="relative bg-gradient-to-br from-arc-orange/20 to-transparent p-6 pb-8 text-center">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-arc-orange/10 via-transparent to-transparent" />
+        <div className="relative bg-gradient-to-br from-arc-accent/15 to-arc-cyan/5 p-6 pb-8 text-center">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-arc-accent/10 via-transparent to-transparent" />
 
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.1, type: 'spring', damping: 15 }}
-            className="relative inline-flex items-center justify-center w-16 h-16 bg-arc-orange/20 border-2 border-arc-orange rounded-full mb-4"
+            className="relative inline-flex items-center justify-center w-16 h-16 bg-arc-accent/15 border-2 border-arc-accent rounded-full mb-4"
           >
             <motion.div
               initial={{ scale: 0 }}
@@ -185,7 +183,7 @@ export default function ShareActionCard({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="inline-block text-xs bg-arc-orange text-black px-3 py-1 rounded-full font-black tracking-wider mt-2"
+              className="inline-block text-xs bg-accent-gradient text-arc-bg px-3 py-1 rounded-full font-black tracking-wider mt-2"
             >
               NEW PERSONAL BEST
             </motion.span>
@@ -194,35 +192,32 @@ export default function ShareActionCard({
 
         {/* Workout Summary Card */}
         <div className="px-6 -mt-4">
-          <div className="bg-arc-bg border border-white/10 rounded-2xl p-5 space-y-4">
-            {/* Exercise Name */}
+          <div className="bg-arc-bg border border-white/[0.06] rounded-2xl p-5 space-y-4">
             <div className="text-center">
-              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Movement</span>
+              <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Movement</span>
               <h3 className="text-lg font-bold text-white mt-1">{exerciseName}</h3>
             </div>
 
-            {/* Stats Row */}
             <div className="flex justify-center gap-8">
               <div className="text-center">
-                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">
+                <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">
                   {metricType === 'time' ? 'Time' : 'Weight'}
                 </span>
                 <div className="flex items-baseline justify-center gap-1 mt-1">
-                  <span className="text-2xl font-black font-mono text-arc-orange">{value}</span>
+                  <span className="text-2xl font-black font-mono text-arc-accent">{value}</span>
                   <span className="text-sm text-arc-muted font-bold">{getUnit()}</span>
                 </div>
               </div>
 
               <div className="text-center">
-                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Points</span>
+                <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Points</span>
                 <div className="flex items-baseline justify-center gap-1 mt-1">
-                  <span className="text-sm text-arc-orange font-bold">+</span>
+                  <span className="text-sm text-arc-accent font-bold">+</span>
                   <span className="text-2xl font-black font-mono text-white">{pointsEarned}</span>
                 </div>
               </div>
             </div>
 
-            {/* Date */}
             <div className="text-center pt-2 border-t border-white/5">
               <span className="text-xs text-arc-muted font-medium">{formatDate(date)}</span>
             </div>
@@ -237,23 +232,22 @@ export default function ShareActionCard({
             disabled={shareSuccess}
             className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${
               shareToFeed
-                ? 'bg-arc-orange/10 border-arc-orange/50'
+                ? 'bg-arc-accent/10 border-arc-accent/30'
                 : 'bg-arc-surface border-white/5 hover:border-white/10'
             } ${shareSuccess ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${shareToFeed ? 'bg-arc-orange/20 text-arc-orange' : 'bg-white/5 text-arc-muted'}`}>
+              <div className={`p-2 rounded-lg ${shareToFeed ? 'bg-arc-accent/20 text-arc-accent' : 'bg-white/5 text-arc-muted'}`}>
                 <CommunityIcon />
               </div>
               <div className="text-left">
                 <span className="block text-sm font-bold text-white">Share to Community</span>
-                <span className="text-[11px] text-arc-muted">Post to the Arctivate feed</span>
+                <span className="text-[10px] text-arc-muted">Post to the Arctivate feed</span>
               </div>
             </div>
 
-            {/* Toggle */}
             <div className={`relative w-12 h-7 rounded-full transition-colors ${
-              shareToFeed ? 'bg-arc-orange' : 'bg-arc-surface'
+              shareToFeed ? 'bg-arc-accent' : 'bg-arc-surface'
             }`}>
               <motion.div
                 animate={{ x: shareToFeed ? 22 : 2 }}
@@ -262,7 +256,7 @@ export default function ShareActionCard({
             </div>
           </button>
 
-          {/* Share to Feed Button (if toggle is on) */}
+          {/* Share to Feed Button */}
           <AnimatePresence>
             {shareToFeed && !shareSuccess && (
               <motion.button
@@ -271,7 +265,7 @@ export default function ShareActionCard({
                 exit={{ opacity: 0, height: 0 }}
                 onClick={handleShareToCommunity}
                 disabled={isSharing}
-                className="w-full flex items-center justify-center gap-2 bg-arc-orange text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(255,69,0,0.3)] hover:bg-[#ff5500] transition-all disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 bg-accent-gradient text-white font-bold py-4 rounded-xl shadow-glow-accent transition-all disabled:opacity-50"
               >
                 {isSharing ? (
                   <motion.div
@@ -301,16 +295,16 @@ export default function ShareActionCard({
 
           {/* Divider */}
           <div className="flex items-center gap-3 py-2">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Or share to</span>
-            <div className="flex-1 h-px bg-white/10" />
+            <div className="flex-1 h-px bg-white/[0.06]" />
+            <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Or share to</span>
+            <div className="flex-1 h-px bg-white/[0.06]" />
           </div>
 
           {/* Create Shareable Art */}
           {onCreateArt && (
             <button
               onClick={() => { onClose(); onCreateArt() }}
-              className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-arc-accent to-orange-600 text-white font-bold py-4 rounded-xl hover:opacity-90 transition-opacity"
+              className="w-full flex items-center justify-center gap-3 bg-accent-gradient text-white font-bold py-4 rounded-xl hover:opacity-90 transition-opacity"
             >
               <ArtIcon />
               <span>Create Shareable Art</span>

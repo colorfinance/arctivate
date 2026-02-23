@@ -87,7 +87,7 @@ export default function Onboarding() {
 
       if (!error) {
         setStep(STEPS.COMPLETE)
-        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#FF3B00', '#ffffff', '#22c55e'] })
+        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
         setTimeout(() => router.push('/train'), 2000)
       } else {
         console.error('Supabase Save Error:', error)

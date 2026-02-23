@@ -50,7 +50,7 @@ const ReadinessRing = ({ score, size = 120, strokeWidth = 8 }) => {
 
   const getColor = (s) => {
     if (s >= 75) return '#22c55e'
-    if (s >= 50) return '#FF3B00'
+    if (s >= 50) return '#00D4AA'
     if (s >= 25) return '#f59e0b'
     return '#ef4444'
   }
@@ -391,7 +391,7 @@ export default function Coach() {
       <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5">
         <div className="p-4 flex items-center justify-between max-w-lg mx-auto">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-arc-accent to-orange-600 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-arc-accent to-arc-cyan flex items-center justify-center">
               <BrainIcon />
             </div>
             <div>
@@ -574,12 +574,12 @@ export default function Coach() {
                         transition={{ duration: 0.8, delay: i * 0.1 }}
                         className="h-full rounded-full"
                         style={{
-                          backgroundColor: muscle.recovery >= 75 ? '#22c55e' : muscle.recovery >= 50 ? '#FF3B00' : muscle.recovery >= 25 ? '#f59e0b' : '#ef4444'
+                          backgroundColor: muscle.recovery >= 75 ? '#22c55e' : muscle.recovery >= 50 ? '#00D4AA' : muscle.recovery >= 25 ? '#f59e0b' : '#ef4444'
                         }}
                       />
                     </div>
                     <span className="text-xs font-mono font-bold w-10 text-right" style={{
-                      color: muscle.recovery >= 75 ? '#22c55e' : muscle.recovery >= 50 ? '#FF3B00' : muscle.recovery >= 25 ? '#f59e0b' : '#ef4444'
+                      color: muscle.recovery >= 75 ? '#22c55e' : muscle.recovery >= 50 ? '#00D4AA' : muscle.recovery >= 25 ? '#f59e0b' : '#ef4444'
                     }}>
                       {muscle.recovery}%
                     </span>
