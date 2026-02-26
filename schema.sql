@@ -37,8 +37,10 @@ create table public.habit_logs (
 -- 4. EXERCISES & PBs
 create table public.exercises (
   id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
   name text not null, -- "Bench Press", "5km Run"
   metric_type text check (metric_type in ('weight', 'time', 'reps', 'distance')),
+  muscle_group text,
   is_benchmark boolean default false -- If true, highlights in Trophy Room
 );
 
