@@ -178,11 +178,21 @@ export default function Train() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('exercises')
         .select('*')
         .or(`user_id.is.null,user_id.eq.${user.id}`)
         .order('name', { ascending: true })
+
+      // If user_id column doesn't exist yet (migration not applied), fetch all exercises
+      if (error) {
+        const fallback = await supabase
+          .from('exercises')
+          .select('*')
+          .order('name', { ascending: true })
+        data = fallback.data
+        error = fallback.error
+      }
 
       if (error) {
         console.error('Error fetching exercises:', error)
@@ -260,11 +270,21 @@ export default function Train() {
     if(!newExName) return
     const { data: { user } } = await supabase.auth.getUser()
 
-    const { data, error } = await supabase.from('exercises').insert({
+    const insertData = {
         user_id: user.id,
         name: newExName,
         metric_type: newExType
-    }).select().single()
+    }
+
+    let { data, error } = await supabase.from('exercises').insert(insertData).select().single()
+
+    // If user_id column doesn't exist yet, retry without it
+    if (error && error.message?.includes('user_id')) {
+        delete insertData.user_id
+        const retry = await supabase.from('exercises').insert(insertData).select().single()
+        data = retry.data
+        error = retry.error
+    }
 
     if (error) {
         showToast(`Error: ${error.message}`)
@@ -346,13 +366,19 @@ export default function Train() {
         if (!isNaN(parsed)) logPayload.rpe = parsed
       }
 
+      const optionalFields = ['rpe', 'reps', 'sets']
       let { error: logError } = await supabase.from('workout_logs').insert(logPayload)
 
-      // If insert fails due to unknown column (e.g. rpe not yet migrated), retry without it
-      if (logError && logError.message && (logError.message.includes('rpe') || logError.code === 'PGRST204')) {
-        delete logPayload.rpe
-        const retry = await supabase.from('workout_logs').insert(logPayload)
-        logError = retry.error
+      // If insert fails due to unknown column, strip optional fields and retry
+      if (logError && logError.message) {
+        for (const field of optionalFields) {
+          if (logPayload[field] !== undefined && logError.message.includes(field)) {
+            delete logPayload[field]
+            const retry = await supabase.from('workout_logs').insert(logPayload)
+            logError = retry.error
+            break
+          }
+        }
       }
 
       if (logError) {
