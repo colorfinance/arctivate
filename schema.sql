@@ -58,6 +58,8 @@ create table public.workout_logs (
   value numeric not null,
   sets int,
   reps int,
+  rpe int,
+  notes text,
   is_new_pb boolean default false,
   points_awarded int default 0,
   created_at timestamptz default now()

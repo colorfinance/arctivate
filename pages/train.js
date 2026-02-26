@@ -333,11 +333,27 @@ export default function Train() {
         is_new_pb: isPB,
         points_awarded: pointsEarned,
       }
-      if (reps) logPayload.reps = parseInt(reps, 10)
-      if (sets) logPayload.sets = parseInt(sets, 10)
-      if (rpe) logPayload.rpe = parseInt(rpe, 10)
+      if (reps) {
+        const parsed = parseInt(reps, 10)
+        if (!isNaN(parsed)) logPayload.reps = parsed
+      }
+      if (sets) {
+        const parsed = parseInt(sets, 10)
+        if (!isNaN(parsed)) logPayload.sets = parsed
+      }
+      if (rpe) {
+        const parsed = parseInt(rpe, 10)
+        if (!isNaN(parsed)) logPayload.rpe = parsed
+      }
 
-      const { error: logError } = await supabase.from('workout_logs').insert(logPayload)
+      let { error: logError } = await supabase.from('workout_logs').insert(logPayload)
+
+      // If insert fails due to unknown column (e.g. rpe not yet migrated), retry without it
+      if (logError && logError.message && (logError.message.includes('rpe') || logError.code === 'PGRST204')) {
+        delete logPayload.rpe
+        const retry = await supabase.from('workout_logs').insert(logPayload)
+        logError = retry.error
+      }
 
       if (logError) {
         console.error('Error logging workout:', logError)
