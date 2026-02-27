@@ -82,12 +82,14 @@ const ReadinessRing = ({ score, size = 120, strokeWidth = 8 }) => {
           key={score}
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="text-3xl font-black font-mono"
+          className={`${size <= 60 ? 'text-sm' : 'text-3xl'} font-black font-mono`}
           style={{ color: getColor(score) }}
         >
           {score || '—'}
         </motion.span>
-        <span className="text-[9px] font-bold tracking-widest text-arc-muted mt-0.5">{getLabel(score)}</span>
+        {size > 60 && (
+          <span className="text-[9px] font-bold tracking-widest text-arc-muted mt-0.5">{getLabel(score)}</span>
+        )}
       </div>
     </div>
   )

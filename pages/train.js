@@ -588,9 +588,6 @@ export default function Train() {
                                 <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
                                     <VoiceMemoIcon /> Memo
                                 </button>
-                                <button onClick={() => setShowVoiceInput(true)} className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
-                                    <MicIcon /> Voice
-                                </button>
                                 <button onClick={() => setIsAdding(true)} className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
                                     + New
                                 </button>
@@ -798,17 +795,6 @@ export default function Train() {
                         </button>
                     </motion.div>
                 </>
-            )}
-        </AnimatePresence>
-
-        {/* Voice Input Modal */}
-        <AnimatePresence>
-            {showVoiceInput && (
-                <VoiceInput
-                    exercises={exercises}
-                    onResult={handleVoiceResult}
-                    onClose={() => setShowVoiceInput(false)}
-                />
             )}
         </AnimatePresence>
 

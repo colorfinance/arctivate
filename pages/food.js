@@ -609,8 +609,8 @@ export default function Food() {
         {/* Scanner Section */}
         <div className="mt-4 bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
           {/* Camera / Scanner Viewport */}
-          <div className="relative aspect-square max-h-64 bg-gray-900 flex items-center justify-center">
-            <div className="absolute inset-4 border-2 border-white/20 rounded-2xl overflow-hidden flex items-center justify-center">
+          <div className="bg-gray-900 flex items-center justify-center py-6">
+            <div className="relative w-56 h-56 border-2 border-white/20 rounded-2xl overflow-hidden flex items-center justify-center">
               <div className="absolute top-0 left-0 w-6 h-6 border-t-3 border-l-3 border-arc-accent rounded-tl-lg z-10"></div>
               <div className="absolute top-0 right-0 w-6 h-6 border-t-3 border-r-3 border-arc-accent rounded-tr-lg z-10"></div>
               <div className="absolute bottom-0 left-0 w-6 h-6 border-b-3 border-l-3 border-arc-accent rounded-bl-lg z-10"></div>
