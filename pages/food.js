@@ -616,17 +616,6 @@ export default function Food() {
               <div className="absolute bottom-0 left-0 w-6 h-6 border-b-3 border-l-3 border-arc-accent rounded-bl-lg z-10"></div>
               <div className="absolute bottom-0 right-0 w-6 h-6 border-b-3 border-r-3 border-arc-accent rounded-br-lg z-10"></div>
 
-              {/* Live camera feed */}
-              {cameraActive && (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-              )}
-
               {scanning && (
                 <motion.div
                   animate={{ top: ['10%', '90%', '10%'] }}
@@ -635,11 +624,11 @@ export default function Food() {
                 />
               )}
 
-              {!scanning && !result && !error && !cameraActive && (
+              {!scanning && !result && !error && (
                 <p className="text-xs text-white/40 font-bold tracking-widest uppercase">Tap to Scan</p>
               )}
 
-              {error && !scanning && !cameraActive && (
+              {error && !scanning && (
                 <div className="text-center p-4">
                   <span className="text-red-400 text-sm">{error}</span>
                 </div>
@@ -648,8 +637,7 @@ export default function Food() {
           </div>
 
           {/* Controls */}
-          <div className="p-4 flex justify-center items-center gap-4">
-            {/* Upload button */}
+          <div className="p-4 flex justify-center items-center">
             <button
               onClick={() => {
                 setError(null)
@@ -657,59 +645,21 @@ export default function Food() {
                 fileInputRef.current?.click()
               }}
               disabled={scanning}
-              className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors disabled:opacity-50"
+              className={`bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(0,212,170,0.3)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
+              {scanning ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                  className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full"
+                />
+              ) : (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              )}
             </button>
-
-            {/* Main camera/capture button */}
-            {cameraActive ? (
-              <button
-                onClick={capturePhoto}
-                disabled={scanning}
-                className="bg-white w-16 h-16 rounded-full border-4 border-arc-accent flex items-center justify-center shadow-[0_0_20px_rgba(0,212,170,0.3)] active:scale-95 transition"
-              >
-                <div className="w-10 h-10 rounded-full bg-arc-accent" />
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setError(null)
-                  startCamera()
-                }}
-                disabled={scanning}
-                className={`bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(0,212,170,0.3)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
-              >
-                {scanning ? (
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full"
-                  />
-                ) : (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                    <circle cx="12" cy="13" r="4"/>
-                  </svg>
-                )}
-              </button>
-            )}
-
-            {/* Close camera button */}
-            {cameraActive ? (
-              <button
-                onClick={stopCamera}
-                className="w-12 h-12 rounded-full bg-arc-surface border border-white/10 flex items-center justify-center text-arc-muted hover:text-white transition-colors"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-              </button>
-            ) : (
-              <div className="w-12"></div>
-            )}
           </div>
         </div>
 
