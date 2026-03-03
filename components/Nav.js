@@ -13,7 +13,7 @@ export default function Nav() {
             <span>Train</span>
         </Link>
         <Link href="/coach" className={`flex flex-col items-center gap-1 ${isActive('/coach')}`}>
-            <span className="text-base">🧠</span>
+            <span className="text-base">🧑‍🏫</span>
             <span>Coach</span>
         </Link>
         <Link href="/feed" className={`flex flex-col items-center gap-1 ${isActive('/feed')}`}>
