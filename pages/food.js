@@ -15,20 +15,36 @@ export default function Food() {
   const [dailyGoal, setDailyGoal] = useState(2800)
   const [dailyMacros, setDailyMacros] = useState({ protein: 0, carbs: 0, fat: 0 })
   const [showManualEntry, setShowManualEntry] = useState(false)
-  const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '' })
+  const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
   const [todayLogs, setTodayLogs] = useState([])
   const [toast, setToast] = useState(null)
   const [pageLoading, setPageLoading] = useState(true)
   const [cameraActive, setCameraActive] = useState(false)
   const [lastLoggedResult, setLastLoggedResult] = useState(null)
+  const [isRecording, setIsRecording] = useState(false)
+  const [voiceProcessing, setVoiceProcessing] = useState(false)
+  const [voiceResult, setVoiceResult] = useState(null)
   const fileInputRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recognitionRef = useRef(null)
+  const transcriptRef = useRef('')
 
   const showToast = (msg) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  // Determine meal type based on current time
+  const getDefaultMealType = () => {
+    const hour = new Date().getHours()
+    if (hour >= 5 && hour < 11) return 'breakfast'
+    if (hour >= 11 && hour < 15) return 'lunch'
+    if (hour >= 15 && hour < 20) return 'dinner'
+    return 'snack'
   }
 
   // Fetch daily calories on mount
@@ -53,6 +69,9 @@ export default function Food() {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop())
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.abort()
       }
     }
   }, [])
@@ -241,11 +260,13 @@ export default function Food() {
         return
       }
 
+      const mealType = data.meal_type || getDefaultMealType()
+
       const { data: newLog, error: insertError } = await supabase.from('food_logs').insert({
         user_id: user.id,
         item_name: data.name,
         calories: data.cals,
-        macros: { p: data.p, c: data.c, f: data.f }
+        macros: { p: data.p, c: data.c, f: data.f, meal_type: mealType }
       }).select().single()
 
       if (insertError) {
@@ -283,11 +304,13 @@ export default function Food() {
         return
       }
 
+      const mealType = result.meal_type || getDefaultMealType()
+
       const { data: newLog, error: insertError } = await supabase.from('food_logs').insert({
         user_id: user.id,
         item_name: result.name,
         calories: result.cals,
-        macros: { p: result.p, c: result.c, f: result.f }
+        macros: { p: result.p, c: result.c, f: result.f, meal_type: mealType }
       }).select().single()
 
       if (insertError) {
@@ -373,12 +396,13 @@ export default function Food() {
       const p = parseInt(manualFood.p, 10) || 0
       const c = parseInt(manualFood.c, 10) || 0
       const f = parseInt(manualFood.f, 10) || 0
+      const mealType = manualFood.meal_type || getDefaultMealType()
 
       const { data: newLog, error: insertError } = await supabase.from('food_logs').insert({
         user_id: user.id,
         item_name: manualFood.name.trim(),
         calories: cals,
-        macros: { p, c, f }
+        macros: { p, c, f, meal_type: mealType }
       }).select().single()
 
       if (insertError) {
@@ -401,7 +425,7 @@ export default function Food() {
       showToast('Food logged! Share it to the feed?')
 
       setLastLoggedResult({ name: manualFood.name.trim(), cals, p, c, f, desc: 'Manual entry' })
-      setManualFood({ name: '', cals: '', p: '', c: '', f: '' })
+      setManualFood({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
       setShowManualEntry(false)
     } catch (err) {
       console.error('Error logging food:', err)
@@ -430,6 +454,116 @@ export default function Food() {
       console.error('Error deleting log:', err)
       showToast('Failed to remove food')
     }
+  }
+
+  // Voice recording functions
+  const startVoiceRecording = async () => {
+    try {
+      setError(null)
+      transcriptRef.current = ''
+
+      // Use Web Speech API for real-time transcription
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      if (!SpeechRecognition) {
+        // Fallback: use MediaRecorder for audio capture
+        showToast('Speech recognition not supported. Try typing instead.')
+        return
+      }
+
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+
+      recognition.onresult = (event) => {
+        let finalTranscript = ''
+        for (let i = 0; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript
+          }
+        }
+        if (finalTranscript) {
+          transcriptRef.current = finalTranscript
+        }
+      }
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error)
+        if (event.error === 'not-allowed') {
+          setError('Microphone access denied. Please allow microphone permissions.')
+        }
+        setIsRecording(false)
+      }
+
+      recognition.onend = () => {
+        // If we're still supposed to be recording, the user hasn't stopped yet
+        // This can fire naturally, so we handle it in stopVoiceRecording
+      }
+
+      recognitionRef.current = recognition
+      recognition.start()
+      setIsRecording(true)
+    } catch (err) {
+      console.error('Voice recording error:', err)
+      setError('Could not start voice recording.')
+    }
+  }
+
+  const stopVoiceRecording = async () => {
+    setIsRecording(false)
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+    }
+
+    // Small delay to let final results come in
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    const transcript = transcriptRef.current.trim()
+    if (!transcript) {
+      showToast('No speech detected. Please try again.')
+      return
+    }
+
+    setVoiceProcessing(true)
+
+    try {
+      const res = await fetch('/api/parse-voice-food', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript }),
+      })
+
+      let data
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error('Server returned an invalid response')
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to parse food description')
+      }
+
+      // Show the result for confirmation before logging
+      setVoiceResult({ ...data, transcript })
+    } catch (err) {
+      console.error('Voice food parse error:', err)
+      setError(err.message || 'Failed to process voice note. Please try again.')
+    } finally {
+      setVoiceProcessing(false)
+    }
+  }
+
+  const confirmVoiceLog = async () => {
+    if (!voiceResult) return
+    // Log it like a normal food entry
+    await autoLog(voiceResult)
+    setVoiceResult(null)
+  }
+
+  const dismissVoiceResult = () => {
+    setVoiceResult(null)
   }
 
   // Camera functions
@@ -498,6 +632,28 @@ export default function Food() {
 
   const calorieProgress = Math.min((dailyCalories / dailyGoal) * 100, 100)
 
+  // Group logs by meal type
+  const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack']
+  const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' }
+  const mealIcons = { breakfast: '\u2600\uFE0F', lunch: '\uD83C\uDF1E', dinner: '\uD83C\uDF19', snack: '\u26A1' }
+
+  const groupedLogs = mealOrder.reduce((acc, type) => {
+    const logs = todayLogs.filter(log => (log.macros?.meal_type || 'snack') === type)
+    if (logs.length > 0) {
+      acc[type] = logs
+    }
+    return acc
+  }, {})
+
+  // Also collect any logs without a recognized meal_type
+  const ungroupedLogs = todayLogs.filter(log => {
+    const mt = log.macros?.meal_type
+    return mt && !mealOrder.includes(mt)
+  })
+  if (ungroupedLogs.length > 0) {
+    groupedLogs['other'] = ungroupedLogs
+  }
+
   if (pageLoading) {
     return (
       <div className="min-h-screen bg-arc-bg flex items-center justify-center">
@@ -530,12 +686,6 @@ export default function Food() {
       <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-black tracking-tighter italic">NUTRITION</h1>
-          <button
-            onClick={() => setShowManualEntry(true)}
-            className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors"
-          >
-            + Manual
-          </button>
         </div>
       </header>
 
@@ -606,62 +756,120 @@ export default function Food() {
           </div>
         </div>
 
-        {/* Scanner Section */}
-        <div className="mt-4 bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
-          {/* Camera / Scanner Viewport */}
-          <div className="bg-gray-900 flex items-center justify-center py-6">
-            <div className="relative w-56 h-56 border-2 border-white/20 rounded-2xl overflow-hidden flex items-center justify-center">
-              <div className="absolute top-0 left-0 w-6 h-6 border-t-3 border-l-3 border-arc-accent rounded-tl-lg z-10"></div>
-              <div className="absolute top-0 right-0 w-6 h-6 border-t-3 border-r-3 border-arc-accent rounded-tr-lg z-10"></div>
-              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-3 border-l-3 border-arc-accent rounded-bl-lg z-10"></div>
-              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-3 border-r-3 border-arc-accent rounded-br-lg z-10"></div>
-
-              {scanning && (
-                <motion.div
-                  animate={{ top: ['10%', '90%', '10%'] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  className="absolute left-0 right-0 h-0.5 bg-arc-accent shadow-[0_0_10px_#00D4AA] z-10"
-                />
-              )}
-
-              {!scanning && !result && !error && (
-                <p className="text-xs text-white/40 font-bold tracking-widest uppercase">Tap to Scan</p>
-              )}
-
-              {error && !scanning && (
-                <div className="text-center p-4">
-                  <span className="text-red-400 text-sm">{error}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="p-4 flex justify-center items-center">
-            <button
-              onClick={() => {
-                setError(null)
-                if (cameraActive) stopCamera()
-                fileInputRef.current?.click()
-              }}
-              disabled={scanning}
-              className={`bg-arc-accent w-16 h-16 rounded-full border-4 border-white/10 flex items-center justify-center shadow-[0_0_20px_rgba(0,212,170,0.3)] active:scale-95 transition ${scanning ? 'animate-pulse opacity-50' : ''}`}
-            >
-              {scanning ? (
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full"
-                />
-              ) : (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+        {/* Action Buttons - Scan, Voice, Manual */}
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {/* Scan Food */}
+          <button
+            onClick={() => {
+              setError(null)
+              if (cameraActive) stopCamera()
+              fileInputRef.current?.click()
+            }}
+            disabled={scanning || voiceProcessing}
+            className="bg-arc-card border border-white/5 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition hover:border-arc-accent/30 disabled:opacity-50"
+          >
+            {scanning ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-arc-accent/10 flex items-center justify-center">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00D4AA" strokeWidth="2">
                   <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                   <circle cx="12" cy="13" r="4"/>
                 </svg>
-              )}
-            </button>
-          </div>
+              </div>
+            )}
+            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">Scan</span>
+          </button>
+
+          {/* Voice Note */}
+          <button
+            onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+            disabled={scanning || voiceProcessing}
+            className={`bg-arc-card border rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition disabled:opacity-50 ${isRecording ? 'border-red-500/50 bg-red-500/5' : 'border-white/5 hover:border-arc-accent/30'}`}
+          >
+            {voiceProcessing ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full"
+              />
+            ) : (
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isRecording ? 'bg-red-500/20' : 'bg-purple-500/10'}`}>
+                {isRecording ? (
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                  </motion.div>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                )}
+              </div>
+            )}
+            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">
+              {isRecording ? 'Stop' : voiceProcessing ? 'Processing' : 'Voice'}
+            </span>
+          </button>
+
+          {/* Manual Entry */}
+          <button
+            onClick={() => {
+              setManualFood(prev => ({ ...prev, meal_type: getDefaultMealType() }))
+              setShowManualEntry(true)
+            }}
+            disabled={scanning || voiceProcessing}
+            className="bg-arc-card border border-white/5 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition hover:border-arc-accent/30 disabled:opacity-50"
+          >
+            <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </div>
+            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">Manual</span>
+          </button>
         </div>
+
+        {/* Voice Recording Indicator */}
+        <AnimatePresence>
+          {isRecording && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-3 bg-red-500/5 border border-red-500/20 rounded-2xl p-4 text-center overflow-hidden"
+            >
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <motion.div
+                  animate={{ opacity: [1, 0.3, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                  className="w-2 h-2 rounded-full bg-red-500"
+                />
+                <span className="text-sm font-bold text-red-400">Listening...</span>
+              </div>
+              <p className="text-xs text-arc-muted">Describe what you ate, e.g. "I had two eggs and toast with butter for breakfast"</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Error display */}
+        {error && !scanning && (
+          <div className="mt-3 bg-red-500/5 border border-red-500/20 rounded-2xl p-4 text-center">
+            <span className="text-red-400 text-sm">{error}</span>
+          </div>
+        )}
 
         {/* Hidden File Input */}
         <input
@@ -672,42 +880,62 @@ export default function Food() {
           onChange={handleFileSelect}
         />
 
-        {/* Today's Food Log */}
+        {/* Today's Food Log - Grouped by Meal */}
         {todayLogs.length > 0 && (
-          <div className="mt-4">
-            <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">Today's Log</h3>
-            <div className="space-y-2">
-              {todayLogs.map((log) => (
-                <motion.div
-                  key={log.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-arc-card border border-white/5 rounded-xl px-4 py-3 flex items-center justify-between"
-                >
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-bold text-white truncate block">{log.item_name}</span>
-                    <span className="text-[10px] text-arc-muted">
-                      P:{log.macros?.p || 0}g  C:{log.macros?.c || 0}g  F:{log.macros?.f || 0}g
-                    </span>
+          <div className="mt-6">
+            <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3 px-1">Today's Meals</h3>
+            <div className="space-y-4">
+              {mealOrder.map((mealType) => {
+                const logs = groupedLogs[mealType]
+                if (!logs || logs.length === 0) return null
+
+                const mealCals = logs.reduce((sum, log) => sum + (log.calories || 0), 0)
+
+                return (
+                  <div key={mealType}>
+                    <div className="flex items-center justify-between mb-2 px-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{mealIcons[mealType]}</span>
+                        <span className="text-xs font-bold text-white uppercase tracking-wider">{mealLabels[mealType]}</span>
+                      </div>
+                      <span className="text-xs font-bold text-arc-muted">{mealCals} cal</span>
+                    </div>
+                    <div className="space-y-2">
+                      {logs.map((log) => (
+                        <motion.div
+                          key={log.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="bg-arc-card border border-white/5 rounded-xl px-4 py-3 flex items-center justify-between"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-bold text-white truncate block">{log.item_name}</span>
+                            <span className="text-[10px] text-arc-muted">
+                              P:{log.macros?.p || 0}g  C:{log.macros?.c || 0}g  F:{log.macros?.f || 0}g
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-arc-cyan">{log.calories} cal</span>
+                            <button
+                              onClick={() => shareToFeed({ name: log.item_name, cals: log.calories, p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 })}
+                              className="text-white/20 hover:text-arc-accent transition-colors p-1"
+                              title="Share to feed"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                            </button>
+                            <button
+                              onClick={() => deleteLog(log.id, log.calories, log.macros)}
+                              className="text-white/20 hover:text-red-500 transition-colors p-1"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            </button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-black text-arc-cyan">{log.calories} cal</span>
-                    <button
-                      onClick={() => shareToFeed({ name: log.item_name, cals: log.calories, p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 })}
-                      className="text-white/20 hover:text-arc-accent transition-colors p-1"
-                      title="Share to feed"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                    </button>
-                    <button
-                      onClick={() => deleteLog(log.id, log.calories, log.macros)}
-                      className="text-white/20 hover:text-red-500 transition-colors p-1"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
@@ -715,12 +943,12 @@ export default function Food() {
         {/* Empty state */}
         {todayLogs.length === 0 && !scanning && (
           <div className="mt-6 text-center">
-            <p className="text-arc-muted text-sm">No food logged today. Scan or add food to start tracking!</p>
+            <p className="text-arc-muted text-sm">No food logged today. Scan, speak, or add food to start tracking!</p>
           </div>
         )}
       </main>
 
-      {/* Result Modal */}
+      {/* Result Modal (from image scan) */}
       <AnimatePresence>
         {result && (
           <motion.div
@@ -783,6 +1011,81 @@ export default function Food() {
                   'ADD TO LOG'
                 )}
               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Voice Result Confirmation Modal */}
+      <AnimatePresence>
+        {voiceResult && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl z-50 border-t border-white/10"
+          >
+            <div className="p-6 pb-8">
+              <div
+                className="w-12 h-1 bg-gray-700 rounded-full mx-auto mb-6 cursor-pointer"
+                onClick={dismissVoiceResult}
+              ></div>
+
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">{voiceResult.name}</h2>
+                  <p className="text-arc-muted text-sm">{voiceResult.desc}</p>
+                </div>
+                <div className="bg-purple-500/10 text-purple-400 text-xs font-bold px-2 py-1 rounded">
+                  Voice
+                </div>
+              </div>
+
+              {voiceResult.transcript && (
+                <div className="bg-white/5 rounded-xl p-3 mb-4">
+                  <p className="text-xs text-arc-muted italic">"{voiceResult.transcript}"</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-4 gap-2 mb-4 text-center">
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                  <div className="text-xs text-arc-muted mb-1">Cals</div>
+                  <div className="font-black text-xl">{voiceResult.cals}</div>
+                </div>
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                  <div className="text-xs text-arc-muted mb-1">Prot</div>
+                  <div className="font-bold text-lg">{voiceResult.p}g</div>
+                </div>
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                  <div className="text-xs text-arc-muted mb-1">Carb</div>
+                  <div className="font-bold text-lg">{voiceResult.c}g</div>
+                </div>
+                <div className="bg-black/30 p-3 rounded-xl border border-white/5">
+                  <div className="text-xs text-arc-muted mb-1">Fat</div>
+                  <div className="font-bold text-lg">{voiceResult.f}g</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs text-arc-muted">Meal:</span>
+                <span className="text-xs font-bold text-white capitalize">{mealIcons[voiceResult.meal_type]} {voiceResult.meal_type}</span>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={dismissVoiceResult}
+                  className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmVoiceLog}
+                  className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow active:scale-95 transition"
+                >
+                  Log Food
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -857,6 +1160,22 @@ export default function Food() {
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
                     autoFocus
                   />
+                </div>
+
+                {/* Meal Type Selector */}
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Meal</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {mealOrder.map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setManualFood({ ...manualFood, meal_type: type })}
+                        className={`py-2 px-2 rounded-xl text-xs font-bold transition-colors ${manualFood.meal_type === type ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted border border-white/10'}`}
+                      >
+                        {mealIcons[type]} {mealLabels[type]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-4 gap-3">
