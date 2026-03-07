@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
 import { colors, spacing, borderRadius } from '../theme';
 
@@ -22,7 +23,11 @@ export default function AuthScreen() {
   async function handleLogin() {
     if (!email.trim()) return;
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim() });
+    const redirectUrl = Linking.createURL('auth');
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: redirectUrl },
+    });
     setLoading(false);
     if (error) {
       Alert.alert('Error', error.message);

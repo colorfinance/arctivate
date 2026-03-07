@@ -9,3 +9,7 @@ dist/
 *.orig.*
 web-build/
 .env
+google-services.json
+ios/
+android/
+.easignore

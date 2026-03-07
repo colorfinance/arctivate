@@ -2,8 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Linking from 'expo-linking';
 import Navigation from './src/navigation';
+import ErrorBoundary from './src/components/ErrorBoundary';
 import { supabase } from './src/lib/supabase';
+import { handleDeepLink } from './src/lib/linking';
+import { useNotifications } from './src/hooks/useNotifications';
 import { colors } from './src/theme';
 
 export default function App() {
@@ -11,7 +15,17 @@ export default function App() {
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  useNotifications();
+
   useEffect(() => {
+    const linkSub = Linking.addEventListener('url', ({ url }) => {
+      handleDeepLink(url, supabase);
+    });
+
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink(url, supabase);
+    });
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) checkOnboarding(session.user.id);
@@ -24,7 +38,10 @@ export default function App() {
       else setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      linkSub.remove();
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function checkOnboarding(userId) {
@@ -56,14 +73,16 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      <Navigation
-        session={session}
-        onboardingComplete={onboardingComplete}
-        onOnboardingComplete={handleOnboardingComplete}
-      />
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <Navigation
+          session={session}
+          onboardingComplete={onboardingComplete}
+          onOnboardingComplete={handleOnboardingComplete}
+        />
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

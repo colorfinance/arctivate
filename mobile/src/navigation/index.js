@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
+import { linking } from '../lib/linking';
 
 import AuthScreen from '../screens/AuthScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -71,6 +72,7 @@ function MainTabs() {
 export default function Navigation({ session, onboardingComplete, onOnboardingComplete }) {
   return (
     <NavigationContainer
+      linking={linking}
       theme={{
         dark: true,
         colors: {
