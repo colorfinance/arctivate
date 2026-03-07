@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Arctivate",
+    "slug": "arctivate",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#030808",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.arctivate.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Arctivate uses the camera to scan food and QR codes.",
+        "NSMicrophoneUsageDescription": "Arctivate uses the microphone for voice workout logging."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#030808"
+      },
+      "package": "com.arctivate.app",
+      "permissions": ["CAMERA", "RECORD_AUDIO"]
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-image-picker",
+      "expo-secure-store"
+    ]
+  }
+}
