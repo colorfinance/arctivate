@@ -76,7 +76,7 @@ export default function TrainScreen({ navigation }) {
       .select('value')
       .eq('user_id', user.id)
       .eq('exercise_id', selectedExercise.id)
-      .single();
+      .maybeSingle();
 
     const isNewPB = !pb || value > pb.value;
     const points = isNewPB ? 150 : 50;
@@ -98,15 +98,17 @@ export default function TrainScreen({ navigation }) {
     }
 
     if (isNewPB) {
-      await supabase.from('personal_bests').upsert({
+      const { error: pbError } = await supabase.from('personal_bests').upsert({
         user_id: user.id,
         exercise_id: selectedExercise.id,
         value,
       });
+      if (pbError) console.warn('PB upsert failed:', pbError.message);
     }
 
     // Award points
-    await supabase.rpc('increment_points', { user_id: user.id, amount: points });
+    const { error: rpcError } = await supabase.rpc('increment_points', { user_id: user.id, amount: points });
+    if (rpcError) console.warn('Points increment failed:', rpcError.message);
 
     setShowLogModal(false);
     setLogForm({ value: '', sets: '', reps: '', rpe: '' });

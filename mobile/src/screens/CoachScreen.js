@@ -45,9 +45,12 @@ export default function CoachScreen() {
         }),
       });
 
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
       const data = await response.json();
       const assistantMsg = {
-        id: (Date.now() + 1).toString(),
+        id: `${Date.now()}-resp`,
         role: 'assistant',
         content: data.reply || data.message || 'Sorry, I could not process that.',
       };
@@ -55,7 +58,7 @@ export default function CoachScreen() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Connection error. Please try again.' },
+        { id: `${Date.now()}-err`, role: 'assistant', content: 'Connection error. Please try again.' },
       ]);
     }
     setLoading(false);

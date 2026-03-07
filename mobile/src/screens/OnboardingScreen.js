@@ -16,7 +16,7 @@ import { colors, spacing, borderRadius } from '../theme';
 const GOALS = ['Lose Weight', 'Build Muscle', 'Get Stronger', 'Stay Active', 'Sport Performance'];
 const FITNESS_LEVELS = ['Beginner', 'Intermediate', 'Advanced'];
 
-export default function OnboardingScreen() {
+export default function OnboardingScreen({ onComplete }) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     username: '',
@@ -34,19 +34,27 @@ export default function OnboardingScreen() {
 
   async function handleComplete() {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase.from('profiles').upsert({
-      id: user.id,
-      username: form.username,
-      age: parseInt(form.age) || null,
-      weight: parseFloat(form.weight) || null,
-      gender: form.gender,
-      goal: form.goal,
-      fitness_level: form.fitness_level,
-      completed_onboarding: true,
-    });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase.from('profiles').upsert({
+        id: user.id,
+        username: form.username,
+        age: parseInt(form.age) || null,
+        weight: parseFloat(form.weight) || null,
+        gender: form.gender,
+        goal: form.goal,
+        fitness_level: form.fitness_level,
+        completed_onboarding: true,
+      });
+      if (error) {
+        Alert.alert('Error', error.message);
+      } else {
+        onComplete?.();
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    }
     setLoading(false);
-    if (error) Alert.alert('Error', error.message);
   }
 
   const steps = [

@@ -15,22 +15,30 @@ import { colors, spacing, borderRadius } from '../theme';
 export default function FeedScreen({ navigation }) {
   const [posts, setPosts] = useState([]);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadFeed();
   }, []);
 
   async function loadFeed() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) setCurrentUserId(user.id);
+    setRefreshing(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) setCurrentUserId(user.id);
 
-    const { data } = await supabase
-      .from('public_feed')
-      .select('*, profiles(username, avatar_url), high_fives(user_id)')
-      .order('shared_at', { ascending: false })
-      .limit(50);
+      const { data, error } = await supabase
+        .from('public_feed')
+        .select('*, profiles(username, avatar_url), high_fives(user_id)')
+        .order('shared_at', { ascending: false })
+        .limit(50);
 
-    if (data) setPosts(data);
+      if (error) console.warn('Feed load error:', error.message);
+      if (data) setPosts(data);
+    } catch (err) {
+      console.warn('Feed load error:', err);
+    }
+    setRefreshing(false);
   }
 
   async function toggleHighFive(post) {
@@ -133,7 +141,7 @@ export default function FeedScreen({ navigation }) {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         onRefresh={loadFeed}
-        refreshing={false}
+        refreshing={refreshing}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="newspaper-outline" size={48} color={colors.textMuted} />

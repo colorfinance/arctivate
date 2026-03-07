@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,7 @@ import { colors, spacing, borderRadius } from '../theme';
 
 export default function ProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ workouts: 0, pbs: 0, habits: 0 });
 
   useEffect(() => {
@@ -21,27 +23,32 @@ export default function ProfileScreen({ navigation }) {
   }, []);
 
   async function loadProfile() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    const today = new Date().toISOString().split('T')[0];
-    const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
+      const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
-    const [profileRes, workoutRes, pbRes, habitRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', user.id).single(),
-      supabase.from('workout_logs').select('id', { count: 'exact' })
-        .eq('user_id', user.id).gte('logged_at', monthAgo),
-      supabase.from('personal_bests').select('id', { count: 'exact' }).eq('user_id', user.id),
-      supabase.from('habit_logs').select('id', { count: 'exact' })
-        .eq('user_id', user.id).gte('date', monthAgo),
-    ]);
+      const [profileRes, workoutRes, pbRes, habitRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+        supabase.from('workout_logs').select('id', { count: 'exact' })
+          .eq('user_id', user.id).gte('logged_at', monthAgo),
+        supabase.from('personal_bests').select('id', { count: 'exact' }).eq('user_id', user.id),
+        supabase.from('habit_logs').select('id', { count: 'exact' })
+          .eq('user_id', user.id).gte('date', monthAgo),
+      ]);
 
-    if (profileRes.data) setProfile(profileRes.data);
-    setStats({
-      workouts: workoutRes.count || 0,
-      pbs: pbRes.count || 0,
-      habits: habitRes.count || 0,
-    });
+      if (profileRes.data) setProfile(profileRes.data);
+      setStats({
+        workouts: workoutRes.count || 0,
+        pbs: pbRes.count || 0,
+        habits: habitRes.count || 0,
+      });
+    } catch (err) {
+      console.warn('Profile load error:', err);
+    }
+    setLoading(false);
   }
 
   async function handleSignOut() {
@@ -57,7 +64,21 @@ export default function ProfileScreen({ navigation }) {
     ]);
   }
 
-  if (!profile) return null;
+  if (loading) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: colors.textMuted, fontSize: 16 }}>Could not load profile</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>

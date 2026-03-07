@@ -20,6 +20,7 @@ export default function HabitsScreen() {
   const [profile, setProfile] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newHabit, setNewHabit] = useState('');
+  const [toggling, setToggling] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -34,7 +35,7 @@ export default function HabitsScreen() {
     const [habitsRes, logsRes, profileRes] = await Promise.all([
       supabase.from('habits').select('*').eq('user_id', user.id).order('created_at'),
       supabase.from('habit_logs').select('*').eq('user_id', user.id).eq('date', today),
-      supabase.from('profiles').select('*').eq('id', user.id).single(),
+      supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
     ]);
 
     if (habitsRes.data) setHabits(habitsRes.data);
@@ -45,26 +46,34 @@ export default function HabitsScreen() {
   const isCompleted = (habitId) => todayLogs.some((l) => l.habit_id === habitId);
 
   async function toggleHabit(habit) {
-    const { data: { user } } = await supabase.auth.getUser();
-    const completed = isCompleted(habit.id);
+    if (toggling) return;
+    setToggling(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const completed = isCompleted(habit.id);
 
-    if (completed) {
-      await supabase.from('habit_logs').delete()
-        .eq('user_id', user.id)
-        .eq('habit_id', habit.id)
-        .eq('date', today);
-    } else {
-      await supabase.from('habit_logs').insert({
-        user_id: user.id,
-        habit_id: habit.id,
-        date: today,
-      });
-      await supabase.rpc('increment_points', {
-        user_id: user.id,
-        amount: habit.points_reward || 10,
-      });
+      if (completed) {
+        await supabase.from('habit_logs').delete()
+          .eq('user_id', user.id)
+          .eq('habit_id', habit.id)
+          .eq('date', today);
+      } else {
+        await supabase.from('habit_logs').insert({
+          user_id: user.id,
+          habit_id: habit.id,
+          date: today,
+        });
+        const { error: rpcError } = await supabase.rpc('increment_points', {
+          user_id: user.id,
+          amount: habit.points_reward || 10,
+        });
+        if (rpcError) console.warn('Points increment failed:', rpcError.message);
+      }
+      await loadData();
+    } catch (err) {
+      Alert.alert('Error', 'Could not update habit.');
     }
-    loadData();
+    setToggling(false);
   }
 
   async function addHabit() {

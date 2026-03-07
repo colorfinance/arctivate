@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { colors, spacing, borderRadius } from '../theme';
@@ -18,6 +19,7 @@ export default function GroupsScreen() {
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const chatListRef = useRef(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -91,7 +93,7 @@ export default function GroupsScreen() {
 
   if (selectedGroup) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.chatHeader}>
           <TouchableOpacity onPress={() => setSelectedGroup(null)}>
             <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
@@ -101,9 +103,11 @@ export default function GroupsScreen() {
         </View>
 
         <FlatList
+          ref={chatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
+          onContentSizeChange={() => chatListRef.current?.scrollToEnd()}
           renderItem={({ item }) => (
             <View style={[
               styles.msgBubble,
@@ -134,12 +138,12 @@ export default function GroupsScreen() {
             <Ionicons name="send" size={20} color={colors.background} />
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
         data={groups}
         keyExtractor={(item) => item.id}
@@ -195,7 +199,7 @@ export default function GroupsScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 

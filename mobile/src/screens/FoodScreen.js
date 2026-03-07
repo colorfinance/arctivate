@@ -7,7 +7,6 @@ import {
   StyleSheet,
   ScrollView,
   Modal,
-  Image,
   Alert,
   ActivityIndicator,
 } from 'react-native';
@@ -47,7 +46,7 @@ export default function FoodScreen() {
         .eq('user_id', user.id)
         .gte('eaten_at', today)
         .order('eaten_at', { ascending: false }),
-      supabase.from('profiles').select('daily_calorie_goal').eq('id', user.id).single(),
+      supabase.from('profiles').select('daily_calorie_goal').eq('id', user.id).maybeSingle(),
     ]);
 
     if (logsRes.data) setLogs(logsRes.data);
@@ -65,9 +64,6 @@ export default function FoodScreen() {
 
     setAnalyzing(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: { session } } = await supabase.auth.getSession();
-
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://your-app.vercel.app';
       const response = await fetch(`${apiUrl}/api/analyze`, {
         method: 'POST',

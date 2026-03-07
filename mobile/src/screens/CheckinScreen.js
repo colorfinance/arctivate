@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ export default function CheckinScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [recentCheckins, setRecentCheckins] = useState([]);
+  const processingRef = useRef(false);
 
   useEffect(() => {
     loadCheckins();
@@ -37,65 +38,89 @@ export default function CheckinScreen() {
   }
 
   async function handleBarCodeScanned({ data: qrData }) {
-    if (!qrData) return;
+    if (!qrData || processingRef.current) return;
+    processingRef.current = true;
     setScanning(false);
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    // Look up partner by QR UUID
-    const { data: partner } = await supabase
-      .from('partners')
-      .select('*')
-      .eq('qr_uuid', qrData)
-      .single();
-
-    if (!partner) {
-      // Try rewards ledger
-      const { data: reward } = await supabase
-        .from('rewards_ledger')
+      // Look up partner by QR UUID
+      const { data: partner } = await supabase
+        .from('partners')
         .select('*')
-        .eq('code', qrData)
-        .eq('is_used', false)
-        .single();
+        .eq('qr_uuid', qrData)
+        .maybeSingle();
 
-      if (reward) {
-        await supabase.from('rewards_ledger').update({
-          is_used: true,
-          used_by: user.id,
-          used_at: new Date().toISOString(),
-        }).eq('id', reward.id);
+      if (!partner) {
+        // Try rewards ledger
+        const { data: reward } = await supabase
+          .from('rewards_ledger')
+          .select('*')
+          .eq('code', qrData)
+          .eq('is_used', false)
+          .maybeSingle();
 
-        await supabase.rpc('increment_points', {
-          user_id: user.id,
-          amount: reward.points_value || 0,
-        });
+        if (reward) {
+          const { error: claimError } = await supabase
+            .from('rewards_ledger')
+            .update({
+              is_used: true,
+              used_by: user.id,
+              used_at: new Date().toISOString(),
+            })
+            .eq('id', reward.id)
+            .eq('is_used', false);
 
-        Alert.alert('Reward Claimed!', `+${reward.points_value} points`);
-      } else {
-        Alert.alert('Invalid Code', 'This QR code is not recognized.');
+          if (claimError) {
+            Alert.alert('Error', 'Could not claim reward.');
+            return;
+          }
+
+          const { error: rpcError } = await supabase.rpc('increment_points', {
+            user_id: user.id,
+            amount: reward.points_value || 0,
+          });
+          if (rpcError) console.warn('Points increment failed:', rpcError.message);
+
+          Alert.alert('Reward Claimed!', `+${reward.points_value} points`);
+        } else {
+          Alert.alert('Invalid Code', 'This QR code is not recognized.');
+        }
+        return;
       }
-      return;
+
+      // Check in at partner
+      const { error } = await supabase.from('check_ins').insert({
+        user_id: user.id,
+        partner_id: partner.id,
+        awarded_points: 150,
+      });
+
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+
+      const { error: rpcError } = await supabase.rpc('increment_points', { user_id: user.id, amount: 150 });
+      if (rpcError) console.warn('Points increment failed:', rpcError.message);
+      Alert.alert('Checked In!', `${partner.name} - +150 points`);
+      loadCheckins();
+    } catch (err) {
+      Alert.alert('Error', 'Something went wrong during check-in.');
+    } finally {
+      processingRef.current = false;
     }
-
-    // Check in at partner
-    const { error } = await supabase.from('check_ins').insert({
-      user_id: user.id,
-      partner_id: partner.id,
-      awarded_points: 150,
-    });
-
-    if (error) {
-      Alert.alert('Error', error.message);
-      return;
-    }
-
-    await supabase.rpc('increment_points', { user_id: user.id, amount: 150 });
-    Alert.alert('Checked In!', `${partner.name} - +150 points`);
-    loadCheckins();
   }
 
-  if (!permission) return null;
+  if (!permission) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   if (!permission.granted) {
     return (

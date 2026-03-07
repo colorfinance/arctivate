@@ -68,7 +68,7 @@ function MainTabs() {
   );
 }
 
-export default function Navigation({ session, onboardingComplete }) {
+export default function Navigation({ session, onboardingComplete, onOnboardingComplete }) {
   return (
     <NavigationContainer
       theme={{
@@ -81,13 +81,21 @@ export default function Navigation({ session, onboardingComplete }) {
           border: colors.border,
           notification: colors.primary,
         },
+        fonts: {
+          regular: { fontFamily: 'System', fontWeight: '400' },
+          medium: { fontFamily: 'System', fontWeight: '500' },
+          bold: { fontFamily: 'System', fontWeight: '700' },
+          heavy: { fontFamily: 'System', fontWeight: '800' },
+        },
       }}
     >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!session ? (
           <Stack.Screen name="Auth" component={AuthScreen} />
         ) : !onboardingComplete ? (
-          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Onboarding">
+            {(props) => <OnboardingScreen {...props} onComplete={onOnboardingComplete} />}
+          </Stack.Screen>
         ) : (
           <>
             <Stack.Screen name="Main" component={MainTabs} />

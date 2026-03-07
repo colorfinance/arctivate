@@ -28,13 +28,23 @@ export default function App() {
   }, []);
 
   async function checkOnboarding(userId) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('completed_onboarding')
-      .eq('id', userId)
-      .single();
-    setOnboardingComplete(data?.completed_onboarding ?? false);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('completed_onboarding')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) console.warn('Onboarding check failed:', error.message);
+      setOnboardingComplete(data?.completed_onboarding ?? false);
+    } catch (err) {
+      console.warn('Onboarding check error:', err);
+      setOnboardingComplete(false);
+    }
     setLoading(false);
+  }
+
+  function handleOnboardingComplete() {
+    setOnboardingComplete(true);
   }
 
   if (loading) {
@@ -48,7 +58,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <Navigation session={session} onboardingComplete={onboardingComplete} />
+      <Navigation
+        session={session}
+        onboardingComplete={onboardingComplete}
+        onOnboardingComplete={handleOnboardingComplete}
+      />
     </SafeAreaProvider>
   );
 }
