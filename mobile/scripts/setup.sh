@@ -74,12 +74,37 @@ print_success "Dependencies installed"
 # ─── Step 4: Initialize EAS project ───
 print_step 4 "Setting up EAS project..."
 
-if grep -q "your-eas-project-id" app.config.js 2>/dev/null; then
-  print_info "Initializing EAS project..."
-  eas init --non-interactive 2>/dev/null || eas init
-  print_success "EAS project initialized"
-else
+# Check if EAS_PROJECT_ID is already set in .env
+if [ -f .env ] && grep -q "^EAS_PROJECT_ID=" .env && ! grep -q "^EAS_PROJECT_ID=$" .env && ! grep -q "^EAS_PROJECT_ID=your-eas-project-id" .env; then
   print_success "EAS project already configured"
+else
+  print_info "Initializing EAS project..."
+  EAS_OUTPUT=$(eas init 2>&1) || true
+  echo "$EAS_OUTPUT"
+
+  # Extract project ID from eas init output or from eas config
+  PROJECT_ID=$(echo "$EAS_OUTPUT" | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+  if [ -n "$PROJECT_ID" ]; then
+    # Ensure .env exists
+    if [ ! -f .env ] && [ -f .env.example ]; then
+      cp .env.example .env
+    elif [ ! -f .env ]; then
+      touch .env
+    fi
+    # Write or update EAS_PROJECT_ID in .env
+    if grep -q "^EAS_PROJECT_ID=" .env; then
+      sed -i '' "s/^EAS_PROJECT_ID=.*/EAS_PROJECT_ID=$PROJECT_ID/" .env 2>/dev/null || \
+      sed -i "s/^EAS_PROJECT_ID=.*/EAS_PROJECT_ID=$PROJECT_ID/" .env
+    else
+      echo "EAS_PROJECT_ID=$PROJECT_ID" >> .env
+    fi
+    export EAS_PROJECT_ID="$PROJECT_ID"
+    print_success "EAS project initialized (ID: $PROJECT_ID)"
+  else
+    print_warning "Could not extract project ID. You may need to run 'eas init' manually."
+    print_info "Then add EAS_PROJECT_ID=<your-project-id> to mobile/.env"
+  fi
 fi
 
 # ─── Step 5: Environment variables ───
