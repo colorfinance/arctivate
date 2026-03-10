@@ -65,8 +65,14 @@ else
   print_success "Logged in as: $EXPO_USER"
 fi
 
-# ─── Step 3: Initialize EAS project ───
-print_step 3 "Setting up EAS project..."
+# ─── Step 3: Install dependencies ───
+print_step 3 "Installing dependencies..."
+
+npm install --silent 2>&1 | tail -1
+print_success "Dependencies installed"
+
+# ─── Step 4: Initialize EAS project ───
+print_step 4 "Setting up EAS project..."
 
 if grep -q "your-eas-project-id" app.config.js 2>/dev/null; then
   print_info "Initializing EAS project..."
@@ -76,8 +82,8 @@ else
   print_success "EAS project already configured"
 fi
 
-# ─── Step 4: Environment variables ───
-print_step 4 "Configuring environment variables..."
+# ─── Step 5: Environment variables ───
+print_step 5 "Configuring environment variables..."
 
 if [ ! -f .env ]; then
   cp .env.example .env
@@ -108,12 +114,6 @@ if grep -q "your-project.supabase.co" .env; then
 else
   print_success "Environment variables configured"
 fi
-
-# ─── Step 5: Install dependencies ───
-print_step 5 "Installing dependencies..."
-
-npm install --silent 2>&1 | tail -1
-print_success "Dependencies installed"
 
 # ─── Step 6: Supabase deep linking reminder ───
 print_step 6 "Supabase configuration..."
