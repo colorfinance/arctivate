@@ -65,6 +65,24 @@ else
   print_success "Logged in as: $EXPO_USER"
 fi
 
+# Set EAS_OWNER to the logged-in user if not already configured
+if [ -z "$EAS_OWNER" ] || [ "$EAS_OWNER" = "your-expo-username" ]; then
+  export EAS_OWNER="$EXPO_USER"
+  # Ensure .env exists
+  if [ ! -f .env ] && [ -f .env.example ]; then
+    cp .env.example .env
+  elif [ ! -f .env ]; then
+    touch .env
+  fi
+  if grep -q "^EAS_OWNER=" .env; then
+    sed -i '' "s/^EAS_OWNER=.*/EAS_OWNER=$EXPO_USER/" .env 2>/dev/null || \
+    sed -i "s/^EAS_OWNER=.*/EAS_OWNER=$EXPO_USER/" .env
+  else
+    echo "EAS_OWNER=$EXPO_USER" >> .env
+  fi
+  print_success "Set EAS owner to: $EXPO_USER"
+fi
+
 # ─── Step 3: Install dependencies ───
 print_step 3 "Installing dependencies..."
 

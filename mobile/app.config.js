@@ -106,6 +106,6 @@ export default {
     runtimeVersion: {
       policy: 'appVersion',
     },
-    owner: 'arctivate',
+    owner: process.env.EAS_OWNER || 'arctivate',
   },
 };
