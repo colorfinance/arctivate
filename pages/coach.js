@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import { apiUrl } from '../lib/apiClient'
 import { useRouter } from 'next/router'
 
 // ─── Icons ───────────────────────────────────────────
@@ -325,7 +326,7 @@ export default function Coach() {
         await supabase.from('coach_messages').insert({ user_id: userId, role: 'user', content: msg })
       }
 
-      const res = await fetch('/api/coach', {
+      const res = await fetch(apiUrl('/api/coach'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, context: buildContext() })

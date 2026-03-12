@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import { apiUrl } from '../lib/apiClient'
 import confetti from 'canvas-confetti'
 import { useRouter } from 'next/router'
 
@@ -210,7 +211,7 @@ export default function Food() {
 
   const analyzeImage = async (base64Image) => {
     try {
-      const res = await fetch('/api/analyze', {
+      const res = await fetch(apiUrl('/api/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: base64Image }),
@@ -528,7 +529,7 @@ export default function Food() {
     setVoiceProcessing(true)
 
     try {
-      const res = await fetch('/api/parse-voice-food', {
+      const res = await fetch(apiUrl('/api/parse-voice-food'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript }),

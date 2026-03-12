@@ -5,3 +5,12 @@ node_modules/\n.next/\n.env.local
 node_modules/
 supabase/
 .vercel
+out/
+
+# Capacitor native build artifacts (keep project files, ignore build outputs)
+ios/App/Pods/
+ios/DerivedData/
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
