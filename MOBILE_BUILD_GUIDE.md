@@ -239,6 +239,62 @@ versionName "1.1.0" // Semantic version
 
 ---
 
+## GitHub Actions CI/CD (Recommended)
+
+Both apps are built automatically in the cloud when you push to `main`. No local Xcode or Android Studio needed.
+
+### How it works
+
+1. Push code to `main` (or click "Run workflow" in GitHub Actions)
+2. GitHub builds the `.aab` (Android) and `.ipa` (iOS) automatically
+3. Download the files from the Actions tab > Artifacts section
+4. Upload to Play Store / App Store
+
+### Android Secrets (for signed builds)
+
+Go to **GitHub repo > Settings > Secrets and variables > Actions** and add:
+
+| Secret | How to get it |
+|--------|--------------|
+| `ANDROID_KEYSTORE_BASE64` | Run: `base64 -i arctivate-upload-key.jks` (see below to create keystore) |
+| `ANDROID_KEYSTORE_PASSWORD` | The password you chose when creating the keystore |
+| `ANDROID_KEY_ALIAS` | `arctivate-upload` (or whatever alias you chose) |
+| `ANDROID_KEY_PASSWORD` | The key password you chose |
+
+**Create the keystore first:**
+```bash
+keytool -genkey -v -keystore arctivate-upload-key.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -alias arctivate-upload
+```
+
+Without these secrets, Android still builds an **unsigned debug APK** you can test with.
+
+### iOS Secrets (for signed builds)
+
+| Secret | How to get it |
+|--------|--------------|
+| `IOS_BUILD_CERTIFICATE_BASE64` | Export your distribution certificate as .p12 from Keychain Access, then `base64 -i cert.p12` |
+| `IOS_P12_PASSWORD` | The password you set when exporting the .p12 |
+| `IOS_PROVISION_PROFILE_BASE64` | Download from Apple Developer portal, then `base64 -i profile.mobileprovision` |
+| `IOS_KEYCHAIN_PASSWORD` | Any random password (used for temp keychain in CI) |
+
+Without these secrets, iOS builds an **unsigned build** for verification only.
+
+### Running manually
+
+Go to **GitHub repo > Actions > Build Android AAB** (or Build iOS IPA) > **Run workflow**.
+
+### Downloading the built files
+
+1. Go to **Actions** tab in your GitHub repo
+2. Click the latest successful workflow run
+3. Scroll to **Artifacts** at the bottom
+4. Download `arctivate-release-aab` or `arctivate-release-ipa`
+5. Upload the file to the respective store
+
+---
+
 ## Troubleshooting
 
 ### iOS: "No signing certificate" error
