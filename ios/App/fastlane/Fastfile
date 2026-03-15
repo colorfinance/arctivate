@@ -1,0 +1,39 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build the app for App Store submission"
+  lane :build do
+    setup_ci if ENV['CI']
+
+    increment_build_number(
+      xcodeproj: "App.xcodeproj"
+    )
+
+    build_app(
+      scheme: "App",
+      workspace: "App.xcworkspace",
+      export_method: "app-store",
+      output_directory: "./build",
+      output_name: "Arctivate.ipa",
+      clean: true
+    )
+  end
+
+  desc "Upload to App Store Connect (TestFlight)"
+  lane :beta do
+    build
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true
+    )
+  end
+
+  desc "Upload to App Store for review"
+  lane :release do
+    build
+    upload_to_app_store(
+      force: true,
+      skip_metadata: false,
+      skip_screenshots: false
+    )
+  end
+end

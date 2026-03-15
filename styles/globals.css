@@ -63,11 +63,35 @@ body {
   animation: waveform 0.8s ease-in-out infinite;
 }
 
-/* Safe area for iOS */
+/* Safe area for native apps (iOS notch, Android cutouts) */
 .pb-safe {
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
 }
 
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Keyboard open state (set by Capacitor keyboard plugin) */
+body.keyboard-open .pb-safe,
+body.keyboard-open nav {
+  padding-bottom: 0 !important;
+}
+
+/* Prevent pull-to-refresh in native shell */
+html, body {
+  overscroll-behavior-y: contain;
+}
+
+/* Touch action optimization for native */
+* {
+  -webkit-tap-highlight-color: transparent;
 }

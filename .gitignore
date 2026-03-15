@@ -1,7 +1,31 @@
-node_modules/\n.next/\n.env.local
-
-.env.local
-.next/
 node_modules/
+.next/
+out/
+.env.local
+.env
 supabase/
 .vercel
+
+# iOS
+ios/App/Pods/
+ios/App/build/
+ios/App/DerivedData/
+*.xcuserdata
+*.ipa
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/captures/
+android/local.properties
+android/gradle.properties
+*.jks
+*.keystore
+*.aab
+*.apk
+
+# Fastlane
+ios/App/fastlane/report.xml
+android/fastlane/report.xml
+**/fastlane/README.md

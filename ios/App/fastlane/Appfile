@@ -1,0 +1,4 @@
+app_identifier("com.arctivate.app")
+# apple_id("your-apple-id@email.com")     # Your Apple Developer email
+# team_id("XXXXXXXXXX")                    # Your Apple Developer Team ID
+# itc_team_id("XXXXXXXXXX")               # Your App Store Connect Team ID
