@@ -17,6 +17,9 @@ function MyApp({ Component, pageProps }) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="theme-color" content="#030808" />
         <meta name="format-detection" content="telephone=no" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+        <meta name="apple-mobile-web-app-title" content="Arctivate" />
       </Head>
       <Component {...pageProps} />
     </>
