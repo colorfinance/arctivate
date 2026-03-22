@@ -1,0 +1,75 @@
+name: Release Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label (e.g. 0.1.0-beta)'
+        required: false
+        default: 'beta'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Rename APK
+        run: |
+          mkdir -p release-output
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-output/Arctivate-${{ github.event.inputs.version }}.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-${{ github.event.inputs.version }}-${{ github.run_number }}
+          name: "Arctivate Test Build - ${{ github.event.inputs.version }}"
+          body: |
+            ## Arctivate Test Build
+
+            **Android APK** - Download and install directly on your phone.
+
+            ### How to install on Android:
+            1. Download the `.apk` file below on your Android phone
+            2. Open the file — you may need to allow "Install from unknown sources" in Settings
+            3. Tap Install and open the app
+
+            ### How to use on iPhone:
+            Visit **https://arctivate-repo.vercel.app** in Safari and tap **Share → Add to Home Screen** to install as a web app.
+
+            ---
+            _Built from commit ${{ github.sha }}_
+          draft: false
+          prerelease: true
+          files: release-output/Arctivate-${{ github.event.inputs.version }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
