@@ -1,0 +1,18 @@
+# App Store Connect metadata delivery config
+# https://docs.fastlane.tools/actions/deliver/
+
+app_identifier "com.arctivate.app"
+price_tier 0                          # Free app
+primary_category "Health & Fitness"
+secondary_category "Lifestyle"
+
+# Auto-submit for review after upload
+submit_for_review false
+automatic_release false
+
+# App rating (PEGI / App Store age rating)
+app_rating_config_path "./fastlane/rating_config.json"
+
+# Screenshots and metadata path
+screenshots_path "./fastlane/screenshots"
+metadata_path "./fastlane/metadata"

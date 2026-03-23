@@ -1,0 +1,8 @@
+Initial release of Arctivate — your AI-powered fitness companion.
+
+- Garmin smartwatch integration for automatic workout syncing
+- 75-Day discipline challenge with streak tracking
+- AI-powered workout and nutrition guidance
+- Partner reward system with real-world discounts
+- Progress sharing and social accountability
+- Food logging with barcode and photo scanning
