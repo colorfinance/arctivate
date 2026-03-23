@@ -87,6 +87,7 @@ export default {
         },
       ],
       'expo-secure-store',
+      'expo-font',
       [
         'expo-notifications',
         {
