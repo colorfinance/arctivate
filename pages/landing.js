@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Watch, Share2, Zap, Handshake, ChevronRight, Check, Star } from 'lucide-react'
+import { Watch, Share2, Zap, Handshake, ChevronRight, Check, Star, Download } from 'lucide-react'
 
 // Animation variants
 const fadeUp = {
@@ -64,12 +64,21 @@ export default function Landing() {
           <Link href="/" className="text-2xl font-black italic tracking-tighter text-white">
             ARCTIVATE
           </Link>
-          <Link
-            href="/"
-            className="bg-accent-gradient text-white px-5 py-2 rounded-full font-bold text-sm hover:opacity-90 transition shadow-glow-accent"
-          >
-            Start Free
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/download"
+              className="text-arc-muted hover:text-white transition text-sm font-semibold flex items-center gap-1"
+            >
+              <Download className="w-4 h-4" />
+              Download
+            </Link>
+            <Link
+              href="/"
+              className="bg-accent-gradient text-white px-5 py-2 rounded-full font-bold text-sm hover:opacity-90 transition shadow-glow-accent"
+            >
+              Start Free
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -110,12 +119,13 @@ export default function Landing() {
               Start Your Challenge
               <ChevronRight className="w-5 h-5" />
             </Link>
-            <a
-              href="#features"
-              className="bg-arc-surface text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-arc-card transition border border-white/10 flex items-center justify-center"
+            <Link
+              href="/download"
+              className="bg-arc-surface text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-arc-card transition border border-white/10 flex items-center justify-center gap-2"
             >
-              See Features
-            </a>
+              <Download className="w-5 h-5" />
+              Download App
+            </Link>
           </div>
 
           {/* Stats */}
@@ -420,6 +430,13 @@ export default function Landing() {
           <p className="text-arc-muted text-sm mt-6">
             Free to start. No credit card required.
           </p>
+          <Link
+            href="/download"
+            className="inline-flex items-center gap-2 text-arc-muted hover:text-white transition text-sm mt-4"
+          >
+            <Download className="w-4 h-4" />
+            Download for Android & iOS
+          </Link>
         </motion.div>
       </section>
 
