@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.colorfinance.arctivate',
+  appId: 'com.arc.arctivate',
   appName: 'Arctivate',
   webDir: 'out',
   server: {
