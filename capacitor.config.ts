@@ -29,6 +29,7 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'automatic',
     preferredContentMode: 'mobile',
+    scheme: 'com.arc.arctivate',
   },
   android: {
     backgroundColor: '#0a0a0a',
