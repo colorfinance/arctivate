@@ -36,6 +36,21 @@ enum ArcTheme {
         /// Tertiary text - darker gray (#6B7280)
         static let textTertiary = Color(red: 0.420, green: 0.447, blue: 0.502)
 
+        /// Muted text - alias for textTertiary
+        static let textMuted = textTertiary
+
+        /// Lighter surface variant (#162020)
+        static let surfaceLight = Color(red: 0.086, green: 0.125, blue: 0.125)
+
+        /// Red for destructive actions
+        static let red = Color(red: 0.937, green: 0.267, blue: 0.267)
+
+        /// Yellow for badges/PBs (#FBBF24)
+        static let yellow = Color(red: 0.984, green: 0.749, blue: 0.141)
+
+        /// Pink for high-fives (#EC4899)
+        static let pink = Color(red: 0.925, green: 0.282, blue: 0.600)
+
         /// Success green (#10B981)
         static let success = Color(red: 0.063, green: 0.725, blue: 0.506)
 
@@ -63,8 +78,10 @@ enum ArcTheme {
     // MARK: - Spacing
 
     enum Spacing {
+        /// 2pt
+        static let xxs: CGFloat = 2
         /// 4pt
-        static let xxs: CGFloat = 4
+        static let xxxs: CGFloat = 4
         /// 8pt
         static let xs: CGFloat = 8
         /// 12pt
@@ -77,6 +94,8 @@ enum ArcTheme {
         static let xl: CGFloat = 32
         /// 48pt
         static let xxl: CGFloat = 48
+        /// 64pt
+        static let xxxl: CGFloat = 64
     }
 
     // MARK: - Corner Radius
@@ -129,6 +148,27 @@ enum ArcTheme {
 
         /// 60pt bold monospaced - timer displays
         static let timer: Font = .system(size: 60, weight: .bold, design: .monospaced)
+
+        // Function variants for customizable sizes
+        static func heading(_ size: CGFloat = 20) -> Font {
+            .system(size: size, weight: .bold)
+        }
+
+        static func title(_ size: CGFloat = 28) -> Font {
+            .system(size: size, weight: .bold, design: .rounded)
+        }
+
+        static func body(_ size: CGFloat = 15) -> Font {
+            .system(size: size, weight: .regular)
+        }
+
+        static func caption(_ size: CGFloat = 13) -> Font {
+            .system(size: size, weight: .regular)
+        }
+
+        static func mono(_ size: CGFloat = 14) -> Font {
+            .system(size: size, weight: .semibold, design: .monospaced)
+        }
     }
 
     // MARK: - Shadows

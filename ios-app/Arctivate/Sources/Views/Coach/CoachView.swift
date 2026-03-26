@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CoachView: View {
-    @State private var messages: [CoachMessage] = []
+    @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isLoading = false
     @State private var scrollProxy: ScrollViewProxy?
@@ -146,7 +146,7 @@ struct CoachView: View {
 
     // MARK: - Message Bubble
 
-    private func messageBubble(_ message: CoachMessage) -> some View {
+    private func messageBubble(_ message: ChatMessage) -> some View {
         let isUser = message.role == "user"
 
         return HStack(alignment: .bottom, spacing: ArcTheme.Spacing.sm) {
@@ -268,7 +268,7 @@ struct CoachView: View {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
 
-        let userMessage = CoachMessage(
+        let userMessage = ChatMessage(
             id: UUID(),
             role: "user",
             content: text,
@@ -282,7 +282,7 @@ struct CoachView: View {
         Task {
             try? await Task.sleep(for: .seconds(1.5))
 
-            let assistantMessage = CoachMessage(
+            let assistantMessage = ChatMessage(
                 id: UUID(),
                 role: "assistant",
                 content: "I'm your AI fitness coach. This is a placeholder response -- connect the CoachViewModel for real coaching advice powered by AI.",

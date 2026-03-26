@@ -7,15 +7,15 @@ struct ArctivateApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
+            ZStack {
                 switch authManager.state {
                 case .loading:
                     SplashView()
                 case .authenticated:
-                    MainTabView()
+                    AppMainTabView()
                         .environmentObject(authManager)
                 case .unauthenticated:
-                    AuthView()
+                    AppAuthView()
                         .environmentObject(authManager)
                 }
             }
@@ -75,27 +75,13 @@ final class AuthManager: ObservableObject {
         let authResponse = try await supabase.auth.signUp(email: email, password: password)
         let userId = authResponse.user.id
 
-        // Create profile row
-        let profile = Profile(
-            id: userId,
-            username: username,
-            bio: nil,
-            totalPoints: 0,
-            currentStreak: 0,
-            avatarUrl: nil,
-            partnerId: nil,
-            challengeStartDate: nil,
-            challengeDaysGoal: 75,
-            age: nil,
-            weight: nil,
-            gender: nil,
-            goal: nil,
-            fitnessLevel: nil,
-            completedOnboarding: false,
-            dailyCalorieGoal: 2800,
-            createdAt: nil
-        )
-        try await supabase.from("profiles").insert(profile).execute()
+        try await supabase.from("profiles").insert([
+            "id": userId.uuidString,
+            "username": username,
+            "total_points": "0",
+            "current_streak": "0",
+            "challenge_days_goal": "75"
+        ]).execute()
     }
 
     func signOut() async throws {
@@ -103,27 +89,30 @@ final class AuthManager: ObservableObject {
     }
 }
 
-// MARK: - Placeholder Views
+// MARK: - Splash View
 
 struct SplashView: View {
     var body: some View {
         ZStack {
-            ArcTheme.Colors.background.ignoresSafeArea()
-            VStack(spacing: ArcTheme.Spacing.md) {
+            Color(red: 0.012, green: 0.031, blue: 0.031).ignoresSafeArea()
+            VStack(spacing: 16) {
                 Image(systemName: "flame.fill")
                     .font(.system(size: 64))
-                    .foregroundStyle(ArcTheme.Colors.primary)
-                Text("Arctivate")
-                    .font(ArcTheme.Typography.largeTitle)
+                    .foregroundStyle(Color(red: 0, green: 0.831, blue: 0.667))
+                Text("ARCTIVATE")
+                    .font(.system(size: 28, weight: .black))
                     .foregroundStyle(.white)
+                    .tracking(4)
                 ProgressView()
-                    .tint(ArcTheme.Colors.primary)
+                    .tint(Color(red: 0, green: 0.831, blue: 0.667))
             }
         }
     }
 }
 
-struct AuthView: View {
+// MARK: - App Auth View (wrapper to avoid conflict with Views/Auth/AuthView)
+
+struct AppAuthView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var isSignUp = false
     @State private var email = ""
@@ -134,24 +123,25 @@ struct AuthView: View {
 
     var body: some View {
         ZStack {
-            ArcTheme.Colors.background.ignoresSafeArea()
+            Color(red: 0.012, green: 0.031, blue: 0.031).ignoresSafeArea()
 
-            VStack(spacing: ArcTheme.Spacing.lg) {
+            VStack(spacing: 20) {
                 Spacer()
 
                 Image(systemName: "flame.fill")
                     .font(.system(size: 56))
-                    .foregroundStyle(ArcTheme.Colors.primary)
+                    .foregroundStyle(Color(red: 0, green: 0.831, blue: 0.667))
 
-                Text("Arctivate")
-                    .font(ArcTheme.Typography.largeTitle)
+                Text("ARCTIVATE")
+                    .font(.system(size: 28, weight: .black))
                     .foregroundStyle(.white)
+                    .tracking(4)
 
                 Text(isSignUp ? "Create your account" : "Welcome back")
-                    .font(ArcTheme.Typography.body)
-                    .foregroundStyle(ArcTheme.Colors.textSecondary)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.gray)
 
-                VStack(spacing: ArcTheme.Spacing.sm) {
+                VStack(spacing: 12) {
                     if isSignUp {
                         TextField("Username", text: $username)
                             .textFieldStyle(.roundedBorder)
@@ -166,11 +156,11 @@ struct AuthView: View {
                     SecureField("Password", text: $password)
                         .textFieldStyle(.roundedBorder)
                 }
-                .padding(.horizontal, ArcTheme.Spacing.lg)
+                .padding(.horizontal, 24)
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(ArcTheme.Typography.caption)
+                        .font(.system(size: 13))
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
@@ -181,29 +171,28 @@ struct AuthView: View {
                 } label: {
                     Group {
                         if isLoading {
-                            ProgressView()
-                                .tint(.black)
+                            ProgressView().tint(.black)
                         } else {
                             Text(isSignUp ? "Sign Up" : "Sign In")
-                                .font(ArcTheme.Typography.headline)
+                                .font(.system(size: 16, weight: .bold))
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(ArcTheme.Colors.primary)
+                    .background(Color(red: 0, green: 0.831, blue: 0.667))
                     .foregroundStyle(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: ArcTheme.Radius.md))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .disabled(isLoading)
-                .padding(.horizontal, ArcTheme.Spacing.lg)
+                .padding(.horizontal, 24)
 
                 Button {
                     isSignUp.toggle()
                     errorMessage = nil
                 } label: {
                     Text(isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
-                        .font(ArcTheme.Typography.caption)
-                        .foregroundStyle(ArcTheme.Colors.cyan)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(red: 0.024, green: 0.714, blue: 0.831))
                 }
 
                 Spacer()
@@ -227,102 +216,34 @@ struct AuthView: View {
     }
 }
 
-struct MainTabView: View {
+// MARK: - App Main Tab View (wrapper to avoid conflict with Views/MainTabView)
+
+struct AppMainTabView: View {
     @EnvironmentObject var authManager: AuthManager
 
     var body: some View {
         TabView {
-            Tab("Home", systemImage: "house.fill") {
-                HomePlaceholderView()
-            }
-            Tab("Workout", systemImage: "dumbbell.fill") {
-                WorkoutPlaceholderView()
-            }
-            Tab("Food", systemImage: "fork.knife") {
-                FoodPlaceholderView()
-            }
-            Tab("Social", systemImage: "person.2.fill") {
-                SocialPlaceholderView()
-            }
-            Tab("Profile", systemImage: "person.crop.circle.fill") {
-                ProfilePlaceholderView()
-            }
-        }
-        .tint(ArcTheme.Colors.primary)
-    }
-}
-
-// MARK: - Tab Placeholders
-
-struct HomePlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                ArcTheme.Colors.background.ignoresSafeArea()
-                Text("Home")
-                    .foregroundStyle(.white)
-            }
-            .navigationTitle("Arctivate")
-        }
-    }
-}
-
-struct WorkoutPlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                ArcTheme.Colors.background.ignoresSafeArea()
-                Text("Workout")
-                    .foregroundStyle(.white)
-            }
-            .navigationTitle("Workout")
-        }
-    }
-}
-
-struct FoodPlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                ArcTheme.Colors.background.ignoresSafeArea()
-                Text("Food")
-                    .foregroundStyle(.white)
-            }
-            .navigationTitle("Nutrition")
-        }
-    }
-}
-
-struct SocialPlaceholderView: View {
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                ArcTheme.Colors.background.ignoresSafeArea()
-                Text("Social")
-                    .foregroundStyle(.white)
-            }
-            .navigationTitle("Community")
-        }
-    }
-}
-
-struct ProfilePlaceholderView: View {
-    @EnvironmentObject var authManager: AuthManager
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                ArcTheme.Colors.background.ignoresSafeArea()
-                VStack(spacing: ArcTheme.Spacing.md) {
-                    Text("Profile")
-                        .foregroundStyle(.white)
-                    Button("Sign Out") {
-                        Task { try? await authManager.signOut() }
-                    }
-                    .foregroundStyle(.red)
+            TrainView()
+                .tabItem {
+                    Label("Train", systemImage: "dumbbell.fill")
                 }
-            }
-            .navigationTitle("Profile")
+            CoachView()
+                .tabItem {
+                    Label("Coach", systemImage: "bubble.left.fill")
+                }
+            FeedView()
+                .tabItem {
+                    Label("Feed", systemImage: "person.2.fill")
+                }
+            HabitsView()
+                .tabItem {
+                    Label("Habits", systemImage: "checkmark.circle.fill")
+                }
+            FoodView()
+                .tabItem {
+                    Label("Food", systemImage: "fork.knife")
+                }
         }
+        .tint(Color(red: 0, green: 0.831, blue: 0.667))
     }
 }

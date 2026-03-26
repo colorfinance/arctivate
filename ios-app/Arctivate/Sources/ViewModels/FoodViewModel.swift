@@ -60,8 +60,7 @@ final class FoodViewModel {
         Macros(
             protein: dailyProtein,
             carbs: dailyCarbs,
-            fat: dailyFat,
-            mealType: nil
+            fat: dailyFat
         )
     }
 
@@ -124,7 +123,7 @@ final class FoodViewModel {
         errorMessage = nil
 
         do {
-            let macros = Macros(protein: protein, carbs: carbs, fat: fat, mealType: mealType)
+            let macros = Macros(protein: protein, carbs: carbs, fat: fat)
             let macrosData = try JSONEncoder().encode(macros)
             let macrosJSON = String(data: macrosData, encoding: .utf8) ?? "{}"
 

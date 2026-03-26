@@ -5,7 +5,19 @@ import Supabase
 final class SupabaseService: Sendable {
     static let shared = SupabaseService()
 
+    /// The base URL for the API (used by ViewModels that call REST endpoints directly).
+    static let baseURL: String = ProcessInfo.processInfo.environment["API_BASE_URL"]
+        ?? "https://arctivate.vercel.app"
+
     let client: SupabaseClient
+
+    /// Convenience accessor so ViewModels can write `supabase.auth` instead of `supabase.client.auth`.
+    var auth: AuthClient { client.auth }
+
+    /// Convenience accessor so ViewModels can write `supabase.from(...)` instead of `supabase.client.from(...)`.
+    func from(_ table: String) -> PostgrestQueryBuilder {
+        client.from(table)
+    }
 
     private init() {
         let url = URL(string: ProcessInfo.processInfo.environment["SUPABASE_URL"]

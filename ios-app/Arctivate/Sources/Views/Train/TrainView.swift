@@ -2,13 +2,22 @@ import SwiftUI
 
 // MARK: - Supporting Types
 
-enum MetricType: String, CaseIterable, Identifiable {
+enum MetricTypeOption: String, CaseIterable, Identifiable {
     case weight   = "Weight (kg)"
     case distance = "Distance (km)"
     case time     = "Time (min)"
     case reps     = "Reps Only"
 
     var id: String { rawValue }
+
+    var dbValue: String {
+        switch self {
+        case .weight: return "weight"
+        case .distance: return "distance"
+        case .time: return "time"
+        case .reps: return "reps"
+        }
+    }
 }
 
 enum MuscleGroup: String, CaseIterable, Identifiable {
@@ -399,7 +408,7 @@ struct AddExerciseSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String = ""
-    @State private var metricType: MetricType = .weight
+    @State private var metricType: MetricTypeOption = .weight
     @State private var muscleGroup: MuscleGroup = .chest
     @State private var isSaving = false
 
@@ -430,7 +439,7 @@ struct AddExerciseSheet: View {
                             .font(ArcTheme.Typography.caption())
                             .foregroundStyle(ArcTheme.Colors.textSecondary)
                         Picker("Metric Type", selection: $metricType) {
-                            ForEach(MetricType.allCases) { type in
+                            ForEach(MetricTypeOption.allCases) { type in
                                 Text(type.rawValue).tag(type)
                             }
                         }
