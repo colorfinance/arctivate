@@ -19,6 +19,11 @@ final class SupabaseService: Sendable {
         client.from(table)
     }
 
+    /// Convenience accessor for RPC calls.
+    func rpc(_ fn: String, params: some Encodable) -> PostgrestFilterBuilder {
+        client.rpc(fn, params: params)
+    }
+
     private init() {
         let url = URL(string: ProcessInfo.processInfo.environment["SUPABASE_URL"]
             ?? "https://your-project.supabase.co")!
@@ -215,16 +220,15 @@ final class SupabaseService: Sendable {
         if let date {
             let start = "\(date)T00:00:00Z"
             let end = "\(date)T23:59:59Z"
-            return try await client
+            let result: [FoodLog] = try await client
                 .from("food_logs")
                 .select()
                 .eq("user_id", value: userId.uuidString)
                 .gte("eaten_at", value: start)
                 .lte("eaten_at", value: end)
-                .order("eaten_at", ascending: false)
-                .limit(100)
                 .execute()
                 .value
+            return result.sorted { ($0.eatenAt ?? .distantPast) > ($1.eatenAt ?? .distantPast) }
         } else {
             return try await client
                 .from("food_logs")
@@ -395,23 +399,21 @@ final class SupabaseService: Sendable {
 
     func fetchGroupMessages(groupId: UUID?, limit: Int = 50) async throws -> [GroupMessage] {
         if let groupId {
-            return try await client
+            let results: [GroupMessage] = try await client
                 .from("community_messages")
                 .select("*, profiles(*)")
                 .eq("group_id", value: groupId.uuidString)
-                .order("created_at", ascending: false)
-                .limit(limit)
                 .execute()
                 .value
+            return Array(results.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }.prefix(limit))
         } else {
-            return try await client
+            let results: [GroupMessage] = try await client
                 .from("community_messages")
                 .select("*, profiles(*)")
-                .is("group_id", value: "null")
-                .order("created_at", ascending: false)
-                .limit(limit)
+                .is("group_id", value: .null)
                 .execute()
                 .value
+            return Array(results.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }.prefix(limit))
         }
     }
 

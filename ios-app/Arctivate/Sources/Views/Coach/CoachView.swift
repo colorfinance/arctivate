@@ -170,26 +170,14 @@ struct CoachView: View {
                     .padding(.horizontal, ArcTheme.Spacing.lg)
                     .padding(.vertical, ArcTheme.Spacing.md)
                     .background(
-                        Group {
-                            if isUser {
-                                ArcTheme.Colors.primaryGradient
-                            } else {
-                                LinearGradient(
-                                    colors: [ArcTheme.Colors.surface, ArcTheme.Colors.surface],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            }
-                        }
+                        isUser
+                            ? AnyShapeStyle(ArcTheme.Colors.primaryGradient)
+                            : AnyShapeStyle(ArcTheme.Colors.surface)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: ArcTheme.Radius.lg, style: .continuous))
                     .overlay(
-                        Group {
-                            if !isUser {
-                                RoundedRectangle(cornerRadius: ArcTheme.Radius.lg, style: .continuous)
-                                    .stroke(ArcTheme.Colors.border, lineWidth: 1)
-                            }
-                        }
+                        RoundedRectangle(cornerRadius: ArcTheme.Radius.lg, style: .continuous)
+                            .stroke(isUser ? .clear : ArcTheme.Colors.border, lineWidth: 1)
                     )
 
                 if let createdAt = message.createdAt {
@@ -269,7 +257,7 @@ struct CoachView: View {
         guard !text.isEmpty else { return }
 
         let userMessage = ChatMessage(
-            id: UUID(),
+            id: UUID().uuidString,
             role: "user",
             content: text,
             createdAt: Date()
@@ -283,7 +271,7 @@ struct CoachView: View {
             try? await Task.sleep(for: .seconds(1.5))
 
             let assistantMessage = ChatMessage(
-                id: UUID(),
+                id: UUID().uuidString,
                 role: "assistant",
                 content: "I'm your AI fitness coach. This is a placeholder response -- connect the CoachViewModel for real coaching advice powered by AI.",
                 createdAt: Date()

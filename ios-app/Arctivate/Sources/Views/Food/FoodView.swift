@@ -93,19 +93,19 @@ struct FoodView: View {
         HStack(spacing: ArcTheme.Spacing.lg) {
             macroItem(
                 label: "Protein",
-                grams: foodVM.dailyMacros.protein,
+                grams: foodVM.dailyMacros.protein ?? 0,
                 color: ArcTheme.Colors.cyan
             )
 
             macroItem(
                 label: "Carbs",
-                grams: foodVM.dailyMacros.carbs,
+                grams: foodVM.dailyMacros.carbs ?? 0,
                 color: ArcTheme.Colors.orange
             )
 
             macroItem(
                 label: "Fat",
-                grams: foodVM.dailyMacros.fat,
+                grams: foodVM.dailyMacros.fat ?? 0,
                 color: ArcTheme.Colors.pink
             )
         }
@@ -210,7 +210,7 @@ struct FoodView: View {
                 .fill(ArcTheme.Colors.surfaceLight)
                 .frame(width: 40, height: 40)
                 .overlay(
-                    Image(systemName: mealIcon(log.mealType))
+                    Image(systemName: "fork.knife")
                         .foregroundStyle(ArcTheme.Colors.primary)
                 )
 
