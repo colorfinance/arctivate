@@ -180,11 +180,9 @@ struct CoachView: View {
                             .stroke(isUser ? .clear : ArcTheme.Colors.border, lineWidth: 1)
                     )
 
-                if let createdAt = message.createdAt {
-                    Text(createdAt, style: .time)
+                Text(message.createdAt, style: .time)
                         .font(.system(size: 11))
                         .foregroundStyle(ArcTheme.Colors.textMuted)
-                }
             }
 
             if !isUser { Spacer(minLength: 60) }
