@@ -22,15 +22,22 @@ export default function App() {
       handleDeepLink(url, supabase);
     });
 
-    Linking.getInitialURL().then((url) => {
-      if (url) handleDeepLink(url, supabase);
-    });
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) handleDeepLink(url, supabase);
+      })
+      .catch((err) => console.warn('Initial URL error:', err));
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) checkOnboarding(session.user.id);
-      else setLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        if (session) checkOnboarding(session.user.id);
+        else setLoading(false);
+      })
+      .catch((err) => {
+        console.warn('Session retrieval error:', err);
+        setLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);

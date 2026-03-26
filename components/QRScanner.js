@@ -70,7 +70,8 @@ export default function QRScanner({ onPointsEarned }) {
           aspectRatio: 1.0
         },
         async (decodedText) => {
-          // Successfully scanned
+          // Prevent duplicate scans via race condition
+          if (!html5QrCodeRef.current) return
           await stopScanner()
           await handleScan(decodedText)
         },
@@ -119,6 +120,13 @@ export default function QRScanner({ onPointsEarned }) {
         })
       })
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        setError(errorData.error || `Server error (${response.status})`)
+        setIsRedeeming(false)
+        return
+      }
+
       const result = await response.json()
 
       if (result.success) {
@@ -147,8 +155,8 @@ export default function QRScanner({ onPointsEarned }) {
     }
   }
 
-  const handleClose = () => {
-    stopScanner()
+  const handleClose = async () => {
+    await stopScanner()
     setIsOpen(false)
     setScanResult(null)
     setError(null)

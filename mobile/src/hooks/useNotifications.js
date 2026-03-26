@@ -105,13 +105,20 @@ async function savePushToken(token) {
 }
 
 export async function scheduleHabitReminder(hour = 9, minute = 0) {
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  // Only cancel habit reminder notifications, not all notifications
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  for (const notif of scheduled) {
+    if (notif.content?.data?.type === 'habit_reminder') {
+      await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+    }
+  }
 
   await Notifications.scheduleNotificationAsync({
     content: {
       title: 'Time to check your habits',
       body: "Don't break your streak! Complete your daily habits.",
       sound: true,
+      data: { type: 'habit_reminder' },
     },
     trigger: {
       type: 'daily',

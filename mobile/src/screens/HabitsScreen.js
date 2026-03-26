@@ -50,6 +50,7 @@ export default function HabitsScreen() {
     setToggling(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { Alert.alert('Error', 'Please log in first'); setToggling(false); return; }
       const completed = isCompleted(habit.id);
 
       if (completed) {
@@ -57,6 +58,12 @@ export default function HabitsScreen() {
           .eq('user_id', user.id)
           .eq('habit_id', habit.id)
           .eq('date', today);
+        // Deduct points when un-completing a habit
+        const { error: rpcError } = await supabase.rpc('increment_points', {
+          user_id: user.id,
+          amount: -(habit.points_reward || 10),
+        });
+        if (rpcError) console.warn('Points decrement failed:', rpcError.message);
       } else {
         await supabase.from('habit_logs').insert({
           user_id: user.id,
@@ -79,6 +86,7 @@ export default function HabitsScreen() {
   async function addHabit() {
     if (!newHabit.trim()) return;
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { Alert.alert('Error', 'Please log in first'); return; }
     const { error } = await supabase.from('habits').insert({
       user_id: user.id,
       title: newHabit.trim(),

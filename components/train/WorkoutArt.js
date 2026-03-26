@@ -121,8 +121,15 @@ function renderWorkoutArt(canvas, workoutData, style) {
 
   ctx.font = '800 14px Inter, sans-serif'
   ctx.fillStyle = s.muted
-  ctx.letterSpacing = '4px'
+  // letterSpacing is only supported in Chrome 99+, use fallback for cross-browser
+  if (typeof ctx.letterSpacing !== 'undefined') {
+    ctx.letterSpacing = '4px'
+  }
   ctx.fillText('POINTS EARNED', W / 2, statsY + 115)
+  // Reset letterSpacing to avoid affecting subsequent text
+  if (typeof ctx.letterSpacing !== 'undefined') {
+    ctx.letterSpacing = '0px'
+  }
 
   // Sub-stats row
   const subY = statsY + 145

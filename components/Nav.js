@@ -4,7 +4,7 @@ import { useRouter } from 'next/router'
 export default function Nav() {
   const router = useRouter()
 
-  const isActive = (path) => router.pathname === path ? "text-arc-accent" : "hover:text-white transition"
+  const isActive = (path) => router.pathname.startsWith(path) ? "text-arc-accent" : "hover:text-white transition"
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-arc-card/90 backdrop-blur-xl border-t border-white/[0.04] p-3 flex justify-around text-[10px] font-bold text-arc-muted z-40 safe-area-bottom">

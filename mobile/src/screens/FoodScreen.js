@@ -71,6 +71,7 @@ export default function FoodScreen() {
         body: JSON.stringify({ image: result.assets[0].base64 }),
       });
 
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const data = await response.json();
       if (data.name) {
         setForm({
@@ -91,6 +92,7 @@ export default function FoodScreen() {
   async function handleAdd() {
     if (!form.item_name.trim()) return;
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { Alert.alert('Error', 'Please log in first'); return; }
 
     const { error } = await supabase.from('food_logs').insert({
       user_id: user.id,

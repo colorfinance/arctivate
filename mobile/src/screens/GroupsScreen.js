@@ -53,7 +53,7 @@ export default function GroupsScreen() {
   }
 
   async function sendGroupMessage() {
-    if (!newMessage.trim() || !selectedGroup) return;
+    if (!newMessage.trim() || !selectedGroup || !currentUserId) return;
 
     const { error } = await supabase.from('group_messages').insert({
       group_id: selectedGroup.id,
@@ -68,7 +68,10 @@ export default function GroupsScreen() {
   }
 
   async function createGroup() {
-    if (!newGroupName.trim()) return;
+    if (!newGroupName.trim() || !currentUserId) {
+      if (!currentUserId) Alert.alert('Error', 'Please log in first');
+      return;
+    }
 
     const { data, error } = await supabase.from('groups').insert({
       name: newGroupName.trim(),

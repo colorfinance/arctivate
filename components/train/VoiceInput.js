@@ -134,7 +134,7 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
     if (!isListening && transcript.trim() && !parsedData) {
       parseTranscript()
     }
-  }, [isListening])
+  }, [isListening, transcript, parsedData])
 
   if (!isSupported) {
     return (

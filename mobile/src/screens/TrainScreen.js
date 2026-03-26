@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -51,6 +51,7 @@ export default function TrainScreen({ navigation }) {
   async function handleAddExercise() {
     if (!newExercise.name.trim()) return;
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { Alert.alert('Error', 'Please log in first'); return; }
     const { error } = await supabase.from('exercises').insert({
       user_id: user.id,
       name: newExercise.name.trim(),
@@ -68,6 +69,7 @@ export default function TrainScreen({ navigation }) {
   async function handleLogSet() {
     if (!selectedExercise || !logForm.value) return;
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { Alert.alert('Error', 'Please log in first'); return; }
     const value = parseFloat(logForm.value);
 
     // Check for PB
@@ -110,13 +112,14 @@ export default function TrainScreen({ navigation }) {
     const { error: rpcError } = await supabase.rpc('increment_points', { user_id: user.id, amount: points });
     if (rpcError) console.warn('Points increment failed:', rpcError.message);
 
+    const exerciseName = selectedExercise.name;
     setShowLogModal(false);
     setLogForm({ value: '', sets: '', reps: '', rpe: '' });
     setSelectedExercise(null);
     loadData();
 
     if (isNewPB) {
-      Alert.alert('NEW PB!', `${selectedExercise.name}: ${value} - +100 bonus points!`);
+      Alert.alert('NEW PB!', `${exerciseName}: ${value} - +${points} points!`);
     }
   }
 

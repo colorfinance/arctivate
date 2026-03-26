@@ -41,7 +41,7 @@ export default function CoachScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMsg.content,
-          context: { history: messages.slice(-6) },
+          context: { history: [...messages.slice(-6), userMsg] },
         }),
       });
 

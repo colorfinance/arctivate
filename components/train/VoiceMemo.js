@@ -66,16 +66,28 @@ export default function VoiceMemo({ exercises, selectedExercise, onSaved, onClos
   const analyserRef = useRef(null)
   const animationFrameRef = useRef(null)
   const streamRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const audioUrlRef = useRef(null)
+
+  // Keep audioUrlRef in sync
+  useEffect(() => {
+    audioUrlRef.current = audioUrl
+  }, [audioUrl])
 
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      stopRecording()
-      if (audioUrl) URL.revokeObjectURL(audioUrl)
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
       if (timerRef.current) clearInterval(timerRef.current)
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {})
       }
     }
   }, [])
@@ -102,7 +114,12 @@ export default function VoiceMemo({ exercises, selectedExercise, onSaved, onClos
       streamRef.current = stream
 
       // Set up audio analyser for visualizer
+      // Close any previous AudioContext to avoid resource leak
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {})
+      }
       const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+      audioContextRef.current = audioContext
       const source = audioContext.createMediaStreamSource(stream)
       const analyser = audioContext.createAnalyser()
       analyser.fftSize = 64
@@ -284,6 +301,7 @@ export default function VoiceMemo({ exercises, selectedExercise, onSaved, onClos
       }
     } catch (err) {
       console.error('Save memo error:', err)
+      setError('Could not save to server. Memo saved locally.')
       // Still trigger saved callback with local data
       if (onSaved) {
         onSaved({

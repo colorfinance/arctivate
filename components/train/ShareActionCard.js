@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 
 // Facebook Share SDK helper
 const shareFacebook = (workoutData) => {
+  if (typeof window === 'undefined') return
   const { exerciseName, value, metricType, isNewPB, date } = workoutData
 
   const unit = metricType === 'time' ? 'min' : 'kg'
@@ -114,6 +115,8 @@ export default function ShareActionCard({
       if (onShareComplete) onShareComplete()
     } catch (err) {
       console.error('Error sharing to community:', err)
+      // Show error to user instead of silently failing
+      alert('Failed to share to community. Please try again.')
     } finally {
       setIsSharing(false)
     }
