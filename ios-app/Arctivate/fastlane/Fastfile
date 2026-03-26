@@ -1,0 +1,72 @@
+default_platform(:ios)
+
+platform :ios do
+
+  # ───────────────────────────────────────────────
+  # Build
+  # ───────────────────────────────────────────────
+  desc "Archive the app for App Store distribution"
+  lane :build do
+    increment_build_number(
+      xcodeproj: "Arctivate.xcodeproj"
+    )
+
+    build_app(
+      project: "Arctivate.xcodeproj",
+      scheme: "Arctivate",
+      clean: true,
+      export_method: "app-store",
+      output_directory: "./build",
+      output_name: "Arctivate.ipa"
+    )
+  end
+
+  # ───────────────────────────────────────────────
+  # Beta (TestFlight)
+  # ───────────────────────────────────────────────
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    build
+
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true,
+      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_PATH"]
+    )
+  end
+
+  # ───────────────────────────────────────────────
+  # Release (App Store)
+  # ───────────────────────────────────────────────
+  desc "Build and upload to the App Store"
+  lane :release do
+    build
+
+    upload_to_app_store(
+      force: true,
+      skip_metadata: false,
+      skip_screenshots: true,
+      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_PATH"]
+    )
+  end
+
+  # ───────────────────────────────────────────────
+  # Screenshots
+  # ───────────────────────────────────────────────
+  desc "Generate App Store screenshots"
+  lane :screenshots do
+    # TODO: Configure snapshot once UI tests are in place
+    # snapshot(
+    #   project: "Arctivate.xcodeproj",
+    #   scheme: "ArctivateUITests",
+    #   devices: [
+    #     "iPhone 15 Pro Max",
+    #     "iPhone 15 Pro",
+    #     "iPad Pro (12.9-inch) (6th generation)"
+    #   ],
+    #   languages: ["en-US"],
+    #   clear_previous_screenshots: true
+    # )
+    UI.message("Screenshots lane is a placeholder – configure snapshot when UI tests are ready.")
+  end
+
+end

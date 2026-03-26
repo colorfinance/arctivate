@@ -1,0 +1,19 @@
+app_identifier("com.arctivate.app")
+
+# App Store metadata
+privacy_url("https://arctivate.com/privacy")
+support_url("https://arctivate.com/support")
+
+# Categories
+primary_category("HEALTH_AND_FITNESS")
+secondary_category("LIFESTYLE")
+
+# Pricing
+price_tier(0)  # Free
+
+# Submission info
+submit_for_review(false)
+automatic_release(false)
+
+# Skip uploading screenshots by default (use the screenshots lane instead)
+skip_screenshots(true)

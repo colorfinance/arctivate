@@ -1,0 +1,572 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10001010000000000000001 /* ArctivateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000001 /* ArctivateApp.swift */; };
+		A10001010000000000000002 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000002 /* Models.swift */; };
+		A10001010000000000000003 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000003 /* APIService.swift */; };
+		A10001010000000000000004 /* SupabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000004 /* SupabaseService.swift */; };
+		A10001010000000000000005 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000005 /* Theme.swift */; };
+		A10001010000000000000006 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000006 /* AuthViewModel.swift */; };
+		A10001010000000000000007 /* CoachViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000007 /* CoachViewModel.swift */; };
+		A10001010000000000000008 /* FeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000008 /* FeedViewModel.swift */; };
+		A10001010000000000000009 /* FoodViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000009 /* FoodViewModel.swift */; };
+		A1000101000000000000000A /* HabitsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201000000000000000A /* HabitsViewModel.swift */; };
+		A1000101000000000000000B /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201000000000000000B /* ProfileViewModel.swift */; };
+		A1000101000000000000000C /* TrainViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201000000000000000C /* TrainViewModel.swift */; };
+		A1000101000000000000000D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201000000000000000D /* AuthView.swift */; };
+		A1000101000000000000000E /* CoachView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201000000000000000E /* CoachView.swift */; };
+		A1000101000000000000000F /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201000000000000000F /* FeedView.swift */; };
+		A10001010000000000000010 /* FoodView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000010 /* FoodView.swift */; };
+		A10001010000000000000011 /* HabitsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000011 /* HabitsView.swift */; };
+		A10001010000000000000012 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000012 /* MainTabView.swift */; };
+		A10001010000000000000013 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000013 /* OnboardingView.swift */; };
+		A10001010000000000000014 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000014 /* ProfileView.swift */; };
+		A10001010000000000000015 /* TrainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000015 /* TrainView.swift */; };
+		A10001010000000000000016 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000016 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10002010000000000000001 /* ArctivateApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArctivateApp.swift; sourceTree = "<group>"; };
+		A10002010000000000000002 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A10002010000000000000003 /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
+		A10002010000000000000004 /* SupabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseService.swift; sourceTree = "<group>"; };
+		A10002010000000000000005 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A10002010000000000000006 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		A10002010000000000000007 /* CoachViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachViewModel.swift; sourceTree = "<group>"; };
+		A10002010000000000000008 /* FeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewModel.swift; sourceTree = "<group>"; };
+		A10002010000000000000009 /* FoodViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodViewModel.swift; sourceTree = "<group>"; };
+		A1000201000000000000000A /* HabitsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitsViewModel.swift; sourceTree = "<group>"; };
+		A1000201000000000000000B /* ProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewModel.swift; sourceTree = "<group>"; };
+		A1000201000000000000000C /* TrainViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainViewModel.swift; sourceTree = "<group>"; };
+		A1000201000000000000000D /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		A1000201000000000000000E /* CoachView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachView.swift; sourceTree = "<group>"; };
+		A1000201000000000000000F /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
+		A10002010000000000000010 /* FoodView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodView.swift; sourceTree = "<group>"; };
+		A10002010000000000000011 /* HabitsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitsView.swift; sourceTree = "<group>"; };
+		A10002010000000000000012 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		A10002010000000000000013 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		A10002010000000000000014 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		A10002010000000000000015 /* TrainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainView.swift; sourceTree = "<group>"; };
+		A10002010000000000000016 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A10002010000000000000017 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10002010000000000000018 /* Arctivate.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Arctivate.entitlements; sourceTree = "<group>"; };
+		A10003010000000000000001 /* Arctivate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Arctivate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10004010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10005010000000000000001 /* = BEGIN = */ = {
+			isa = PBXGroup;
+			children = (
+				A10005010000000000000002 /* Arctivate */,
+				A10005010000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10005010000000000000002 /* Arctivate */ = {
+			isa = PBXGroup;
+			children = (
+				A10005010000000000000004 /* Sources */,
+				A10002010000000000000016 /* Assets.xcassets */,
+				A10002010000000000000017 /* Info.plist */,
+				A10002010000000000000018 /* Arctivate.entitlements */,
+			);
+			path = .;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10003010000000000000001 /* Arctivate.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000004 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				A10005010000000000000005 /* App */,
+				A10005010000000000000006 /* Models */,
+				A10005010000000000000007 /* Services */,
+				A10005010000000000000008 /* Theme */,
+				A10005010000000000000009 /* ViewModels */,
+				A1000501000000000000000A /* Views */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000005 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000001 /* ArctivateApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000006 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000002 /* Models.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000007 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000003 /* APIService.swift */,
+				A10002010000000000000004 /* SupabaseService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000008 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000005 /* Theme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000009 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000006 /* AuthViewModel.swift */,
+				A10002010000000000000007 /* CoachViewModel.swift */,
+				A10002010000000000000008 /* FeedViewModel.swift */,
+				A10002010000000000000009 /* FoodViewModel.swift */,
+				A1000201000000000000000A /* HabitsViewModel.swift */,
+				A1000201000000000000000B /* ProfileViewModel.swift */,
+				A1000201000000000000000C /* TrainViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		A1000501000000000000000A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A1000501000000000000000B /* Auth */,
+				A1000501000000000000000C /* Coach */,
+				A1000501000000000000000D /* Feed */,
+				A1000501000000000000000E /* Food */,
+				A1000501000000000000000F /* Habits */,
+				A10002010000000000000012 /* MainTabView.swift */,
+				A10005010000000000000010 /* Onboarding */,
+				A10005010000000000000011 /* Profile */,
+				A10005010000000000000012 /* Train */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A1000501000000000000000B /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				A1000201000000000000000D /* AuthView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		A1000501000000000000000C /* Coach */ = {
+			isa = PBXGroup;
+			children = (
+				A1000201000000000000000E /* CoachView.swift */,
+			);
+			path = Coach;
+			sourceTree = "<group>";
+		};
+		A1000501000000000000000D /* Feed */ = {
+			isa = PBXGroup;
+			children = (
+				A1000201000000000000000F /* FeedView.swift */,
+			);
+			path = Feed;
+			sourceTree = "<group>";
+		};
+		A1000501000000000000000E /* Food */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000010 /* FoodView.swift */,
+			);
+			path = Food;
+			sourceTree = "<group>";
+		};
+		A1000501000000000000000F /* Habits */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000011 /* HabitsView.swift */,
+			);
+			path = Habits;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000010 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000013 /* OnboardingView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000011 /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000014 /* ProfileView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		A10005010000000000000012 /* Train */ = {
+			isa = PBXGroup;
+			children = (
+				A10002010000000000000015 /* TrainView.swift */,
+			);
+			path = Train;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10006010000000000000001 /* Arctivate */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10008010000000000000003 /* Build configuration list for PBXNativeTarget "Arctivate" */;
+			buildPhases = (
+				A10007010000000000000001 /* Sources */,
+				A10004010000000000000001 /* Frameworks */,
+				A10007010000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Arctivate;
+			packageProductDependencies = (
+				A1000A010000000000000001 /* Supabase */,
+			);
+			productName = Arctivate;
+			productReference = A10003010000000000000001 /* Arctivate.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10006010000000000000002 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					A10006010000000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = A10008010000000000000001 /* Build configuration list for PBXProject "Arctivate" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10005010000000000000001 /* = BEGIN = */;
+			packageReferences = (
+				A10009010000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
+			productRefGroup = A10005010000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10006010000000000000001 /* Arctivate */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10007010000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001010000000000000016 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10007010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001010000000000000001 /* ArctivateApp.swift in Sources */,
+				A10001010000000000000002 /* Models.swift in Sources */,
+				A10001010000000000000003 /* APIService.swift in Sources */,
+				A10001010000000000000004 /* SupabaseService.swift in Sources */,
+				A10001010000000000000005 /* Theme.swift in Sources */,
+				A10001010000000000000006 /* AuthViewModel.swift in Sources */,
+				A10001010000000000000007 /* CoachViewModel.swift in Sources */,
+				A10001010000000000000008 /* FeedViewModel.swift in Sources */,
+				A10001010000000000000009 /* FoodViewModel.swift in Sources */,
+				A1000101000000000000000A /* HabitsViewModel.swift in Sources */,
+				A1000101000000000000000B /* ProfileViewModel.swift in Sources */,
+				A1000101000000000000000C /* TrainViewModel.swift in Sources */,
+				A1000101000000000000000D /* AuthView.swift in Sources */,
+				A1000101000000000000000E /* CoachView.swift in Sources */,
+				A1000101000000000000000F /* FeedView.swift in Sources */,
+				A10001010000000000000010 /* FoodView.swift in Sources */,
+				A10001010000000000000011 /* HabitsView.swift in Sources */,
+				A10001010000000000000012 /* MainTabView.swift in Sources */,
+				A10001010000000000000013 /* OnboardingView.swift in Sources */,
+				A10001010000000000000014 /* ProfileView.swift in Sources */,
+				A10001010000000000000015 /* TrainView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A10008020000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A10008020000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A10008020000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Arctivate.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Arctivate;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arctivate.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A10008020000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Arctivate.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Arctivate;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arctivate.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10008010000000000000001 /* Build configuration list for PBXProject "Arctivate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10008020000000000000001 /* Debug */,
+				A10008020000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10008010000000000000003 /* Build configuration list for PBXNativeTarget "Arctivate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10008020000000000000003 /* Debug */,
+				A10008020000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A10009010000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = "2.0.0";
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1000A010000000000000001 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10009010000000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A10006010000000000000002 /* Project object */;
+}
