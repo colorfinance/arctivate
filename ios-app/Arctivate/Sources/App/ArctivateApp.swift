@@ -169,7 +169,7 @@ struct AppAuthView: View {
                 Button {
                     Task { await authenticate() }
                 } label: {
-                    Group {
+                    ZStack {
                         if isLoading {
                             ProgressView().tint(.black)
                         } else {

@@ -212,21 +212,29 @@ final class SupabaseService: Sendable {
     // MARK: - Food Logs
 
     func fetchFoodLogs(userId: UUID, date: String? = nil) async throws -> [FoodLog] {
-        var query = client
-            .from("food_logs")
-            .select()
-            .eq("user_id", value: userId.uuidString)
-            .order("eaten_at", ascending: false)
-
         if let date {
             let start = "\(date)T00:00:00Z"
             let end = "\(date)T23:59:59Z"
-            query = query
+            return try await client
+                .from("food_logs")
+                .select()
+                .eq("user_id", value: userId.uuidString)
                 .gte("eaten_at", value: start)
                 .lte("eaten_at", value: end)
+                .order("eaten_at", ascending: false)
+                .limit(100)
+                .execute()
+                .value
+        } else {
+            return try await client
+                .from("food_logs")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("eaten_at", ascending: false)
+                .limit(100)
+                .execute()
+                .value
         }
-
-        return try await query.limit(100).execute().value
     }
 
     func createFoodLog(_ log: FoodLog) async throws {
@@ -386,19 +394,25 @@ final class SupabaseService: Sendable {
     // MARK: - Group Messages
 
     func fetchGroupMessages(groupId: UUID?, limit: Int = 50) async throws -> [GroupMessage] {
-        var query = client
-            .from("community_messages")
-            .select("*, profiles(*)")
-            .order("created_at", ascending: false)
-            .limit(limit)
-
         if let groupId {
-            query = query.eq("group_id", value: groupId.uuidString)
+            return try await client
+                .from("community_messages")
+                .select("*, profiles(*)")
+                .eq("group_id", value: groupId.uuidString)
+                .order("created_at", ascending: false)
+                .limit(limit)
+                .execute()
+                .value
         } else {
-            query = query.is("group_id", value: "null")
+            return try await client
+                .from("community_messages")
+                .select("*, profiles(*)")
+                .is("group_id", value: "null")
+                .order("created_at", ascending: false)
+                .limit(limit)
+                .execute()
+                .value
         }
-
-        return try await query.execute().value
     }
 
     func createGroupMessage(_ message: GroupMessage) async throws {
