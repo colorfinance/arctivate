@@ -410,10 +410,10 @@ final class SupabaseService: Sendable {
             let results: [GroupMessage] = try await client
                 .from("community_messages")
                 .select("*, profiles(*)")
-                .is("group_id", value: "null")
                 .execute()
                 .value
-            return Array(results.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }.prefix(limit))
+            let filtered = results.filter { $0.groupId == nil }
+            return Array(filtered.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }.prefix(limit))
         }
     }
 
