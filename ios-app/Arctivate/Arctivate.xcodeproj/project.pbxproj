@@ -24,7 +24,6 @@
 		A1000101000000000000000F /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201000000000000000F /* FeedView.swift */; };
 		A10001010000000000000010 /* FoodView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000010 /* FoodView.swift */; };
 		A10001010000000000000011 /* HabitsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000011 /* HabitsView.swift */; };
-		A10001010000000000000012 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000012 /* MainTabView.swift */; };
 		A10001010000000000000013 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000013 /* OnboardingView.swift */; };
 		A10001010000000000000014 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000014 /* ProfileView.swift */; };
 		A10001010000000000000015 /* TrainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002010000000000000015 /* TrainView.swift */; };
@@ -49,7 +48,6 @@
 		A1000201000000000000000F /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
 		A10002010000000000000010 /* FoodView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodView.swift; sourceTree = "<group>"; };
 		A10002010000000000000011 /* HabitsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitsView.swift; sourceTree = "<group>"; };
-		A10002010000000000000012 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		A10002010000000000000013 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A10002010000000000000014 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		A10002010000000000000015 /* TrainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainView.swift; sourceTree = "<group>"; };
@@ -165,7 +163,6 @@
 				A1000501000000000000000D /* Feed */,
 				A1000501000000000000000E /* Food */,
 				A1000501000000000000000F /* Habits */,
-				A10002010000000000000012 /* MainTabView.swift */,
 				A10005010000000000000010 /* Onboarding */,
 				A10005010000000000000011 /* Profile */,
 				A10005010000000000000012 /* Train */,
@@ -329,7 +326,6 @@
 				A1000101000000000000000F /* FeedView.swift in Sources */,
 				A10001010000000000000010 /* FoodView.swift in Sources */,
 				A10001010000000000000011 /* HabitsView.swift in Sources */,
-				A10001010000000000000012 /* MainTabView.swift in Sources */,
 				A10001010000000000000013 /* OnboardingView.swift in Sources */,
 				A10001010000000000000014 /* ProfileView.swift in Sources */,
 				A10001010000000000000015 /* TrainView.swift in Sources */,
