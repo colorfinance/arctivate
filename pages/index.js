@@ -15,7 +15,6 @@ export default function Auth() {
   const router = useRouter()
 
   useEffect(() => {
-    // Check if already logged in
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
@@ -35,7 +34,19 @@ export default function Auth() {
     })
   }, [])
 
-  const handleSocialLogin = async (provider) => {
+  const redirectAfterLogin = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { data } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+      if (data && data.completed_onboarding === false) {
+        router.push('/onboarding')
+      } else {
+        router.push('/train')
+      }
+    }
+  }
+
+  const handleAppleLogin = async () => {
     setLoading(true)
     setMessage('')
 
@@ -46,12 +57,60 @@ export default function Auth() {
     }
 
     try {
-      const isNative = Capacitor.isNativePlatform()
+      if (Capacitor.isNativePlatform()) {
+        // Native iOS: use the built-in Apple Sign In popup
+        const { SignInWithApple } = await import('@capacitor-community/apple-sign-in')
 
-      if (isNative) {
-        // On native iOS/Android, use redirect flow via in-app browser
+        const result = await SignInWithApple.authorize({
+          clientId: 'com.arc.arctivate',
+          redirectURI: 'https://hxgkxomtddfhdybmscog.supabase.co/auth/v1/callback',
+          scopes: 'email name',
+        })
+
+        // Send the Apple identity token to Supabase
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: 'apple',
+          token: result.response.identityToken,
+        })
+
+        if (error) {
+          setMessage('error: ' + error.message)
+        } else {
+          await redirectAfterLogin()
+        }
+      } else {
+        // Web fallback: use OAuth redirect
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'apple',
+          options: { redirectTo: window.location.origin + '/train' },
+        })
+        if (error) setMessage('error: ' + error.message)
+      }
+    } catch (err) {
+      // User cancelled the Apple popup - not an error
+      if (err.message?.includes('cancelled') || err.message?.includes('canceled')) {
+        // Do nothing
+      } else {
+        setMessage('error: ' + (err.message || 'Something went wrong'))
+      }
+    }
+    setLoading(false)
+  }
+
+  const handleGoogleLogin = async () => {
+    setLoading(true)
+    setMessage('')
+
+    if (!isSupabaseConfigured()) {
+      setMessage('error: App is not configured. Please set Supabase environment variables.')
+      setLoading(false)
+      return
+    }
+
+    try {
+      if (Capacitor.isNativePlatform()) {
         const { data, error } = await supabase.auth.signInWithOAuth({
-          provider,
+          provider: 'google',
           options: {
             skipBrowserRedirect: true,
             redirectTo: 'com.arc.arctivate://callback',
@@ -64,23 +123,16 @@ export default function Auth() {
           return
         }
 
-        // Open the OAuth URL in the system browser
         if (data?.url) {
           const { Browser } = await import('@capacitor/browser')
           await Browser.open({ url: data.url })
         }
       } else {
-        // On web, use standard redirect
         const { error } = await supabase.auth.signInWithOAuth({
-          provider,
-          options: {
-            redirectTo: window.location.origin + '/train',
-          },
+          provider: 'google',
+          options: { redirectTo: window.location.origin + '/train' },
         })
-
-        if (error) {
-          setMessage('error: ' + error.message)
-        }
+        if (error) setMessage('error: ' + error.message)
       }
     } catch (err) {
       setMessage('error: ' + (err.message || 'Something went wrong'))
@@ -88,7 +140,7 @@ export default function Auth() {
     setLoading(false)
   }
 
-  // Listen for OAuth callback on native
+  // Listen for Google OAuth callback on native
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
 
@@ -96,12 +148,10 @@ export default function Auth() {
 
     import('@capacitor/app').then(({ App }) => {
       const listener = App.addListener('appUrlOpen', async ({ url }) => {
-        // Handle the OAuth callback
         if (url.includes('callback')) {
           const { Browser } = await import('@capacitor/browser')
           await Browser.close()
 
-          // Extract tokens from the URL hash
           const hashParams = new URLSearchParams(url.split('#')[1] || '')
           const accessToken = hashParams.get('access_token')
           const refreshToken = hashParams.get('refresh_token')
@@ -111,7 +161,7 @@ export default function Auth() {
               access_token: accessToken,
               refresh_token: refreshToken,
             })
-            router.push('/train')
+            await redirectAfterLogin()
           }
         }
       })
@@ -136,9 +186,7 @@ export default function Auth() {
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: {
-          shouldCreateUser: true,
-        },
+        options: { shouldCreateUser: true },
       })
 
       if (error) {
@@ -172,7 +220,7 @@ export default function Auth() {
       if (error) {
         setMessage('error: ' + error.message)
       } else {
-        router.push('/train')
+        await redirectAfterLogin()
       }
     } catch (err) {
       setMessage('error: ' + (err.message || 'Something went wrong'))
@@ -206,7 +254,7 @@ export default function Auth() {
           {/* Social Login Buttons */}
           <div className="space-y-3 mb-6">
             <button
-              onClick={() => handleSocialLogin('apple')}
+              onClick={handleAppleLogin}
               disabled={loading}
               className="w-full bg-white text-black font-bold py-4 rounded-xl flex items-center justify-center gap-3 active:scale-95 transition disabled:opacity-50"
             >
@@ -217,7 +265,7 @@ export default function Auth() {
             </button>
 
             <button
-              onClick={() => handleSocialLogin('google')}
+              onClick={handleGoogleLogin}
               disabled={loading}
               className="w-full bg-white text-black font-bold py-4 rounded-xl flex items-center justify-center gap-3 active:scale-95 transition disabled:opacity-50"
             >
