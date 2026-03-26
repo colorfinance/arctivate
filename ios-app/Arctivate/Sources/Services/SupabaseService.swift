@@ -20,8 +20,8 @@ final class SupabaseService: Sendable {
     }
 
     /// Convenience accessor for RPC calls.
-    func rpc(_ fn: String, params: some Encodable) -> PostgrestFilterBuilder {
-        client.rpc(fn, params: params)
+    func rpc(_ fn: String, params: some Encodable) throws -> PostgrestFilterBuilder {
+        try client.rpc(fn, params: params)
     }
 
     private init() {
@@ -410,7 +410,7 @@ final class SupabaseService: Sendable {
             let results: [GroupMessage] = try await client
                 .from("community_messages")
                 .select("*, profiles(*)")
-                .is("group_id", value: .null)
+                .is("group_id", value: "null")
                 .execute()
                 .value
             return Array(results.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }.prefix(limit))
