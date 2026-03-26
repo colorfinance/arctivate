@@ -15,23 +15,28 @@ export default function Auth() {
   const router = useRouter()
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
-          .then(({ data, error }) => {
-             if (error) {
-                console.error("Onboarding check error:", error)
-                router.push('/train')
-             } else if (data && data.completed_onboarding === false) {
-                router.push('/onboarding')
-             } else {
-                router.push('/train')
-             }
-          })
-      } else {
+    supabase.auth.getUser()
+      .then(({ data: { user } }) => {
+        if (user) {
+          return supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+            .then(({ data, error }) => {
+               if (error) {
+                  console.error("Onboarding check error:", error)
+                  router.push('/train')
+               } else if (data && data.completed_onboarding === false) {
+                  router.push('/onboarding')
+               } else {
+                  router.push('/train')
+               }
+            })
+        } else {
+          setCheckingAuth(false)
+        }
+      })
+      .catch((err) => {
+        console.error('Auth check failed:', err)
         setCheckingAuth(false)
-      }
-    })
+      })
   }, [])
 
   const redirectAfterLogin = async () => {
