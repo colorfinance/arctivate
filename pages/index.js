@@ -58,28 +58,25 @@ export default function Auth() {
 
     try {
       if (Capacitor.isNativePlatform()) {
-        // Native iOS: use the built-in Apple Sign In popup
-        const { SignInWithApple } = await import('@capacitor-community/apple-sign-in')
-
-        const result = await SignInWithApple.authorize({
-          clientId: 'com.arc.arctivate',
-          redirectURI: 'https://hxgkxomtddfhdybmscog.supabase.co/auth/v1/callback',
-          scopes: 'email name',
-        })
-
-        // Send the Apple identity token to Supabase
-        const { error } = await supabase.auth.signInWithIdToken({
+        const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'apple',
-          token: result.response.identityToken,
+          options: {
+            skipBrowserRedirect: true,
+            redirectTo: 'com.arc.arctivate://callback',
+          },
         })
 
         if (error) {
           setMessage('error: ' + error.message)
-        } else {
-          await redirectAfterLogin()
+          setLoading(false)
+          return
+        }
+
+        if (data?.url) {
+          const { Browser } = await import('@capacitor/browser')
+          await Browser.open({ url: data.url })
         }
       } else {
-        // Web fallback: use OAuth redirect
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'apple',
           options: { redirectTo: window.location.origin + '/train' },
@@ -87,12 +84,7 @@ export default function Auth() {
         if (error) setMessage('error: ' + error.message)
       }
     } catch (err) {
-      // User cancelled the Apple popup - not an error
-      if (err.message?.includes('cancelled') || err.message?.includes('canceled')) {
-        // Do nothing
-      } else {
-        setMessage('error: ' + (err.message || 'Something went wrong'))
-      }
+      setMessage('error: ' + (err.message || 'Something went wrong'))
     }
     setLoading(false)
   }
