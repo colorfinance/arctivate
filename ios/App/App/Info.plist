@@ -61,5 +61,17 @@
 	<string>UIStatusBarStyleLightContent</string>
 	<key>UIBackgroundModes</key>
 	<array/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.arctivate.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>arctivate</string>
+				<string>com.arctivate.app</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
