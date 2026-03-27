@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'out',
   server: {
     // Load from the live Vercel deployment so API routes work
-    url: 'https://arctivate-repo.vercel.app',
+    url: 'https://arctivate.vercel.app',
     androidScheme: 'https',
     iosScheme: 'https',
   },
