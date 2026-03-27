@@ -2,10 +2,25 @@ import '../styles/globals.css'
 import Head from 'next/head'
 import { useEffect } from 'react'
 import { initCapacitor } from '../lib/capacitor'
+import { supabase } from '../lib/supabaseClient'
 
 function MyApp({ Component, pageProps }) {
   useEffect(() => {
     initCapacitor()
+
+    // Keep session alive: listen for token refresh and sign-out events.
+    // Supabase auto-refreshes tokens in the background when persistSession
+    // is enabled — this listener ensures the UI reacts to auth changes.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'TOKEN_REFRESHED') {
+        // Session refreshed silently — user stays logged in
+      }
+      if (event === 'SIGNED_OUT') {
+        window.location.href = '/'
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   return (
