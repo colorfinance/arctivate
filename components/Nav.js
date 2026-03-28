@@ -28,6 +28,10 @@ export default function Nav() {
             <span className="text-base">🥗</span>
             <span>Food</span>
         </Link>
+        <Link href="/profile" className={`flex flex-col items-center gap-1 ${isActive('/profile')}`}>
+            <span className="text-base">👤</span>
+            <span>Profile</span>
+        </Link>
     </nav>
   )
 }

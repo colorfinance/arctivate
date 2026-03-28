@@ -80,8 +80,11 @@ export default function Profile() {
   const [editCalorieGoal, setEditCalorieGoal] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
-  // Sign out
+  // Sign out & delete
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
   const showToast = (msg) => {
     setToast(msg)
@@ -232,6 +235,27 @@ export default function Profile() {
     }
   }
 
+  async function handleDeleteAccount() {
+    if (deleteConfirmText !== 'DELETE') return
+    setIsDeleting(true)
+    try {
+      // Delete user data from all tables
+      const tables = ['habit_logs', 'habits', 'food_logs', 'workout_logs', 'personal_bests', 'check_ins', 'public_feed']
+      for (const table of tables) {
+        await supabase.from(table).delete().eq('user_id', userId)
+      }
+      // Delete profile
+      await supabase.from('profiles').delete().eq('id', userId)
+      // Sign out (this triggers the auth listener to redirect)
+      await supabase.auth.signOut()
+      router.push('/')
+    } catch (err) {
+      console.error('Delete account error:', err)
+      showToast('Failed to delete account. Please try again.')
+      setIsDeleting(false)
+    }
+  }
+
   function openEditModal() {
     setEditUsername(profile?.username || '')
     setEditCalorieGoal(String(profile?.daily_calorie_goal || 2800))
@@ -273,7 +297,7 @@ export default function Profile() {
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => router.push('/feed')}
+              onClick={() => router.back()}
               className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors"
             >
               <ArrowLeftIcon />
@@ -470,6 +494,55 @@ export default function Profile() {
             )}
           </button>
         </motion.div>
+
+        {/* Delete Account */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="mb-4"
+        >
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="w-full text-red-400/60 text-xs font-medium py-3 hover:text-red-400 transition-colors"
+            >
+              Delete Account
+            </button>
+          ) : (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-5 space-y-3">
+              <p className="text-sm text-red-400 font-bold">This will permanently delete your account and all data.</p>
+              <p className="text-xs text-arc-muted">Type <span className="font-bold text-white">DELETE</span> to confirm:</p>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE"
+                className="w-full bg-black/30 border border-red-500/20 p-3 rounded-xl text-white outline-none focus:border-red-500 transition text-sm"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText('') }}
+                  className="flex-1 py-3 rounded-xl border border-white/10 text-arc-muted text-sm font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deleteConfirmText !== 'DELETE' || isDeleting}
+                  className="flex-1 py-3 rounded-xl bg-red-500 text-white text-sm font-bold disabled:opacity-30 transition"
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete Forever'}
+                </button>
+              </div>
+            </div>
+          )}
+        </motion.div>
+
+        {/* App Version */}
+        <div className="text-center text-[10px] text-arc-muted/40 pb-4">
+          Arctivate v1.0.0
+        </div>
       </main>
 
       {/* Edit Profile Modal */}

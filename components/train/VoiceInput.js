@@ -39,6 +39,7 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
   const recognitionRef = useRef(null)
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setIsSupported(false)
