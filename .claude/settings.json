@@ -16,8 +16,8 @@
         "hooks": [
           {
             "type": "agent",
-            "prompt": "Run 'cd /home/user/arctivate && npm run build 2>&1' and 'cd /home/user/arctivate && npm run lint 2>&1'. If either command fails, respond with {\"ok\": false, \"reason\": \"<failure details>\"}. If both pass, respond with {\"ok\": true}.",
-            "timeout": 120
+            "prompt": "Run 'cd /home/user/arctivate && npm run build 2>&1', 'cd /home/user/arctivate && npm run lint 2>&1', and 'cd /home/user/arctivate && npm test 2>&1'. If any command fails, respond with {\"ok\": false, \"reason\": \"<failure details>\"}. If all pass, respond with {\"ok\": true}.",
+            "timeout": 180
           }
         ]
       }
