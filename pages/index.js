@@ -13,9 +13,20 @@ export default function Auth() {
   const [message, setMessage] = useState('')
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isSignUp, setIsSignUp] = useState(false)
+  const [supabaseReady, setSupabaseReady] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
+    // Check Supabase connection
+    const configured = isSupabaseConfigured()
+    setSupabaseReady(configured)
+
+    if (!configured) {
+      setCheckingAuth(false)
+      setMessage('error: Supabase is not configured. Environment variables are missing.')
+      return
+    }
+
     // Check if already logged in (session persists automatically)
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
@@ -78,9 +89,20 @@ export default function Auth() {
         })
 
         if (error) {
-          setMessage('error: ' + error.message)
+          if (error.message?.includes('already registered') || error.message?.includes('already been registered')) {
+            setMessage('error: This email is already registered. Tap Sign In below.')
+          } else {
+            setMessage('error: ' + error.message)
+          }
         } else if (data.user && !data.session) {
-          setMessage('Check your email to confirm your account!')
+          // Supabase has "Confirm email" enabled — try signing in directly
+          // (in case confirmation is disabled server-side)
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+          if (signInData?.session) {
+            await navigateAfterAuth(signInData.user.id)
+            return
+          }
+          setMessage('Account created! Check your email to confirm, then sign in.')
         } else if (data.session) {
           await navigateAfterAuth(data.user.id)
         }
@@ -102,7 +124,11 @@ export default function Auth() {
       }
     } catch (err) {
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        setMessage('error: Unable to connect. Check your internet connection.')
+        setMessage('error: Unable to connect to server. Please check your internet connection.')
+      } else if (err.message?.includes('Email not confirmed')) {
+        setMessage('error: Please check your email to confirm your account first.')
+      } else if (err.message?.includes('User already registered')) {
+        setMessage('error: This email is already registered. Try signing in instead.')
       } else {
         setMessage('error: ' + (err.message || 'Something went wrong'))
       }
