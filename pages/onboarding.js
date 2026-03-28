@@ -155,11 +155,11 @@ export default function Onboarding() {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Age</label>
-                                <input type="number" value={formData.age} onChange={(e) => updateFormData('age', e.target.value)} className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-arc-accent" placeholder="0" />
+                                <input type="number" min="13" max="120" value={formData.age} onChange={(e) => updateFormData('age', e.target.value)} className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-arc-accent" placeholder="25" />
                             </div>
                             <div>
                                 <label className="block text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Weight (kg)</label>
-                                <input type="number" value={formData.weight} onChange={(e) => updateFormData('weight', e.target.value)} className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-arc-accent" placeholder="0" />
+                                <input type="number" min="30" max="400" value={formData.weight} onChange={(e) => updateFormData('weight', e.target.value)} className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-arc-accent" placeholder="75" />
                             </div>
                         </div>
 

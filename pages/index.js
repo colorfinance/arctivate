@@ -80,10 +80,8 @@ export default function Auth() {
         if (error) {
           setMessage('error: ' + error.message)
         } else if (data.user && !data.session) {
-          // Email confirmation required
           setMessage('Check your email to confirm your account!')
         } else if (data.session) {
-          // Auto-confirmed, navigate
           await navigateAfterAuth(data.user.id)
         }
       } else {
@@ -228,7 +226,14 @@ export default function Auth() {
           )}
         </div>
 
-        <div className="mt-8">
+        {/* Privacy & Terms links (required for App Store) */}
+        <div className="mt-6 flex items-center justify-center gap-4 text-xs text-arc-muted">
+          <Link href="/privacy" className="hover:text-white transition underline">Privacy Policy</Link>
+          <span>·</span>
+          <Link href="/terms" className="hover:text-white transition underline">Terms of Service</Link>
+        </div>
+
+        <div className="mt-4">
           <Link href="/landing" className="text-arc-muted hover:text-white transition text-sm">
             Learn more about Arctivate →
           </Link>
