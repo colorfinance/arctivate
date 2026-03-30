@@ -1,9 +1,7 @@
 name: Build Android AAB
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch: # Manual trigger only — needs signing keys for release builds
 
 jobs:
   build:
