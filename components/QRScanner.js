@@ -110,7 +110,7 @@ export default function QRScanner({ onPointsEarned }) {
         return
       }
 
-      const response = await fetch('/api/redeem', {
+      const response = await fetch('/api/redeem/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

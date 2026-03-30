@@ -240,7 +240,7 @@ export default function Profile() {
     setIsDeleting(true)
     try {
       // Use server-side admin API to delete all user data and auth user
-      const res = await fetch('/api/auth', {
+      const res = await fetch('/api/auth/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', userId }),

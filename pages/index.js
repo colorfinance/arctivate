@@ -68,7 +68,7 @@ export default function Auth() {
     try {
       if (isSignUp) {
         // Server-side signup — auto-confirms, no email verification
-        const res = await fetch('/api/auth', {
+        const res = await fetch('/api/auth/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password, action: 'signup' }),
