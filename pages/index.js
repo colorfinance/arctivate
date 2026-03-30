@@ -54,12 +54,18 @@ export default function Auth() {
     }
   }
 
-  const handleEmailAuth = async (e) => {
-    e.preventDefault()
+  const handleSubmit = async () => {
+    if (loading) return
     setLoading(true)
     setMessage('')
 
-    if (password.length < 6) {
+    // Validate locally
+    if (!email || !email.includes('@')) {
+      setMessage('error: Please enter a valid email address.')
+      setLoading(false)
+      return
+    }
+    if (!password || password.length < 6) {
       setMessage('error: Password must be at least 6 characters.')
       setLoading(false)
       return
@@ -68,39 +74,54 @@ export default function Auth() {
     try {
       if (isSignUp) {
         // Server-side signup — auto-confirms, no email verification
-        const res = await fetch('/api/auth/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, action: 'signup' }),
-        })
+        let res
+        try {
+          res = await fetch('/api/auth/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email.trim(), password, action: 'signup' }),
+          })
+        } catch (fetchErr) {
+          setMessage('error: Cannot connect to server. Check your connection.')
+          setLoading(false)
+          return
+        }
 
-        const result = await res.json()
+        let result
+        try {
+          result = await res.json()
+        } catch {
+          setMessage('error: Server returned an invalid response. Please try again.')
+          setLoading(false)
+          return
+        }
 
         if (!res.ok) {
-          if (res.status === 409) {
-            setMessage('error: This email is already registered. Tap Sign In below.')
-          } else {
-            setMessage('error: ' + (result.error || 'Sign up failed'))
-          }
+          setMessage('error: ' + (result.error || 'Sign up failed'))
           setLoading(false)
           return
         }
 
         // Account created — now sign in
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
         if (error) {
           setMessage('error: Account created but sign in failed. Try signing in.')
         } else if (data.session) {
           await navigateAfterAuth(data.user.id)
         }
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
 
         if (error) {
           if (error.message === 'Invalid login credentials') {
             setMessage('error: Wrong email or password.')
           } else if (error.message?.includes('Email not confirmed')) {
-            // Try re-creating via server to auto-confirm
             setMessage('error: Email not confirmed. Try signing up again.')
           } else {
             setMessage('error: ' + error.message)
@@ -110,13 +131,14 @@ export default function Auth() {
         }
       }
     } catch (err) {
-      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        setMessage('error: Unable to connect. Check your internet connection.')
-      } else {
-        setMessage('error: ' + (err.message || 'Something went wrong'))
-      }
+      setMessage('error: ' + (err.message || 'Something went wrong'))
     }
     setLoading(false)
+  }
+
+  // Allow Enter key to submit
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleSubmit()
   }
 
   if (checkingAuth) {
@@ -141,34 +163,35 @@ export default function Auth() {
         <p className="text-arc-muted mb-8">Gamify Your Discipline</p>
 
         <div className="glass-panel p-8 rounded-2xl w-full shadow-glass">
-          <form onSubmit={handleEmailAuth} className="space-y-3">
+          <div className="space-y-3">
             <input
-              type="email"
+              type="text"
+              inputMode="email"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={handleKeyDown}
               className="w-full bg-black/30 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition placeholder:text-arc-muted"
-              required
-              autoComplete="email"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck="false"
             />
             <input
               type="password"
-              placeholder="Password"
+              placeholder="Password (min 6 characters)"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleKeyDown}
               className="w-full bg-black/30 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition placeholder:text-arc-muted"
-              required
-              minLength={6}
-              autoComplete={isSignUp ? 'new-password' : 'current-password'}
             />
             <button
-              type="submit"
+              onClick={handleSubmit}
               disabled={loading}
               className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow active:scale-95 transition disabled:opacity-50"
             >
               {loading ? (isSignUp ? 'Creating account...' : 'Signing in...') : (isSignUp ? 'CREATE ACCOUNT' : 'SIGN IN')}
             </button>
-          </form>
+          </div>
 
           <button
             onClick={() => { setIsSignUp(!isSignUp); setMessage('') }}
