@@ -105,7 +105,7 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
     setError(null)
 
     try {
-      const res = await fetch('/api/parse-voice', {
+      const res = await fetch('/api/parse-voice/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

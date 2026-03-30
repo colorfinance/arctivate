@@ -325,7 +325,7 @@ export default function Coach() {
         await supabase.from('coach_messages').insert({ user_id: userId, role: 'user', content: msg })
       }
 
-      const res = await fetch('/api/coach', {
+      const res = await fetch('/api/coach/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, context: buildContext() })
