@@ -6,13 +6,11 @@ import Link from 'next/link'
 
 export default function Auth() {
   const [loading, setLoading] = useState(false)
-  const [appleLoading, setAppleLoading] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState('')
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isSignUp, setIsSignUp] = useState(false)
-  const [appleAvailable, setAppleAvailable] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -21,7 +19,6 @@ export default function Auth() {
       return
     }
 
-    // Check if already logged in
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         navigateAfterAuth(user.id)
@@ -30,32 +27,14 @@ export default function Auth() {
       }
     })
 
-    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         navigateAfterAuth(session.user.id)
       }
     })
 
-    // Check if Apple Sign In plugin is available
-    checkAppleAvailability()
-
     return () => subscription.unsubscribe()
   }, [])
-
-  async function checkAppleAvailability() {
-    try {
-      const { Capacitor } = await import('@capacitor/core')
-      if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
-        const { SignInWithApple } = await import('@capacitor-community/apple-sign-in')
-        if (SignInWithApple) {
-          setAppleAvailable(true)
-        }
-      }
-    } catch {
-      // Plugin not available
-    }
-  }
 
   const navigateAfterAuth = async (userId) => {
     try {
@@ -88,7 +67,7 @@ export default function Auth() {
 
     try {
       if (isSignUp) {
-        // Use server-side signup to auto-confirm (no email verification)
+        // Server-side signup — auto-confirms, no email verification
         const res = await fetch('/api/auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -98,30 +77,31 @@ export default function Auth() {
         const result = await res.json()
 
         if (!res.ok) {
-          setMessage('error: ' + (result.error || 'Sign up failed'))
+          if (res.status === 409) {
+            setMessage('error: This email is already registered. Tap Sign In below.')
+          } else {
+            setMessage('error: ' + (result.error || 'Sign up failed'))
+          }
           setLoading(false)
           return
         }
 
-        // Account created and auto-confirmed — now sign in
+        // Account created — now sign in
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) {
-          setMessage('error: ' + error.message)
+          setMessage('error: Account created but sign in failed. Try signing in.')
         } else if (data.session) {
           await navigateAfterAuth(data.user.id)
         }
       } else {
-        // Sign in
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
         if (error) {
           if (error.message === 'Invalid login credentials') {
-            setMessage('error: Wrong email or password. Need an account? Tap Sign Up below.')
+            setMessage('error: Wrong email or password.')
           } else if (error.message?.includes('Email not confirmed')) {
-            setMessage('error: Your email is not confirmed. Please sign up again.')
+            // Try re-creating via server to auto-confirm
+            setMessage('error: Email not confirmed. Try signing up again.')
           } else {
             setMessage('error: ' + error.message)
           }
@@ -137,29 +117,6 @@ export default function Auth() {
       }
     }
     setLoading(false)
-  }
-
-  const handleAppleSignIn = async () => {
-    setAppleLoading(true)
-    setMessage('')
-
-    try {
-      const { signInWithApple } = await import('../lib/appleAuth')
-      const data = await signInWithApple()
-      if (data?.session || data?.user) {
-        await navigateAfterAuth(data.user?.id || data.session?.user?.id)
-      }
-    } catch (err) {
-      if (err.message?.includes('canceled') || err.message?.includes('cancelled') || err.code === '1001') {
-        // User cancelled
-      } else if (err.message?.includes('not implemented')) {
-        setMessage('error: Apple Sign In needs to be set up. Use email + password instead.')
-        setAppleAvailable(false)
-      } else {
-        setMessage('error: ' + (err.message || 'Apple Sign In failed'))
-      }
-    }
-    setAppleLoading(false)
   }
 
   if (checkingAuth) {
@@ -184,28 +141,6 @@ export default function Auth() {
         <p className="text-arc-muted mb-8">Gamify Your Discipline</p>
 
         <div className="glass-panel p-8 rounded-2xl w-full shadow-glass">
-          {/* Apple Sign In — only shown when plugin is available */}
-          {appleAvailable && (
-            <>
-              <button
-                onClick={handleAppleSignIn}
-                disabled={appleLoading}
-                className="w-full flex items-center justify-center gap-3 bg-white text-black font-semibold py-4 rounded-xl active:scale-95 transition disabled:opacity-50 mb-4"
-              >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
-                </svg>
-                {appleLoading ? 'Signing in...' : 'Sign in with Apple'}
-              </button>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="flex-1 h-px bg-white/10" />
-                <span className="text-arc-muted text-xs uppercase">or</span>
-                <div className="flex-1 h-px bg-white/10" />
-              </div>
-            </>
-          )}
-
-          {/* Email + Password */}
           <form onSubmit={handleEmailAuth} className="space-y-3">
             <input
               type="email"
