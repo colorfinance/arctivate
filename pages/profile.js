@@ -239,14 +239,21 @@ export default function Profile() {
     if (deleteConfirmText !== 'DELETE') return
     setIsDeleting(true)
     try {
-      // Delete user data from all tables
-      const tables = ['habit_logs', 'habits', 'food_logs', 'workout_logs', 'personal_bests', 'check_ins', 'public_feed']
-      for (const table of tables) {
-        await supabase.from(table).delete().eq('user_id', userId)
+      // Use server-side admin API to delete all user data and auth user
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', userId }),
+      })
+
+      const result = await res.json()
+      if (!res.ok) {
+        showToast(result.error || 'Failed to delete account')
+        setIsDeleting(false)
+        return
       }
-      // Delete profile
-      await supabase.from('profiles').delete().eq('id', userId)
-      // Sign out (this triggers the auth listener to redirect)
+
+      // Sign out and redirect
       await supabase.auth.signOut()
       router.push('/')
     } catch (err) {
