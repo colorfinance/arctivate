@@ -34,8 +34,8 @@ const config: CapacitorConfig = {
     contentInset: 'automatic',
     preferredContentMode: 'mobile',
     scheme: 'Arctivate',
-    // Apple Sign In requires minimum iOS 13
     minVersion: '14.0',
+    backgroundColor: '#030808',
   },
   android: {
     allowMixedContent: true,
