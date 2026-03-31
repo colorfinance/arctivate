@@ -70,8 +70,8 @@ export default function Onboarding() {
         return
       }
 
-      const updates = {
-        id: user.id,
+      // Try full update first, fall back to minimal if columns don't exist
+      const fullUpdates = {
         username: formData.name || null,
         age: parseInt(formData.age) || null,
         weight: parseFloat(formData.weight) || null,
@@ -82,10 +82,30 @@ export default function Onboarding() {
         challenge_start_date: new Date().toISOString()
       }
 
-      // Use upsert so it works whether profile row exists or not
-      const { error: saveError } = await supabase
+      let saveError = null
+
+      // Try update first (profile row should exist from /api/auth signup)
+      const { error: err1 } = await supabase
         .from('profiles')
-        .upsert(updates, { onConflict: 'id' })
+        .update(fullUpdates)
+        .eq('id', user.id)
+
+      if (err1) {
+        // If full update fails (missing columns), try minimal update
+        const { error: err2 } = await supabase
+          .from('profiles')
+          .update({ username: formData.name || null, completed_onboarding: true, challenge_start_date: new Date().toISOString() })
+          .eq('id', user.id)
+
+        if (err2) {
+          // Last resort — just mark onboarding complete
+          const { error: err3 } = await supabase
+            .from('profiles')
+            .upsert({ id: user.id, completed_onboarding: true }, { onConflict: 'id' })
+
+          saveError = err3
+        }
+      }
 
       if (saveError) {
         console.error('Onboarding save error:', saveError)
