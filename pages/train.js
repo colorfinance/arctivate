@@ -133,7 +133,6 @@ export default function Train() {
         const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
 
         if (profile && profile.completed_onboarding === false) {
-            console.log("Onboarding redirect from Train page")
             router.push('/onboarding')
             return
         }
@@ -159,18 +158,13 @@ export default function Train() {
         .eq('id', user.id)
         .single()
 
-      if (error) {
-        console.error('Error fetching profile:', error)
-        return
-      }
+      if (error) return
 
       if (data) {
         setPoints(data.total_points || 0)
         setStreak(data.current_streak || 0)
       }
-    } catch (err) {
-      console.error('Profile fetch error:', err)
-    }
+    } catch {}
   }
 
   async function fetchExercises() {
@@ -195,7 +189,6 @@ export default function Train() {
       }
 
       if (error) {
-        console.error('Error fetching exercises:', error)
         showToast('Failed to load exercises')
         return
       }
@@ -204,9 +197,7 @@ export default function Train() {
         setExercises(data)
         setSelectedExId(data[0].id)
       }
-    } catch (err) {
-      console.error('Exercise fetch error:', err)
-    }
+    } catch {}
   }
 
   async function fetchPB(exId) {
@@ -259,9 +250,7 @@ export default function Train() {
         })
         setLogs(history)
       }
-    } catch (err) {
-      console.error('Workout history fetch error:', err)
-    }
+    } catch {}
   }
 
   const showToast = (msg) => setToast(msg)
@@ -382,17 +371,12 @@ export default function Train() {
       }
 
       if (logError) {
-        console.error('Error logging workout:', logError)
         showToast('Failed to save workout')
         setIsLogging(false)
         return
       }
 
-      const { error: pointsError } = await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
-
-      if (pointsError) {
-        console.error('Error updating points:', pointsError)
-      }
+      await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
 
       if (isPB) setCurrentPB(valNum)
       setPoints(prev => prev + pointsEarned)
@@ -421,8 +405,7 @@ export default function Train() {
       setReps('')
       setSets('')
       setRpe('')
-    } catch (err) {
-      console.error('Unexpected error:', err)
+    } catch {
       showToast('Something went wrong')
     } finally {
       setIsLogging(false)

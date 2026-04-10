@@ -320,9 +320,11 @@ export default function Coach() {
     setIsSending(true)
 
     try {
-      // Save user message
+      // Save user message (best-effort — don't block the chat if persistence fails)
       if (userId) {
-        await supabase.from('coach_messages').insert({ user_id: userId, role: 'user', content: msg })
+        try {
+          await supabase.from('coach_messages').insert({ user_id: userId, role: 'user', content: msg })
+        } catch {}
       }
 
       const res = await fetch('/api/coach/', {
@@ -338,12 +340,13 @@ export default function Coach() {
       const assistantMsg = { role: 'assistant', content: data.reply }
       setMessages(prev => [...prev, assistantMsg])
 
-      // Save assistant message
+      // Save assistant message (best-effort)
       if (userId) {
-        await supabase.from('coach_messages').insert({ user_id: userId, role: 'assistant', content: data.reply })
+        try {
+          await supabase.from('coach_messages').insert({ user_id: userId, role: 'assistant', content: data.reply })
+        } catch {}
       }
     } catch (err) {
-      console.error('Coach error:', err)
       setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I had trouble responding. Please try again.' }])
     } finally {
       setIsSending(false)

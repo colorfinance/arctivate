@@ -78,8 +78,7 @@ export default function QRScanner({ onPointsEarned }) {
           // Ignore scan errors (happens continuously while scanning)
         }
       )
-    } catch (err) {
-      console.error('Scanner error:', err)
+    } catch {
       setError('Could not access camera. Please check permissions.')
       setIsScanning(false)
     }
@@ -139,8 +138,7 @@ export default function QRScanner({ onPointsEarned }) {
       } else {
         setError(result.error || 'Failed to redeem code')
       }
-    } catch (err) {
-      console.error('Redeem error:', err)
+    } catch {
       setError('Network error. Please try again.')
     } finally {
       setIsRedeeming(false)

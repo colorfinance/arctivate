@@ -116,9 +116,7 @@ export default function Food() {
         setDailyCalories(totalCals)
         setDailyMacros({ protein: totalProtein, carbs: totalCarbs, fat: totalFat })
       }
-    } catch (err) {
-      console.error('Error fetching daily calories:', err)
-    }
+    } catch {}
   }
 
   const handleFileSelect = async (e) => {
@@ -198,8 +196,7 @@ export default function Food() {
 
         // Compress to JPEG 0.7 quality
         callback(canvas.toDataURL('image/jpeg', 0.7))
-      } catch (err) {
-        console.error('Image resize error:', err)
+      } catch {
         setError('Failed to process image')
         setScanning(false)
       }
@@ -241,7 +238,6 @@ export default function Food() {
       // Auto-log the scanned food immediately
       await autoLog(responseData)
     } catch (err) {
-      console.error('Analyze error:', err)
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError') || err.name === 'TypeError') {
         setError('Network error. Check your connection and try again.')
       } else {
@@ -270,7 +266,6 @@ export default function Food() {
       }).select().single()
 
       if (insertError) {
-        console.error('Auto-log error:', insertError)
         setResult(data)
         return
       }
@@ -285,8 +280,7 @@ export default function Food() {
 
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
       setLastLoggedResult({ ...data })
-    } catch (err) {
-      console.error('Auto-log failed:', err)
+    } catch {
       setResult(data)
     }
   }
@@ -335,8 +329,7 @@ export default function Food() {
 
       setLastLoggedResult({ ...result })
       setResult(null)
-    } catch (err) {
-      console.error('Error logging food:', err)
+    } catch {
       setError('Failed to save food. Please try again.')
     } finally {
       setIsLogging(false)
@@ -370,8 +363,7 @@ export default function Food() {
 
       showToast('Shared to feed!')
       setLastLoggedResult(null)
-    } catch (err) {
-      console.error('Share error:', err)
+    } catch {
       showToast('Failed to share. Try again.')
     }
   }
@@ -427,8 +419,7 @@ export default function Food() {
       setLastLoggedResult({ name: manualFood.name.trim(), cals, p, c, f, desc: 'Manual entry' })
       setManualFood({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
       setShowManualEntry(false)
-    } catch (err) {
-      console.error('Error logging food:', err)
+    } catch {
       showToast('Failed to save food. Please try again.')
     } finally {
       setIsLogging(false)
@@ -450,8 +441,7 @@ export default function Food() {
       }))
 
       showToast('Food removed')
-    } catch (err) {
-      console.error('Error deleting log:', err)
+    } catch {
       showToast('Failed to remove food')
     }
   }
@@ -488,7 +478,6 @@ export default function Food() {
       }
 
       recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error)
         if (event.error === 'not-allowed') {
           setError('Microphone access denied. Please allow microphone permissions.')
         }
@@ -503,8 +492,7 @@ export default function Food() {
       recognitionRef.current = recognition
       recognition.start()
       setIsRecording(true)
-    } catch (err) {
-      console.error('Voice recording error:', err)
+    } catch {
       setError('Could not start voice recording.')
     }
   }
@@ -548,7 +536,6 @@ export default function Food() {
       // Show the result for confirmation before logging
       setVoiceResult({ ...data, transcript })
     } catch (err) {
-      console.error('Voice food parse error:', err)
       setError(err.message || 'Failed to process voice note. Please try again.')
     } finally {
       setVoiceProcessing(false)
@@ -580,7 +567,6 @@ export default function Food() {
       }
       setCameraActive(true)
     } catch (err) {
-      console.error('Camera error:', err)
       if (err.name === 'NotAllowedError') {
         setError('Camera access denied. Please allow camera permissions.')
       } else if (err.name === 'NotFoundError') {

@@ -155,14 +155,9 @@ export default function Feed() {
         .is('group_id', null)
         .order('created_at', { ascending: false })
         .limit(50)
-      if (error) {
-        console.error('Community messages error:', error)
-        return
-      }
+      if (error) return
       if (data) setMessages(data)
-    } catch (err) {
-      console.log('Community messages not available yet')
-    }
+    } catch {}
   }
 
   async function fetchUserLikes(userId) {
@@ -231,9 +226,7 @@ export default function Feed() {
 
       const sorted = [...convMap.values()].sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime))
       setConversations(sorted)
-    } catch (err) {
-      console.error('Error fetching conversations:', err)
-    }
+    } catch {}
   }
 
   async function openDM(userId, username, avatarUrl) {
@@ -261,9 +254,7 @@ export default function Feed() {
           dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight
         }
       }, 100)
-    } catch (err) {
-      console.error('Error fetching DM thread:', err)
-    }
+    } catch {}
   }
 
   async function sendDirectMessage() {
@@ -294,8 +285,7 @@ export default function Feed() {
           }
         }, 50)
       }
-    } catch (err) {
-      console.error('Send DM error:', err)
+    } catch {
       showToast('Failed to send message')
     } finally {
       setSendingDM(false)
@@ -307,7 +297,6 @@ export default function Feed() {
     try {
       const { data, error } = await supabase.rpc('increment_high_five', { post_id: postId })
       if (error) {
-        console.error('High five error:', error)
         showToast('Failed to high five')
         return
       }
@@ -320,8 +309,7 @@ export default function Feed() {
           setUserLikes(prev => { const next = new Set(prev); next.delete(likeKey); return next })
         }
       }
-    } catch (err) {
-      console.error('High five error:', err)
+    } catch {
       showToast('Something went wrong')
     }
   }
@@ -338,9 +326,7 @@ export default function Feed() {
           setUserLikes(prev => { const next = new Set(prev); next.delete(likeKey); return next })
         }
       }
-    } catch (err) {
-      console.error('Like error:', err)
-    }
+    } catch {}
   }
 
   // Image handling for composer
@@ -376,10 +362,7 @@ export default function Feed() {
       .from('post-images')
       .upload(fileName, file, { cacheControl: '3600', upsert: false })
 
-    if (error) {
-      console.error('Upload error:', error)
-      return null
-    }
+    if (error) return null
 
     const { data: urlData } = supabase.storage
       .from('post-images')
@@ -422,7 +405,6 @@ export default function Feed() {
         .single()
 
       if (error) {
-        console.error('Error posting message:', error)
         // If image_url column doesn't exist yet, retry without it
         if (error.message?.includes('image_url')) {
           const { data: retryData, error: retryError } = await supabase
@@ -450,8 +432,7 @@ export default function Feed() {
       setShowComposer(false)
       removeComposerImage()
       showToast('Posted!')
-    } catch (err) {
-      console.error('Error posting:', err)
+    } catch {
       showToast('Something went wrong')
     } finally {
       setIsPosting(false)
@@ -460,11 +441,13 @@ export default function Feed() {
   }
 
   const shareToTwitter = (content) => {
+    if (typeof window === 'undefined') return
     const text = encodeURIComponent(content)
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(window.location.origin)}`, '_blank')
   }
 
   const shareToFacebook = (content) => {
+    if (typeof window === 'undefined') return
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.origin)}&quote=${encodeURIComponent(content)}`, '_blank')
   }
 

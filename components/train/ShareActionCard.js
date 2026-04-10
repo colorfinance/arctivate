@@ -112,9 +112,7 @@ export default function ShareActionCard({
 
       setShareSuccess(true)
       if (onShareComplete) onShareComplete()
-    } catch (err) {
-      console.error('Error sharing to community:', err)
-    } finally {
+    } catch {} finally {
       setIsSharing(false)
     }
   }

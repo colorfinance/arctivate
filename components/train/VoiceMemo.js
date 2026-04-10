@@ -151,7 +151,6 @@ export default function VoiceMemo({ exercises, selectedExercise, onSaved, onClos
         setRecordingTime(prev => prev + 1)
       }, 1000)
     } catch (err) {
-      console.error('Microphone error:', err)
       if (err.name === 'NotAllowedError') {
         setError('Microphone access denied. Please enable it in browser settings.')
       } else if (err.name === 'NotFoundError') {
@@ -256,7 +255,6 @@ export default function VoiceMemo({ exercises, selectedExercise, onSaved, onClos
 
       if (uploadError) {
         // If bucket doesn't exist, save memo data locally
-        console.error('Upload error:', uploadError)
         // Still call onSaved with local data
         if (onSaved) {
           onSaved({
@@ -282,8 +280,7 @@ export default function VoiceMemo({ exercises, selectedExercise, onSaved, onClos
           timestamp: new Date().toISOString()
         })
       }
-    } catch (err) {
-      console.error('Save memo error:', err)
+    } catch {
       // Still trigger saved callback with local data
       if (onSaved) {
         onSaved({

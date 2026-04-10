@@ -85,8 +85,8 @@ export default function Habits() {
 
       // Fetch progress photos
       await fetchProgressPhotos(user.id)
-    } catch (err) {
-      console.error('Error loading habits data:', err)
+    } catch {
+      // swallow
     } finally {
       setLoading(false)
     }
@@ -135,7 +135,6 @@ export default function Habits() {
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
 
       if (error) {
-        console.error('Error updating goal:', error)
         showToast('Failed to update goal')
         return
       }
@@ -147,8 +146,7 @@ export default function Habits() {
         confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
       }
       setIsEditingGoal(false)
-    } catch (err) {
-      console.error('Unexpected error:', err)
+    } catch {
       showToast('Something went wrong')
     } finally {
       setIsUpdating(false)
@@ -156,6 +154,9 @@ export default function Habits() {
   }
 
   const toggleHabit = async (habitId) => {
+    // Capture snapshot for reliable rollback
+    const snapshot = new Set(logs)
+
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -166,8 +167,8 @@ export default function Habits() {
       const today = getTodayStr()
 
       // Optimistic Update
-      const isCompleted = logs.has(habitId)
-      const newLogs = new Set(logs)
+      const isCompleted = snapshot.has(habitId)
+      const newLogs = new Set(snapshot)
 
       if (isCompleted) {
         newLogs.delete(habitId)
@@ -182,9 +183,8 @@ export default function Habits() {
           .eq('date', today)
 
         if (error) {
-          console.error('Error removing habit log:', error)
-          // Revert optimistic update
-          setLogs(logs)
+          // Revert to snapshot
+          setLogs(snapshot)
           showToast('Failed to update habit')
         } else {
           showToast('Habit unchecked')
@@ -221,10 +221,8 @@ export default function Habits() {
         const error = insertError
 
         if (error) {
-          console.error('Error adding habit log:', error)
-          console.log('SUPABASE ERROR OBJECT:', error)
-          // Revert optimistic update
-          setLogs(logs)
+          // Revert to snapshot
+          setLogs(snapshot)
           showToast('Failed to update habit')
           return
         }
@@ -245,8 +243,9 @@ export default function Habits() {
           showToast('All habits complete! Great job!')
         }
       }
-    } catch (err) {
-      console.error('Toggle habit error:', err)
+    } catch {
+      // Revert on any unexpected error
+      setLogs(snapshot)
       showToast('Something went wrong')
     }
   }
@@ -273,7 +272,6 @@ export default function Habits() {
       }).select().single()
 
       if (error) {
-        console.error('Error adding habit:', error)
         showToast('Failed to add habit')
         return
       }
@@ -283,8 +281,7 @@ export default function Habits() {
         setCustomHabit('')
         setIsAdding(false)
       }
-    } catch (err) {
-      console.error('Add habit error:', err)
+    } catch {
       showToast('Something went wrong')
     } finally {
       setIsUpdating(false)
@@ -301,14 +298,12 @@ export default function Habits() {
       const { error } = await supabase.from('habits').delete().eq('id', id)
 
       if (error) {
-        console.error('Error deleting habit:', error)
         setHabits(previousHabits)
         showToast('Failed to delete habit')
       } else {
         showToast('Habit removed')
       }
-    } catch (err) {
-      console.error('Delete habit error:', err)
+    } catch {
       setHabits(previousHabits)
       showToast('Something went wrong')
     }
@@ -332,7 +327,6 @@ export default function Habits() {
         .list(userId, { limit: 100, sortBy: { column: 'name', order: 'desc' } })
 
       if (listError) {
-        console.error('Error listing progress photos:', listError)
         setPhotoError('Could not load progress photos')
         return
       }
@@ -375,8 +369,7 @@ export default function Habits() {
 
       setPhotoGallery(gallery)
       setPhotoError(null)
-    } catch (err) {
-      console.error('Error fetching progress photos:', err)
+    } catch {
       setPhotoError('Could not load progress photos')
     }
   }
@@ -446,7 +439,6 @@ export default function Habits() {
         })
 
       if (uploadError) {
-        console.error('Upload error:', uploadError)
         setPhotoError('Upload failed. Make sure the storage bucket exists.')
         showToast('Photo upload failed')
         return
@@ -466,8 +458,7 @@ export default function Habits() {
 
       showToast('Progress photo saved!')
       confetti({ particleCount: 60, spread: 50, origin: { y: 0.7 }, colors: ['#00D4AA', '#22c55e'] })
-    } catch (err) {
-      console.error('Upload error:', err)
+    } catch {
       setPhotoError('Something went wrong during upload')
       showToast('Photo upload failed')
     } finally {
