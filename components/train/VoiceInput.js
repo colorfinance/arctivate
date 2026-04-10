@@ -70,7 +70,6 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
     }
 
     recognition.onerror = (event) => {
-      console.error('Speech recognition error:', event.error)
       setIsListening(false)
       if (event.error === 'not-allowed') {
         setError('Microphone access denied. Please enable it in browser settings.')
@@ -130,7 +129,9 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
     }
   }
 
-  // Auto-parse when speech ends with a transcript
+  // Auto-parse when speech ends with a transcript.
+  // Only depends on isListening so we don't re-fire while transcript/parsedData update.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isListening && transcript.trim() && !parsedData) {
       parseTranscript()

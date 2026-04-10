@@ -109,9 +109,7 @@ export default function Groups() {
         .order('member_count', { ascending: false })
         .limit(50)
       if (data) setGroups(data)
-    } catch (err) {
-      console.log('Groups not available yet')
-    }
+    } catch {}
   }
 
   async function fetchMyGroups(userId) {
@@ -121,9 +119,7 @@ export default function Groups() {
         .select('group_id')
         .eq('user_id', userId)
       if (data) setMyGroups(new Set(data.map(m => m.group_id)))
-    } catch (err) {
-      console.log('Group members not available yet')
-    }
+    } catch {}
   }
 
   const showToast = (msg) => {
@@ -151,8 +147,7 @@ export default function Groups() {
       } else {
         showToast(data?.error || 'Failed to create group')
       }
-    } catch (err) {
-      console.error('Create group error:', err)
+    } catch {
       showToast('Something went wrong')
     } finally {
       setIsCreating(false)
@@ -170,8 +165,7 @@ export default function Groups() {
       } else {
         showToast(data?.error || 'Failed to join')
       }
-    } catch (err) {
-      console.error('Join error:', err)
+    } catch {
       showToast('Something went wrong')
     }
   }
@@ -191,8 +185,7 @@ export default function Groups() {
       } else {
         showToast(data?.error || 'Failed to leave')
       }
-    } catch (err) {
-      console.error('Leave error:', err)
+    } catch {
       showToast('Something went wrong')
     }
   }
@@ -229,9 +222,7 @@ export default function Groups() {
           .in('message_id', msgIds)
         if (likes) setMyLikes(new Set(likes.map(l => l.message_id)))
       }
-    } catch (err) {
-      console.log('Messages not available yet')
-    }
+    } catch {}
   }
 
   async function fetchGroupMembers(groupId) {
@@ -242,9 +233,7 @@ export default function Groups() {
         .eq('group_id', groupId)
         .order('joined_at', { ascending: true })
       if (data) setGroupMembers(data)
-    } catch (err) {
-      console.log('Members not available yet')
-    }
+    } catch {}
   }
 
   async function sendGroupMessage() {
@@ -270,8 +259,7 @@ export default function Groups() {
         showToast('Failed to send message')
         setChatInput(content)
       }
-    } catch (err) {
-      console.error('Send error:', err)
+    } catch {
       showToast('Something went wrong')
       setChatInput(content)
     } finally {
@@ -293,9 +281,7 @@ export default function Groups() {
           return next
         })
       }
-    } catch (err) {
-      console.error('Like error:', err)
-    }
+    } catch {}
   }
 
   function formatTime(ts) {

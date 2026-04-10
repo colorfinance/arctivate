@@ -150,9 +150,7 @@ export default function CheckIn() {
         .select('*')
         .order('created_at', { ascending: false })
       if (data) setBusinesses(data)
-    } catch (err) {
-      console.log('Partners table not available yet')
-    }
+    } catch {}
   }
 
   async function fetchMyBusinesses(userId) {
@@ -228,8 +226,7 @@ export default function CheckIn() {
 
       setNewBusiness({ name: '', discount: '', description: '', points: '150' })
       setShowCreateBusiness(false)
-    } catch (err) {
-      console.error('Create business error:', err)
+    } catch {
       showToast('Failed to create business. Try again.')
     } finally {
       setIsCreating(false)
@@ -243,8 +240,7 @@ export default function CheckIn() {
       setBusinesses(prev => prev.filter(b => b.id !== id))
       setMyBusinesses(prev => prev.filter(b => b.id !== id))
       showToast('Business removed')
-    } catch (err) {
-      console.error('Delete business error:', err)
+    } catch {
       showToast('Failed to delete')
     }
   }
@@ -281,8 +277,7 @@ export default function CheckIn() {
         },
         () => {}
       )
-    } catch (err) {
-      console.error('Scanner error:', err)
+    } catch {
       setError('Could not access camera. Please check permissions.')
       setIsScanning(false)
     }
@@ -398,8 +393,7 @@ export default function CheckIn() {
       } else {
         setError(data?.error || 'Invalid QR code')
       }
-    } catch (err) {
-      console.error('Redeem error:', err)
+    } catch {
       setError('Could not process this code. Please try again.')
     } finally {
       setIsRedeeming(false)
@@ -433,8 +427,7 @@ export default function CheckIn() {
       } else {
         showToast(data?.error || 'Failed to create code')
       }
-    } catch (err) {
-      console.error('Create code error:', err)
+    } catch {
       showToast('Failed to create code')
     } finally {
       setIsCreating(false)
@@ -448,8 +441,7 @@ export default function CheckIn() {
 
       setRewardCodes(prev => prev.filter(c => c.id !== id))
       showToast('Code deleted')
-    } catch (err) {
-      console.error('Delete error:', err)
+    } catch {
       showToast('Failed to delete code')
     }
   }

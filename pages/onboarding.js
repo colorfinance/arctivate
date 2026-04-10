@@ -82,23 +82,27 @@ export default function Onboarding() {
         challenge_start_date: new Date().toISOString()
       }
 
+      // Use upsert so it works whether the profile row exists or not, and
+      // bypasses potential RLS update issues. Try full → minimal → flag-only.
       let saveError = null
 
-      // Try update first (profile row should exist from /api/auth signup)
       const { error: err1 } = await supabase
         .from('profiles')
-        .update(fullUpdates)
-        .eq('id', user.id)
+        .upsert({ id: user.id, ...fullUpdates }, { onConflict: 'id' })
 
       if (err1) {
-        // If full update fails (missing columns), try minimal update
+        // Full upsert failed (probably missing columns). Try minimal set.
         const { error: err2 } = await supabase
           .from('profiles')
-          .update({ username: formData.name || null, completed_onboarding: true, challenge_start_date: new Date().toISOString() })
-          .eq('id', user.id)
+          .upsert({
+            id: user.id,
+            username: formData.name || null,
+            completed_onboarding: true,
+            challenge_start_date: new Date().toISOString(),
+          }, { onConflict: 'id' })
 
         if (err2) {
-          // Last resort — just mark onboarding complete
+          // Last resort — just mark onboarding complete so the user can proceed.
           const { error: err3 } = await supabase
             .from('profiles')
             .upsert({ id: user.id, completed_onboarding: true }, { onConflict: 'id' })
@@ -108,8 +112,20 @@ export default function Onboarding() {
       }
 
       if (saveError) {
-        console.error('Onboarding save error:', saveError)
         setError('Failed to save profile. Please try again.')
+        setLoading(false)
+        return
+      }
+
+      // Verify the flag actually persisted before navigating.
+      const { data: verify } = await supabase
+        .from('profiles')
+        .select('completed_onboarding')
+        .eq('id', user.id)
+        .single()
+
+      if (!verify?.completed_onboarding) {
+        setError('Profile saved but onboarding state could not be confirmed. Please try again.')
         setLoading(false)
         return
       }
@@ -122,7 +138,6 @@ export default function Onboarding() {
       } catch {}
       setTimeout(() => router.push('/train'), 2000)
     } catch (err) {
-      console.error('Onboarding error:', err)
       setError('Something went wrong. Please try again.')
       setLoading(false)
     }
@@ -139,11 +154,11 @@ export default function Onboarding() {
   return (
     <div
       className="min-h-screen w-full bg-arc-bg text-white relative flex flex-col items-center justify-center"
-      style={{ overflow: 'hidden', position: 'fixed', inset: 0, touchAction: 'none' }}
+      style={{ overscrollBehavior: 'contain' }}
     >
-      <div className="absolute inset-0 bg-gradient-radial from-arc-accent/10 via-transparent to-transparent opacity-50" />
+      <div className="fixed inset-0 bg-gradient-radial from-arc-accent/10 via-transparent to-transparent opacity-50 pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-md p-6 overflow-y-auto" style={{ maxHeight: '100vh' }}>
+      <div className="relative z-10 w-full max-w-md p-6 py-10">
 
         {/* Progress Bar */}
         <div className="mb-8">

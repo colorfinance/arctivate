@@ -135,7 +135,7 @@ export default function Profile() {
       // Fetch today's calories
       await fetchTodayCalories(user.id)
     } catch (err) {
-      console.error('Error loading profile:', err)
+      // swallow — handled via UI state
     } finally {
       setLoading(false)
     }
@@ -159,9 +159,7 @@ export default function Profile() {
 
       setTotalHabitsToday(habits?.length || 0)
       setHabitsCompletedToday(logs?.length || 0)
-    } catch (err) {
-      console.error('Error fetching habits:', err)
-    }
+    } catch {}
   }
 
   async function fetchTodayCalories(uid) {
@@ -179,9 +177,7 @@ export default function Profile() {
         const totalCals = logs.reduce((sum, log) => sum + (log.calories || 0), 0)
         setDailyCalories(totalCals)
       }
-    } catch (err) {
-      console.error('Error fetching calories:', err)
-    }
+    } catch {}
   }
 
   async function handleSaveProfile() {
@@ -203,11 +199,9 @@ export default function Profile() {
 
       const { error } = await supabase
         .from('profiles')
-        .update(updates)
-        .eq('id', userId)
+        .upsert({ id: userId, ...updates }, { onConflict: 'id' })
 
       if (error) {
-        console.error('Error updating profile:', error)
         showToast('Failed to update profile')
         return
       }
@@ -216,7 +210,6 @@ export default function Profile() {
       setShowEditModal(false)
       showToast('Profile updated!')
     } catch (err) {
-      console.error('Save profile error:', err)
       showToast('Something went wrong')
     } finally {
       setIsSaving(false)
@@ -228,8 +221,7 @@ export default function Profile() {
     try {
       await supabase.auth.signOut()
       router.push('/')
-    } catch (err) {
-      console.error('Sign out error:', err)
+    } catch {
       showToast('Failed to sign out')
       setIsSigningOut(false)
     }
@@ -256,8 +248,7 @@ export default function Profile() {
       // Sign out and redirect
       await supabase.auth.signOut()
       router.push('/')
-    } catch (err) {
-      console.error('Delete account error:', err)
+    } catch {
       showToast('Failed to delete account. Please try again.')
       setIsDeleting(false)
     }
