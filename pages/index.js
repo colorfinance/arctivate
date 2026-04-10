@@ -15,11 +15,14 @@ export default function Auth() {
   const router = useRouter()
 
   useEffect(() => {
+    let cancelled = false
     supabase.auth.getUser()
       .then(({ data: { user } }) => {
+        if (cancelled) return
         if (user) {
           return supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
             .then(({ data, error }) => {
+               if (cancelled) return
                if (error) {
                   console.error("Onboarding check error:", error)
                   router.push('/train')
@@ -35,9 +38,10 @@ export default function Auth() {
       })
       .catch((err) => {
         console.error('Auth check failed:', err)
-        setCheckingAuth(false)
+        if (!cancelled) setCheckingAuth(false)
       })
-  }, [])
+    return () => { cancelled = true }
+  }, [router])
 
   const redirectAfterLogin = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -137,36 +141,52 @@ export default function Auth() {
     setLoading(false)
   }
 
-  // Listen for Google OAuth callback on native
+  // Listen for OAuth callback on native
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
 
-    let cleanup = () => {}
+    let listenerHandle = null
+    let cancelled = false
 
     import('@capacitor/app').then(({ App }) => {
-      const listener = App.addListener('appUrlOpen', async ({ url }) => {
-        if (url.includes('callback')) {
+      if (cancelled) return
+      const handlePromise = App.addListener('appUrlOpen', async ({ url }) => {
+        if (!url || !url.includes('callback')) return
+        try {
           const { Browser } = await import('@capacitor/browser')
-          await Browser.close()
+          await Browser.close().catch(() => {})
 
           const hashParams = new URLSearchParams(url.split('#')[1] || '')
           const accessToken = hashParams.get('access_token')
           const refreshToken = hashParams.get('refresh_token')
 
           if (accessToken && refreshToken) {
-            await supabase.auth.setSession({
+            const { error } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken,
             })
+            if (error) {
+              setMessage('error: ' + error.message)
+              return
+            }
             await redirectAfterLogin()
           }
+        } catch (err) {
+          console.error('OAuth callback handling failed:', err)
+          setMessage('error: ' + (err.message || 'Login failed'))
         }
       })
-
-      cleanup = () => listener.then(l => l.remove())
+      listenerHandle = handlePromise
+    }).catch((err) => {
+      console.error('Failed to register appUrlOpen listener:', err)
     })
 
-    return () => cleanup()
+    return () => {
+      cancelled = true
+      if (listenerHandle) {
+        listenerHandle.then((l) => l.remove()).catch(() => {})
+      }
+    }
   }, [])
 
   const handleSendOtp = async (e) => {

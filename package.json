@@ -13,7 +13,8 @@
     "cap:android": "npx cap open android",
     "mobile:ios": "npm run build:mobile && npx cap sync ios && npx cap open ios",
     "mobile:android": "npm run build:mobile && npx cap sync android && npx cap open android",
-    "mobile:sync": "npm run build:mobile && npx cap sync"
+    "mobile:sync": "npm run build:mobile && npx cap sync",
+    "icons:generate": "node scripts/generate-icon.js && node scripts/install-ios-icon.js"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.0",

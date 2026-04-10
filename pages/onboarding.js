@@ -34,21 +34,38 @@ export default function Onboarding() {
 
   // Check user status
   useEffect(() => {
+    let cancelled = false
     const checkUser = async () => {
-      const { data } = await supabase.auth.getUser()
-      if (!data.user) {
-        router.push('/') // Send to auth
-        return
+      try {
+        const { data } = await supabase.auth.getUser()
+        if (cancelled) return
+        if (!data.user) {
+          router.push('/') // Send to auth
+          return
+        }
+        // Check if already onboarded
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('completed_onboarding')
+          .eq('id', data.user.id)
+          .single()
+        if (cancelled) return
+        if (error) {
+          console.error('Onboarding profile lookup failed:', error)
+        }
+        if (profile?.completed_onboarding) {
+          router.push('/train') // Skip onboarding
+          return
+        }
+        setCheckingUser(false)
+      } catch (err) {
+        console.error('Onboarding auth check failed:', err)
+        if (!cancelled) setCheckingUser(false)
       }
-      // Check if already onboarded
-      const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', data.user.id).single()
-      if (profile?.completed_onboarding) {
-        router.push('/train') // Skip onboarding
-      }
-      setCheckingUser(false)
     }
     checkUser()
-  }, [])
+    return () => { cancelled = true }
+  }, [router])
 
   // Handlers
   const updateFormData = (field, value) => {
@@ -231,7 +248,7 @@ export default function Onboarding() {
                         {formData.goal && <div className="flex justify-between"><span className="text-arc-muted">Goal</span> <span className="font-bold text-arc-accent">{formData.goal}</span></div>}
                      </div>
 
-                     <button onClick={finishOnboarding} className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow">
+                     <button onClick={finishOnboarding} disabled={loading} className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow disabled:opacity-50">
                         {loading ? 'SAVING...' : 'LOCK IN PROFILE'}
                      </button>
                      <button onClick={prevStep} className="w-full text-center text-xs text-arc-muted py-2">Back</button>
