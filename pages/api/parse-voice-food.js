@@ -1,5 +1,13 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -12,18 +20,34 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { transcript } = req.body;
+    const { transcript, audio, mimeType } = req.body;
 
-    if (!transcript || typeof transcript !== 'string') {
-      return res.status(400).json({ error: 'No transcript provided' });
+    // Need either a text transcript OR a base64 audio blob
+    if ((!transcript || typeof transcript !== 'string') && !audio) {
+      return res.status(400).json({ error: 'No transcript or audio provided' });
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
+    let spokenText = transcript;
+
+    // If audio was provided (e.g. from iOS WKWebView), transcribe it first.
+    if (audio) {
+      const transcribeResult = await model.generateContent([
+        { text: 'Transcribe this audio to text. Return ONLY the transcription, no commentary.' },
+        { inlineData: { data: audio, mimeType: mimeType || 'audio/webm' } },
+      ]);
+      spokenText = transcribeResult.response.text().trim();
+    }
+
+    if (!spokenText) {
+      return res.status(400).json({ error: 'Could not transcribe audio.' });
+    }
+
     const prompt = `You are a nutrition expert and food logging assistant. Parse the following spoken food description into structured nutrition data. The user is describing what they ate.
 
-VOICE INPUT: "${transcript}"
+VOICE INPUT: "${spokenText}"
 
 PARSING RULES:
 - Identify every food item mentioned
@@ -66,7 +90,6 @@ Fields:
     try {
       data = JSON.parse(cleanJson);
     } catch (parseError) {
-      console.error('Voice food parse JSON error:', parseError.message, 'Raw:', text);
       return res.status(500).json({ error: 'Could not parse food description. Please try again.' });
     }
 
@@ -81,10 +104,11 @@ Fields:
       return res.status(500).json({ error: 'Could not identify food from voice input.' });
     }
 
+    // Include the transcript so the client can show what was heard
+    data.transcript = spokenText;
+
     res.status(200).json(data);
   } catch (error) {
-    console.error('Voice Food Parse API Error:', error.message || error);
-
     if (error.message?.includes('quota') || error.message?.includes('RATE_LIMIT')) {
       return res.status(429).json({ error: 'Rate limit reached. Please try again.' });
     }

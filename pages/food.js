@@ -2,7 +2,13 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
-import confetti from 'canvas-confetti'
+// Lazy-load confetti
+const fireConfetti = async (opts) => {
+  try {
+    const confetti = (await import('canvas-confetti')).default
+    confetti(opts)
+  } catch {}
+}
 import { useRouter } from 'next/router'
 
 export default function Food() {
@@ -278,7 +284,7 @@ export default function Food() {
       }))
       if (newLog) setTodayLogs(prev => [newLog, ...prev])
 
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+      fireConfetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
       setLastLoggedResult({ ...data })
     } catch {
       setResult(data)
@@ -324,7 +330,7 @@ export default function Food() {
       }
 
       // Celebration
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+      fireConfetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
       showToast('Food logged! Share it to the feed?')
 
       setLastLoggedResult({ ...result })
@@ -413,7 +419,7 @@ export default function Food() {
         setTodayLogs(prev => [newLog, ...prev])
       }
 
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
+      fireConfetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#22c55e', '#ffffff'] })
       showToast('Food logged! Share it to the feed?')
 
       setLastLoggedResult({ name: manualFood.name.trim(), cals, p, c, f, desc: 'Manual entry' })
@@ -446,80 +452,97 @@ export default function Food() {
     }
   }
 
-  // Voice recording functions
+  // Voice recording — uses MediaRecorder (works in iOS WKWebView),
+  // then sends audio to /api/parse-voice-food for Gemini transcription.
   const startVoiceRecording = async () => {
     try {
       setError(null)
       transcriptRef.current = ''
+      audioChunksRef.current = []
 
-      // Use Web Speech API for real-time transcription
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      if (!SpeechRecognition) {
-        // Fallback: use MediaRecorder for audio capture
-        showToast('Speech recognition not supported. Try typing instead.')
-        return
+      // Request mic
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      })
+      streamRef.current = stream
+
+      // Pick a supported MIME type
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/webm'
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data)
       }
-
-      const recognition = new SpeechRecognition()
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = 'en-US'
-
-      recognition.onresult = (event) => {
-        let finalTranscript = ''
-        for (let i = 0; i < event.results.length; i++) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript
-          }
-        }
-        if (finalTranscript) {
-          transcriptRef.current = finalTranscript
-        }
-      }
-
-      recognition.onerror = (event) => {
-        if (event.error === 'not-allowed') {
-          setError('Microphone access denied. Please allow microphone permissions.')
-        }
-        setIsRecording(false)
-      }
-
-      recognition.onend = () => {
-        // If we're still supposed to be recording, the user hasn't stopped yet
-        // This can fire naturally, so we handle it in stopVoiceRecording
-      }
-
-      recognitionRef.current = recognition
-      recognition.start()
+      mediaRecorderRef.current = mediaRecorder
+      mediaRecorder.start()
       setIsRecording(true)
-    } catch {
-      setError('Could not start voice recording.')
+    } catch (err) {
+      if (err?.name === 'NotAllowedError') {
+        setError('Microphone access denied. Please allow microphone permissions in Settings.')
+      } else if (err?.name === 'NotFoundError') {
+        setError('No microphone found.')
+      } else {
+        setError('Could not start voice recording.')
+      }
+      setIsRecording(false)
     }
   }
 
   const stopVoiceRecording = async () => {
     setIsRecording(false)
+    const recorder = mediaRecorderRef.current
+    if (!recorder) return
 
-    if (recognitionRef.current) {
-      recognitionRef.current.stop()
+    // Wait for final chunk
+    const stopped = new Promise((resolve) => {
+      recorder.onstop = () => resolve()
+    })
+    try { recorder.stop() } catch {}
+    await stopped
+
+    // Stop mic stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
     }
 
-    // Small delay to let final results come in
-    await new Promise(resolve => setTimeout(resolve, 500))
+    const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+    if (!blob.size) {
+      showToast('No audio captured. Please try again.')
+      return
+    }
 
-    const transcript = transcriptRef.current.trim()
-    if (!transcript) {
-      showToast('No speech detected. Please try again.')
+    // Convert to base64
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result || ''
+        resolve(typeof result === 'string' ? result.split(',')[1] : '')
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+
+    if (!base64) {
+      showToast('Could not process audio. Please try again.')
       return
     }
 
     setVoiceProcessing(true)
-
     try {
       const res = await fetch('/api/parse-voice-food/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ audio: base64, mimeType: recorder.mimeType || 'audio/webm' }),
       })
 
       let data
@@ -533,8 +556,7 @@ export default function Food() {
         throw new Error(data?.error || 'Failed to parse food description')
       }
 
-      // Show the result for confirmation before logging
-      setVoiceResult({ ...data, transcript })
+      setVoiceResult({ ...data, transcript: data.transcript || '' })
     } catch (err) {
       setError(err.message || 'Failed to process voice note. Please try again.')
     } finally {

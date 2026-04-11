@@ -12,7 +12,7 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
+      launchShowDuration: 500,
       launchAutoHide: true,
       backgroundColor: '#030808',
       androidSplashResourceName: 'splash',
@@ -26,8 +26,9 @@ const config: CapacitorConfig = {
       backgroundColor: '#030808',
     },
     Keyboard: {
-      resize: 'body',
+      resize: 'native',
       resizeOnFullScreen: true,
+      style: 'DARK',
     },
   },
   ios: {

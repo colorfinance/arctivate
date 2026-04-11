@@ -8,19 +8,33 @@ function MyApp({ Component, pageProps }) {
   useEffect(() => {
     initCapacitor()
 
-    // Keep session alive: listen for token refresh and sign-out events.
-    // Supabase auto-refreshes tokens in the background when persistSession
-    // is enabled — this listener ensures the UI reacts to auth changes.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'TOKEN_REFRESHED') {
-        // Session refreshed silently — user stays logged in
+    // Auto-scroll focused inputs into view (handles iOS WKWebView keyboard).
+    const handleFocus = (e) => {
+      const target = e.target
+      if (!target) return
+      const tag = target.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        // Delay to let the keyboard start appearing
+        setTimeout(() => {
+          try {
+            target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          } catch {}
+        }, 300)
       }
+    }
+    document.addEventListener('focusin', handleFocus)
+
+    // Keep session alive: listen for token refresh and sign-out events.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
         window.location.href = '/'
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      document.removeEventListener('focusin', handleFocus)
+      subscription.unsubscribe()
+    }
   }, [])
 
   return (
@@ -35,6 +49,9 @@ function MyApp({ Component, pageProps }) {
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
         <meta name="apple-mobile-web-app-title" content="Arctivate" />
+        {/* Preconnect to speed up first API call */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </Head>
       <Component {...pageProps} />
     </>

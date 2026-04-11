@@ -1,13 +1,23 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
-import confetti from 'canvas-confetti'
-import ShareActionCard from '../components/train/ShareActionCard'
-import VoiceInput from '../components/train/VoiceInput'
-import VoiceMemo from '../components/train/VoiceMemo'
-import WorkoutArt from '../components/train/WorkoutArt'
 import { useRouter } from 'next/router'
+
+// Lazy-load heavy/modal components to keep initial bundle small
+const ShareActionCard = dynamic(() => import('../components/train/ShareActionCard'), { ssr: false })
+const VoiceInput = dynamic(() => import('../components/train/VoiceInput'), { ssr: false })
+const VoiceMemo = dynamic(() => import('../components/train/VoiceMemo'), { ssr: false })
+const WorkoutArt = dynamic(() => import('../components/train/WorkoutArt'), { ssr: false })
+
+// Confetti is only loaded on demand when a user hits a PB
+const fireConfetti = async (opts) => {
+  try {
+    const confetti = (await import('canvas-confetti')).default
+    confetti(opts)
+  } catch {}
+}
 
 // Icons
 const MicIcon = () => (
@@ -465,8 +475,8 @@ export default function Train() {
   }
 
   const triggerCelebration = () => {
-    confetti({ particleCount: 50, spread: 360, startVelocity: 30, ticks: 60, zIndex: 0, colors: ['#00D4AA', '#06B6D4', '#ffffff'], origin: { y: 0.6 } })
-    setTimeout(() => confetti({ particleCount: 50, spread: 360, startVelocity: 30, ticks: 60, zIndex: 0, colors: ['#00D4AA', '#06B6D4', '#ffffff'], origin: { y: 0.6 } }), 200)
+    fireConfetti({ particleCount: 50, spread: 360, startVelocity: 30, ticks: 60, zIndex: 0, colors: ['#00D4AA', '#06B6D4', '#ffffff'], origin: { y: 0.6 } })
+    setTimeout(() => fireConfetti({ particleCount: 50, spread: 360, startVelocity: 30, ticks: 60, zIndex: 0, colors: ['#00D4AA', '#06B6D4', '#ffffff'], origin: { y: 0.6 } }), 200)
   }
 
   // Today's stats

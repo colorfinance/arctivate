@@ -2,7 +2,13 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
-import confetti from 'canvas-confetti'
+// Lazy-load confetti to keep initial bundle small
+const fireConfetti = async (opts) => {
+  try {
+    const confetti = (await import('canvas-confetti')).default
+    confetti(opts)
+  } catch {}
+}
 import { useRouter } from 'next/router'
 
 // Helper for dates - use local date to avoid timezone issues
@@ -143,7 +149,7 @@ export default function Habits() {
       setNewGoal(goal)
       if (restart) {
         setChallengeDay(1)
-        confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+        fireConfetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
       }
       setIsEditingGoal(false)
     } catch {
@@ -239,7 +245,7 @@ export default function Habits() {
 
         // Mini celebration if all done
         if (newLogs.size === habits.length && habits.length > 0) {
-          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+          fireConfetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
           showToast('All habits complete! Great job!')
         }
       }
@@ -457,7 +463,7 @@ export default function Habits() {
       await fetchProgressPhotos(user.id)
 
       showToast('Progress photo saved!')
-      confetti({ particleCount: 60, spread: 50, origin: { y: 0.7 }, colors: ['#00D4AA', '#22c55e'] })
+      fireConfetti({ particleCount: 60, spread: 50, origin: { y: 0.7 }, colors: ['#00D4AA', '#22c55e'] })
     } catch {
       setPhotoError('Something went wrong during upload')
       showToast('Photo upload failed')
