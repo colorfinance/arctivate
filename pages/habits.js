@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import { getLocalDateStr } from '../lib/dateUtils'
 // Lazy-load confetti to keep initial bundle small
 const fireConfetti = async (opts) => {
   try {
@@ -10,12 +11,6 @@ const fireConfetti = async (opts) => {
   } catch {}
 }
 import { useRouter } from 'next/router'
-
-// Helper for dates - use local date to avoid timezone issues
-const getTodayStr = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
 
 export default function Habits() {
   const router = useRouter()
@@ -78,7 +73,7 @@ export default function Habits() {
         .order('created_at', { ascending: true })
 
       // 3. Fetch Today's Logs
-      const today = getTodayStr()
+      const today = getLocalDateStr()
       const { data: logsData } = await supabase
         .from('habit_logs')
         .select('habit_id')
@@ -170,7 +165,7 @@ export default function Habits() {
         return
       }
 
-      const today = getTodayStr()
+      const today = getLocalDateStr()
 
       // Optimistic Update
       const isCompleted = snapshot.has(habitId)
@@ -319,7 +314,7 @@ export default function Habits() {
 
   async function fetchProgressPhotos(userId) {
     try {
-      const today = getTodayStr()
+      const today = getLocalDateStr()
 
       // Check if today's photo exists by trying to get its public URL
       const todayPath = `${userId}/${today}.jpg`
@@ -433,7 +428,7 @@ export default function Habits() {
       // Resize image
       const resizedBlob = await resizeImage(file)
 
-      const today = getTodayStr()
+      const today = getLocalDateStr()
       const filePath = `${user.id}/${today}.jpg`
 
       // Upload (upsert: true will overwrite if same day)
@@ -649,12 +644,12 @@ export default function Habits() {
                         >
                             <img
                                 src={progressPhoto}
-                                alt={`Progress photo for ${getTodayStr()}`}
+                                alt={`Progress photo for ${getLocalDateStr()}`}
                                 className="w-full rounded-xl object-cover max-h-80"
                             />
                             <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full">
                                 <span className="text-[10px] font-bold text-white uppercase tracking-widest">
-                                    {getTodayStr()}
+                                    {getLocalDateStr()}
                                 </span>
                             </div>
                             {/* Allow re-upload / replace */}
@@ -740,7 +735,7 @@ export default function Habits() {
                                             {new Date(photo.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                         </span>
                                     </div>
-                                    {photo.date === getTodayStr() && (
+                                    {photo.date === getLocalDateStr() && (
                                         <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
                                     )}
                                 </motion.div>
@@ -763,7 +758,7 @@ export default function Habits() {
                     <motion.div 
                         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
                         transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe max-h-[85dvh] overflow-y-auto"
                     >
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
                         <h2 className="text-xl font-black italic tracking-tighter text-center">ADD HABIT</h2>
@@ -800,7 +795,7 @@ export default function Habits() {
                     <motion.div 
                         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
                         transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe max-h-[85dvh] overflow-y-auto"
                     >
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
                         <h2 className="text-xl font-black italic tracking-tighter text-center">SET CHALLENGE GOAL</h2>

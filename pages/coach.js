@@ -426,7 +426,7 @@ export default function Coach() {
       <main className="pt-32 max-w-lg mx-auto">
         {activeTab === 'chat' ? (
           /* ─── Chat Tab ─────────────────────────── */
-          <div className="flex flex-col h-[calc(100vh-14rem)]">
+          <div className="flex flex-col h-[calc(100dvh-14rem)]">
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 space-y-4 pb-4">
               {messages.length === 0 && (
@@ -659,7 +659,7 @@ export default function Coach() {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-5 pb-safe"
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-5 pb-safe max-h-[85dvh] overflow-y-auto"
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
               <h2 className="text-xl font-black italic tracking-tighter text-center">LOG METRICS</h2>

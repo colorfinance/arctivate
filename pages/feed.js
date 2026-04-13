@@ -569,7 +569,7 @@ export default function Feed() {
           )}
         </div>
 
-        <div className="fixed bottom-0 inset-x-0 bg-arc-bg/90 backdrop-blur-xl border-t border-white/5 p-4">
+        <div className="fixed bottom-0 inset-x-0 bg-arc-bg/90 backdrop-blur-xl border-t border-white/5 p-4 safe-area-bottom">
           <div className="flex gap-2 max-w-lg mx-auto">
             <input
               type="text"
@@ -885,7 +885,7 @@ export default function Feed() {
         {showComposer && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowComposer(false); removeComposerImage() }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 max-h-[85vh] overflow-y-auto">
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85dvh] overflow-y-auto">
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">CREATE POST</h2>
 

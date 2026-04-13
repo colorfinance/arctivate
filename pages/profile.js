@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import { getTodayRange, getLocalDateStr } from '../lib/dateUtils'
 import { useRouter } from 'next/router'
 
 // Icons
@@ -53,13 +54,6 @@ const FireIcon = () => (
     <path d="M12 23c-3.866 0-7-3.134-7-7 0-2.084.784-3.987 2.07-5.427l3.93-4.39 3.93 4.39C16.216 12.013 17 13.916 17 16c0 3.866-3.134 7-7 7z" />
   </svg>
 )
-
-// Helper for dates
-const getTodayStr = () => {
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-  return now.toISOString()
-}
 
 export default function Profile() {
   const router = useRouter()
@@ -143,8 +137,7 @@ export default function Profile() {
 
   async function fetchTodayHabits(uid) {
     try {
-      const now = new Date()
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const todayStr = getLocalDateStr()
 
       const { data: habits } = await supabase
         .from('habits')
@@ -164,14 +157,14 @@ export default function Profile() {
 
   async function fetchTodayCalories(uid) {
     try {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
+      const { start, end } = getTodayRange()
 
       const { data: logs } = await supabase
         .from('food_logs')
         .select('calories')
         .eq('user_id', uid)
-        .gte('eaten_at', today.toISOString())
+        .gte('eaten_at', start)
+        .lt('eaten_at', end)
 
       if (logs) {
         const totalCals = logs.reduce((sum, log) => sum + (log.calories || 0), 0)
@@ -559,7 +552,7 @@ export default function Profile() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe"
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85dvh] overflow-y-auto"
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">EDIT PROFILE</h2>

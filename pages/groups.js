@@ -423,7 +423,7 @@ export default function Groups() {
         </main>
 
         {/* Chat Input */}
-        <div className="fixed bottom-0 inset-x-0 bg-arc-bg/80 backdrop-blur-xl border-t border-white/5 p-4">
+        <div className="fixed bottom-0 inset-x-0 bg-arc-bg/80 backdrop-blur-xl border-t border-white/5 p-4 safe-area-bottom">
           <div className="max-w-lg mx-auto flex items-center gap-3">
             <input
               type="text"
@@ -571,7 +571,7 @@ export default function Groups() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe"
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85dvh] overflow-y-auto"
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">CREATE GROUP</h2>

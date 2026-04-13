@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import { getTodayRange } from '../lib/dateUtils'
 // Lazy-load confetti
 const fireConfetti = async (opts) => {
   try {
@@ -102,14 +103,14 @@ export default function Food() {
       }
 
       // Fetch today's food logs
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
+      const { start, end } = getTodayRange()
 
       const { data: logs, error: logsError } = await supabase
         .from('food_logs')
         .select('*')
         .eq('user_id', user.id)
-        .gte('eaten_at', today.toISOString())
+        .gte('eaten_at', start)
+        .lt('eaten_at', end)
         .order('eaten_at', { ascending: false })
 
       if (logs && !logsError) {
@@ -1152,7 +1153,7 @@ export default function Food() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe"
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85dvh] overflow-y-auto"
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">ADD FOOD</h2>

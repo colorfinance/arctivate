@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import { getTodayRange } from '../lib/dateUtils'
 import { Html5Qrcode } from 'html5-qrcode'
 import confetti from 'canvas-confetti'
 import { useRouter } from 'next/router'
@@ -314,14 +315,14 @@ export default function CheckIn() {
 
       if (partner) {
         // Check if already checked in today
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
+        const { start, end } = getTodayRange()
         const { data: existing } = await supabase
           .from('check_ins')
           .select('id')
           .eq('user_id', currentUser.id)
           .eq('partner_id', partner.id)
-          .gte('checked_in_at', today.toISOString())
+          .gte('checked_in_at', start)
+          .lt('checked_in_at', end)
           .limit(1)
 
         if (existing && existing.length > 0) {
@@ -883,7 +884,7 @@ export default function CheckIn() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe"
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85dvh] overflow-y-auto"
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">CREATE REWARD CODE</h2>
@@ -957,7 +958,7 @@ export default function CheckIn() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85vh] overflow-y-auto"
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85dvh] overflow-y-auto"
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">LIST YOUR BUSINESS</h2>

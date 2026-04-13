@@ -1,20 +1,21 @@
 import '../styles/globals.css'
 import Head from 'next/head'
 import { useEffect } from 'react'
-import { initCapacitor } from '../lib/capacitor'
+import { initCapacitor, isNative } from '../lib/capacitor'
 import { supabase } from '../lib/supabaseClient'
 
 function MyApp({ Component, pageProps }) {
   useEffect(() => {
     initCapacitor()
 
-    // Auto-scroll focused inputs into view (handles iOS WKWebView keyboard).
+    // Auto-scroll focused inputs into view (web fallback only).
+    // On native, the Capacitor keyboard plugin handles this via keyboardWillShow.
     const handleFocus = (e) => {
+      if (isNative()) return
       const target = e.target
       if (!target) return
       const tag = target.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
-        // Delay to let the keyboard start appearing
         setTimeout(() => {
           try {
             target.scrollIntoView({ block: 'center', behavior: 'smooth' })

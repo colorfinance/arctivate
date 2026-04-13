@@ -87,32 +87,19 @@ body {
 }
 
 /* Keyboard open state (set by Capacitor keyboard plugin).
-   Push content up so focused inputs aren't hidden behind the keyboard. */
-:root {
-  --keyboard-height: 0px;
-}
-
-body.keyboard-open {
-  /* Reserve space at the bottom equal to the keyboard height. */
-  padding-bottom: var(--keyboard-height, 0px);
-  transition: padding-bottom 0.2s ease;
-}
-
-body.keyboard-open .pb-safe,
-body.keyboard-open nav {
-  padding-bottom: 0 !important;
-}
+   With resize: 'native', the webview shrinks automatically — no extra body
+   padding needed.  We toggle classes only for UI state (hiding nav, etc.). */
 
 /* Hide bottom nav when keyboard is open (it's behind the keyboard anyway) */
 body.keyboard-open nav.fixed.bottom-0 {
   display: none;
 }
 
-/* Ensure focus is always visible — scroll margin above the keyboard */
+/* Ensure focus is always visible — scroll margins keep inputs in view */
 input:focus,
 textarea:focus,
 select:focus {
-  scroll-margin-bottom: calc(var(--keyboard-height, 0px) + 20px);
+  scroll-margin-bottom: 80px;
   scroll-margin-top: 20px;
 }
 
