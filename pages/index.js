@@ -3,6 +3,8 @@ import { supabase, isSupabaseConfigured } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
+import LoadingState from '../components/LoadingState'
+import ErrorState from '../components/ErrorState'
 
 export default function Auth() {
   const [loading, setLoading] = useState(false)
@@ -142,10 +144,15 @@ export default function Auth() {
   }
 
   if (checkingAuth) {
+    return <LoadingState label="Checking session…" />
+  }
+
+  if (!isSupabaseConfigured()) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-      </div>
+      <ErrorState
+        title="App not configured"
+        message="Supabase environment variables are missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then reload."
+      />
     )
   }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
+import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 // Lazy-load confetti to keep initial bundle small
 const fireConfetti = async (opts) => {
@@ -479,11 +480,7 @@ export default function Habits() {
   const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-arc-bg flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <LoadingState label="Loading habits…" />
   }
 
   return (

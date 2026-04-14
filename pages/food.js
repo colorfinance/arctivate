@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
+import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 // Lazy-load confetti
 const fireConfetti = async (opts) => {
@@ -663,11 +664,7 @@ export default function Food() {
   }
 
   if (pageLoading) {
-    return (
-      <div className="min-h-screen bg-arc-bg flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <LoadingState label="Loading food log…" />
   }
 
   return (

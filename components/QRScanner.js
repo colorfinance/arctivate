@@ -162,8 +162,10 @@ export default function QRScanner({ onPointsEarned }) {
     <>
       {/* QR Scanner Button */}
       <button
+        type="button"
         onClick={handleOpen}
-        className="flex items-center gap-2 text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors"
+        aria-label="Scan QR code"
+        className="flex items-center gap-2 text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors min-h-[44px]"
       >
         <QRIcon />
         <span>Scan</span>
@@ -196,8 +198,10 @@ export default function QRScanner({ onPointsEarned }) {
                   SCAN QR CODE
                 </h2>
                 <button
+                  type="button"
                   onClick={handleClose}
-                  className="p-2 text-arc-muted hover:text-white transition-colors"
+                  aria-label="Close scanner"
+                  className="p-2 text-arc-muted hover:text-white transition-colors min-h-[44px] min-w-[44px]"
                 >
                   <CloseIcon />
                 </button>

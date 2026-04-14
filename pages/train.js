@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
+import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
 
@@ -483,6 +484,10 @@ export default function Train() {
   const todayPoints = logs.reduce((acc, curr) => acc + curr.points, 0)
   const todaySets = logs.length
   const todayPBs = logs.filter(l => l.isPB).length
+
+  if (isLoading) {
+    return <LoadingState label="Loading your training…" />
+  }
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent/30 selection:text-white">
