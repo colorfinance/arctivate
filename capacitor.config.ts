@@ -35,7 +35,8 @@ const config: CapacitorConfig = {
     contentInset: 'automatic',
     preferredContentMode: 'mobile',
     scheme: 'Arctivate',
-    minVersion: '14.0',
+    // Note: iOS deployment target (was 14.0) is set via the Xcode project's
+    // IPHONEOS_DEPLOYMENT_TARGET build setting, not capacitor.config.ts.
     backgroundColor: '#030808',
   },
   android: {
