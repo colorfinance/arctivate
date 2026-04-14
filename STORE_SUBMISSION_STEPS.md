@@ -153,22 +153,52 @@ In the left sidebar, work through each section with a ⚠️ icon:
 1. Go to your GitHub repo > **Settings** > **Secrets and variables** > **Actions**
 2. Click **New repository secret** for each:
 
+**Signing material (required to produce a signed IPA):**
+
 | Name | Value |
 |------|-------|
 | `IOS_BUILD_CERTIFICATE_BASE64` | Run `base64 -i certificate.p12` and paste the output |
 | `IOS_P12_PASSWORD` | The password you set when exporting the .p12 |
 | `IOS_PROVISION_PROFILE_BASE64` | Run `base64 -i profile.mobileprovision` and paste the output |
-| `IOS_KEYCHAIN_PASSWORD` | Make up any random password (e.g. `ci-build-2024`) |
+| `IOS_KEYCHAIN_PASSWORD` | Any random password used only inside the runner (e.g. `ci-build-2024`) |
+
+**App Store Connect API key (required to upload to TestFlight automatically):**
+
+In App Store Connect → Users and Access → Integrations → App Store Connect API,
+generate a new key with **App Manager** role and download the `.p8` file.
+
+| Name | Value |
+|------|-------|
+| `APP_STORE_CONNECT_API_KEY_ID` | The 10-character Key ID shown in the portal |
+| `APP_STORE_CONNECT_API_KEY_ISSUER_ID` | The Issuer ID shown above the keys list |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | Run `base64 -i AuthKey_XXXXXXXX.p8` and paste the output |
 
 ### Step 4: Build the IPA
 1. Go to your GitHub repo > **Actions** tab
 2. Click **Build iOS IPA** on the left
-3. Click **Run workflow** > **Run workflow**
-4. Wait for it to finish (takes ~15 min on macOS runner)
-5. Click into the completed run
-6. Scroll down to **Artifacts**
-7. Download **arctivate-release-ipa**
-8. Unzip it — you'll get a file ending in `.ipa`
+3. Click **Run workflow**, choose a `lane`:
+   - `build` — produces an IPA artifact only
+   - `beta` — builds and uploads to TestFlight (default, recommended)
+   - `release` — builds and submits the version to App Store review
+4. Wait for it to finish (~15-20 min on `macos-14`)
+5. Click into the completed run, scroll to **Artifacts**, download
+   **arctivate-ipa** (also contains the dSYM for crash symbolication)
+
+### Step 4b (alternative): Build locally on Mac
+If you'd rather skip CI and use Xcode directly:
+
+```bash
+npm install
+npm run build:ios          # next build + offline shell + cap sync ios
+npm run cap:open:ios       # opens ios/App/App.xcworkspace in Xcode
+```
+
+In Xcode:
+1. Select the **App** scheme and **Any iOS Device (arm64)** as target
+2. **Signing & Capabilities** → check "Automatically manage signing", pick your team
+3. **Product → Archive**
+4. **Distribute App → App Store Connect → Upload**
+5. Build appears in App Store Connect → TestFlight within ~10 min
 
 ### Step 5: Create your app in App Store Connect
 1. Go to https://appstoreconnect.apple.com
