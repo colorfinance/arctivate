@@ -10,15 +10,17 @@
     "typecheck": "tsc --noEmit",
     "lint:fix": "next lint --fix",
     "lint": "next lint",
-    "cap:sync": "npx cap sync",
-    "cap:build": "next build && npx cap sync",
+    "cap:sync": "node scripts/build-offline-shell.js && npx cap sync",
+    "cap:build": "next build && node scripts/build-offline-shell.js && npx cap sync",
     "cap:open:ios": "npx cap open ios",
     "cap:open:android": "npx cap open android",
     "cap:run:ios": "npx cap run ios",
     "cap:run:android": "npx cap run android",
-    "build:ios": "next build && npx cap sync ios",
-    "build:android": "next build && npx cap sync android",
-    "generate:icons": "node scripts/generate-icons.js"
+    "build:ios": "next build && node scripts/build-offline-shell.js && npx cap sync ios",
+    "build:android": "next build && node scripts/build-offline-shell.js && npx cap sync android",
+    "build:offline-shell": "node scripts/build-offline-shell.js",
+    "generate:icons": "node scripts/generate-icons.js",
+    "generate:capacitor-assets": "npx @capacitor/assets generate --ios --android"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
@@ -48,6 +50,7 @@
     "tailwindcss": "^3.3.0"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@types/react": "19.2.11",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
