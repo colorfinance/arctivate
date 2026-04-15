@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
+import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
 
@@ -366,32 +367,61 @@ export default function Train() {
       }
 
       const optionalFields = ['rpe', 'reps', 'sets']
-      let { error: logError } = await supabase.from('workout_logs').insert(logPayload)
+      let { error: logError, data: insertedLog } = await supabase
+        .from('workout_logs')
+        .insert(logPayload)
+        .select('id')
+        .single()
 
       // If insert fails due to unknown column, strip optional fields and retry
       if (logError && logError.message) {
         for (const field of optionalFields) {
           if (logPayload[field] !== undefined && logError.message.includes(field)) {
             delete logPayload[field]
-            const retry = await supabase.from('workout_logs').insert(logPayload)
+            const retry = await supabase
+              .from('workout_logs')
+              .insert(logPayload)
+              .select('id')
+              .single()
             logError = retry.error
+            insertedLog = retry.data
             break
           }
         }
       }
 
+      // If the error is a foreign-key violation on user_id, the profile row
+      // is missing — create a minimal one on the fly so the user is never
+      // blocked from logging a workout.
+      if (logError && /foreign key|violates|profiles_id/i.test(logError.message || '')) {
+        await supabase.from('profiles').upsert(
+          { id: user.id, completed_onboarding: true },
+          { onConflict: 'id' }
+        )
+        const retry = await supabase
+          .from('workout_logs')
+          .insert(logPayload)
+          .select('id')
+          .single()
+        logError = retry.error
+        insertedLog = retry.data
+      }
+
       if (logError) {
-        showToast('Failed to save workout')
+        console.error('[Arctivate] workout_logs insert failed:', logError)
+        showToast(`Failed to save: ${logError.message || 'unknown error'}`)
         setIsLogging(false)
         return
       }
 
       await supabase.rpc('increment_points', { row_id: user.id, x: pointsEarned })
 
+      const savedLogId = insertedLog?.id || logId
+
       if (isPB) setCurrentPB(valNum)
       setPoints(prev => prev + pointsEarned)
       setLogs(prev => [{
-        id: logId,
+        id: savedLogId,
         name: ex.name,
         val: valNum,
         points: pointsEarned,
@@ -402,6 +432,7 @@ export default function Train() {
       }, ...prev])
 
       setLastWorkoutData({
+        id: savedLogId,
         exerciseName: ex.name,
         value: valNum,
         metricType: ex.metric_type,
@@ -436,10 +467,40 @@ export default function Train() {
     showToast('Voice data loaded')
   }
 
-  // Voice Memo Saved Handler
-  const handleVoiceMemoSaved = (memoData) => {
-    showToast('Voice memo saved to workout')
+  // Voice Memo Saved Handler — persist the memo URL onto the most recent
+  // workout log so it's available on replays / profile / etc.
+  const handleVoiceMemoSaved = async (memoData) => {
     setShowVoiceMemo(false)
+    if (!memoData?.url || !lastWorkoutData?.id) {
+      showToast('Voice memo saved')
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('workout_logs')
+        .update({ voice_memo_url: memoData.url })
+        .eq('id', lastWorkoutData.id)
+
+      if (error) {
+        // Column may not exist yet in older DBs — fall back to notes.
+        if (/voice_memo_url/.test(error.message || '')) {
+          await supabase
+            .from('workout_logs')
+            .update({ notes: `voice:${memoData.url}` })
+            .eq('id', lastWorkoutData.id)
+        } else {
+          console.error('[Arctivate] voice memo persist failed:', error)
+        }
+      }
+
+      // Reflect in local state
+      setLogs(prev => prev.map(l => l.id === lastWorkoutData.id ? { ...l, voiceMemoUrl: memoData.url } : l))
+      showToast('Voice memo saved to workout')
+    } catch (err) {
+      console.error('[Arctivate] voice memo persist error:', err)
+      showToast('Voice memo saved (local only)')
+    }
   }
 
   // Build session data for Workout Art
@@ -483,6 +544,10 @@ export default function Train() {
   const todayPoints = logs.reduce((acc, curr) => acc + curr.points, 0)
   const todaySets = logs.length
   const todayPBs = logs.filter(l => l.isPB).length
+
+  if (isLoading) {
+    return <LoadingState label="Loading your training…" />
+  }
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent/30 selection:text-white">

@@ -3,8 +3,11 @@ node_modules/
 out/
 .env.local
 .env
+.env.*.local
 supabase/
 .vercel
+tsconfig.tsbuildinfo
+*.tsbuildinfo
 
 # iOS
 ios/App/Pods/
