@@ -67,6 +67,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
   const [userId, setUserId] = useState(null)
+  const [userEmail, setUserEmail] = useState('')
 
   // Stats
   const [challengeDay, setChallengeDay] = useState(1)
@@ -78,6 +79,8 @@ export default function Profile() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editUsername, setEditUsername] = useState('')
   const [editCalorieGoal, setEditCalorieGoal] = useState('')
+  const [editAvatarUrl, setEditAvatarUrl] = useState('')
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   // Sign out & delete
@@ -117,6 +120,7 @@ export default function Profile() {
       }
 
       setUserId(user.id)
+      setUserEmail(user.email || '')
       setProfile(profileData)
 
       // Calculate challenge day
@@ -189,7 +193,11 @@ export default function Profile() {
     setIsSaving(true)
     try {
       const updates = {
-        username: editUsername.trim()
+        username: editUsername.trim(),
+      }
+
+      if (editAvatarUrl) {
+        updates.avatar_url = editAvatarUrl
       }
 
       const parsedGoal = parseInt(editCalorieGoal, 10)
@@ -202,7 +210,8 @@ export default function Profile() {
         .upsert({ id: userId, ...updates }, { onConflict: 'id' })
 
       if (error) {
-        showToast('Failed to update profile')
+        console.error('[Arctivate] profile save failed:', error)
+        showToast(`Failed to update: ${error.message || 'try again'}`)
         return
       }
 
@@ -213,6 +222,50 @@ export default function Profile() {
       showToast('Something went wrong')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleAvatarPick(event) {
+    const file = event.target.files?.[0]
+    if (!file || !userId) return
+    if (!file.type.startsWith('image/')) {
+      showToast('Please pick an image file')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image is too large (max 5MB)')
+      return
+    }
+
+    setIsUploadingAvatar(true)
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const path = `${userId}/avatar-${Date.now()}.${ext}`
+
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type })
+
+      if (upErr) {
+        console.error('[Arctivate] avatar upload failed:', upErr)
+        showToast(`Upload failed: ${upErr.message || 'check avatars bucket'}`)
+        return
+      }
+
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+      const publicUrl = urlData?.publicUrl
+      if (!publicUrl) {
+        showToast('Uploaded but no public URL — check bucket is public')
+        return
+      }
+
+      setEditAvatarUrl(publicUrl)
+      showToast('Photo ready — tap Save to apply')
+    } catch (err) {
+      console.error('[Arctivate] avatar pick error:', err)
+      showToast('Could not upload photo')
+    } finally {
+      setIsUploadingAvatar(false)
     }
   }
 
@@ -257,6 +310,7 @@ export default function Profile() {
   function openEditModal() {
     setEditUsername(profile?.username || '')
     setEditCalorieGoal(String(profile?.daily_calorie_goal || 2800))
+    setEditAvatarUrl(profile?.avatar_url || '')
     setShowEditModal(true)
   }
 
@@ -344,7 +398,7 @@ export default function Profile() {
             {/* User Info */}
             <div className="flex-1 min-w-0">
               <h2 className="text-2xl font-black italic tracking-tight text-white truncate">
-                {profile?.username || 'Anonymous'}
+                {profile?.username || (userEmail ? userEmail.split('@')[0] : 'Set your name')}
               </h2>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Total Points</span>
@@ -565,15 +619,44 @@ export default function Profile() {
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">EDIT PROFILE</h2>
 
               <div className="space-y-4">
+                {/* Avatar upload */}
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative w-24 h-24 rounded-full overflow-hidden bg-arc-surface border border-white/10">
+                    {editAvatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={editAvatarUrl} alt="Profile preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-3xl font-black text-arc-muted">
+                        {editUsername?.[0]?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    {isUploadingAvatar && (
+                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                        <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                  <label className="text-[10px] font-bold text-arc-accent uppercase tracking-widest cursor-pointer hover:text-white transition-colors min-h-[44px] flex items-center">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarPick}
+                      disabled={isUploadingAvatar}
+                      className="hidden"
+                    />
+                    {isUploadingAvatar ? 'Uploading…' : 'Change photo'}
+                  </label>
+                </div>
+
                 <div>
                   <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">
-                    Username
+                    Name
                   </label>
                   <input
                     type="text"
                     value={editUsername}
                     onChange={(e) => setEditUsername(e.target.value)}
-                    placeholder="Your username"
+                    placeholder="Your name"
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
                     autoFocus
                   />

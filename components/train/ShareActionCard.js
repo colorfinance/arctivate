@@ -74,6 +74,7 @@ export default function ShareActionCard({
   const [shareToFeed, setShareToFeed] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
   const [shareSuccess, setShareSuccess] = useState(false)
+  const [shareError, setShareError] = useState(null)
 
   const { exerciseName, value, metricType, isNewPB, pointsEarned, date } = workoutData
 
@@ -96,6 +97,12 @@ export default function ShareActionCard({
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
+      // Ensure a profiles row exists so the public_feed FK holds.
+      await supabase.from('profiles').upsert(
+        { id: user.id, completed_onboarding: true },
+        { onConflict: 'id' }
+      )
+
       const { error } = await supabase.from('public_feed').insert({
         user_id: user.id,
         workout_data: {
@@ -104,15 +111,18 @@ export default function ShareActionCard({
           metric_type: metricType,
           is_new_pb: isNewPB,
           points_earned: pointsEarned,
-          date: date
-        }
+          date: date,
+        },
       })
 
       if (error) throw error
 
       setShareSuccess(true)
       if (onShareComplete) onShareComplete()
-    } catch {} finally {
+    } catch (err) {
+      console.error('[Arctivate] public_feed share failed:', err)
+      setShareError(err?.message || 'Could not share — try again')
+    } finally {
       setIsSharing(false)
     }
   }
@@ -287,6 +297,16 @@ export default function ShareActionCard({
                 className="text-center py-3 text-green-400 text-sm font-bold"
               >
                 Posted to Community Feed!
+              </motion.div>
+            )}
+
+            {shareError && !shareSuccess && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-center py-3 text-red-400 text-xs font-medium"
+              >
+                {shareError}
               </motion.div>
             )}
           </AnimatePresence>

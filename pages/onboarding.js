@@ -82,32 +82,55 @@ export default function Onboarding() {
         challenge_start_date: new Date().toISOString()
       }
 
-      // Use upsert so it works whether the profile row exists or not, and
-      // bypasses potential RLS update issues. Try full → minimal → flag-only.
+      // Save in order of importance so the username is never lost:
+      // 1) Always save id + username + completed_onboarding first (these
+      //    columns have been in the schema since day one).
+      // 2) Then attempt to add optional fields (age/weight/gender/etc.)
+      //    individually — each one is additive, so a failure on one column
+      //    doesn't wipe out the ones that already saved.
       let saveError = null
 
-      const { error: err1 } = await supabase
+      const { error: baseErr } = await supabase
         .from('profiles')
-        .upsert({ id: user.id, ...fullUpdates }, { onConflict: 'id' })
+        .upsert({
+          id: user.id,
+          username: formData.name || null,
+          completed_onboarding: true,
+          challenge_start_date: new Date().toISOString(),
+        }, { onConflict: 'id' })
 
-      if (err1) {
-        // Full upsert failed (probably missing columns). Try minimal set.
+      if (baseErr) {
+        // Retry without challenge_start_date in case column is missing.
         const { error: err2 } = await supabase
           .from('profiles')
           .upsert({
             id: user.id,
             username: formData.name || null,
             completed_onboarding: true,
-            challenge_start_date: new Date().toISOString(),
           }, { onConflict: 'id' })
 
         if (err2) {
-          // Last resort — just mark onboarding complete so the user can proceed.
-          const { error: err3 } = await supabase
-            .from('profiles')
-            .upsert({ id: user.id, completed_onboarding: true }, { onConflict: 'id' })
+          console.error('[Arctivate] onboarding base save failed:', err2)
+          saveError = err2
+        }
+      }
 
-          saveError = err3
+      // Optional demographic fields — try each, ignore individual failures.
+      if (!saveError) {
+        const optional = {
+          age: parseInt(formData.age) || null,
+          weight: parseFloat(formData.weight) || null,
+          gender: formData.gender || null,
+          fitness_level: formData.fitness_level || null,
+          goal: formData.goal || null,
+        }
+        const { error: optErr } = await supabase
+          .from('profiles')
+          .update(optional)
+          .eq('id', user.id)
+        if (optErr) {
+          // Schema may not have these columns yet — not fatal.
+          console.warn('[Arctivate] onboarding optional fields skipped:', optErr.message)
         }
       }
 
