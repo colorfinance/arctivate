@@ -1,11 +1,14 @@
 -- Arctivate moderation layer (Apple UGC guideline 1.2)
 -- Adds: user blocking, content reporting, soft-hide for offending posts,
 -- and RPCs callable from the client under RLS.
+--
+-- Foreign keys point at auth.users (always present on Supabase) so this
+-- migration runs on projects where public.profiles hasn't been created yet.
 
 -- 1. User blocks -------------------------------------------------------------
 create table if not exists public.user_blocks (
-  blocker_id uuid references public.profiles(id) on delete cascade not null,
-  blocked_id uuid references public.profiles(id) on delete cascade not null,
+  blocker_id uuid references auth.users(id) on delete cascade not null,
+  blocked_id uuid references auth.users(id) on delete cascade not null,
   created_at timestamptz default now() not null,
   primary key (blocker_id, blocked_id),
   check (blocker_id <> blocked_id)
@@ -31,7 +34,7 @@ create policy user_blocks_delete_own on public.user_blocks
 -- 2. Content reports ---------------------------------------------------------
 create table if not exists public.content_reports (
   id uuid default gen_random_uuid() primary key,
-  reporter_id uuid references public.profiles(id) on delete set null,
+  reporter_id uuid references auth.users(id) on delete set null,
   content_type text not null check (content_type in ('feed', 'message', 'user', 'dm')),
   content_id uuid not null,
   reason text,
@@ -55,11 +58,19 @@ create policy content_reports_select_own on public.content_reports
   for select using (auth.uid() = reporter_id);
 
 -- 3. Soft-hide columns -------------------------------------------------------
-alter table public.public_feed
-  add column if not exists hidden_at timestamptz;
-
-alter table public.community_messages
-  add column if not exists hidden_at timestamptz;
+-- Guarded so the migration still succeeds on projects that haven't created
+-- the public_feed / community_messages tables yet.
+do $$
+begin
+  if exists (select 1 from information_schema.tables
+             where table_schema = 'public' and table_name = 'public_feed') then
+    execute 'alter table public.public_feed add column if not exists hidden_at timestamptz';
+  end if;
+  if exists (select 1 from information_schema.tables
+             where table_schema = 'public' and table_name = 'community_messages') then
+    execute 'alter table public.community_messages add column if not exists hidden_at timestamptz';
+  end if;
+end $$;
 
 -- 4. RPCs --------------------------------------------------------------------
 
@@ -135,14 +146,18 @@ begin
   insert into public.content_reports (reporter_id, content_type, content_id, reason)
     values (v_me, p_content_type, p_content_id, left(coalesce(p_reason, ''), 500));
 
-  if p_content_type = 'feed' then
-    update public.public_feed
-      set hidden_at = now()
-      where id = p_content_id and hidden_at is null;
-  elsif p_content_type = 'message' then
-    update public.community_messages
-      set hidden_at = now()
-      where id = p_content_id and hidden_at is null;
+  if p_content_type = 'feed'
+     and exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'public_feed'
+                   and column_name = 'hidden_at') then
+    execute 'update public.public_feed set hidden_at = now() where id = $1 and hidden_at is null'
+      using p_content_id;
+  elsif p_content_type = 'message'
+     and exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'community_messages'
+                   and column_name = 'hidden_at') then
+    execute 'update public.community_messages set hidden_at = now() where id = $1 and hidden_at is null'
+      using p_content_id;
   end if;
 
   return jsonb_build_object('success', true);
@@ -165,8 +180,12 @@ begin
   if v_me is null then
     return jsonb_build_object('success', false, 'error', 'not_authenticated');
   end if;
-  delete from public.public_feed
-    where id = p_post_id and user_id = v_me;
+  if not exists (select 1 from information_schema.tables
+                 where table_schema = 'public' and table_name = 'public_feed') then
+    return jsonb_build_object('success', false, 'error', 'table_missing');
+  end if;
+  execute 'delete from public.public_feed where id = $1 and user_id = $2'
+    using p_post_id, v_me;
   get diagnostics v_deleted = row_count;
   if v_deleted = 0 then
     return jsonb_build_object('success', false, 'error', 'not_found_or_not_owner');
@@ -190,8 +209,12 @@ begin
   if v_me is null then
     return jsonb_build_object('success', false, 'error', 'not_authenticated');
   end if;
-  delete from public.community_messages
-    where id = p_message_id and user_id = v_me;
+  if not exists (select 1 from information_schema.tables
+                 where table_schema = 'public' and table_name = 'community_messages') then
+    return jsonb_build_object('success', false, 'error', 'table_missing');
+  end if;
+  execute 'delete from public.community_messages where id = $1 and user_id = $2'
+    using p_message_id, v_me;
   get diagnostics v_deleted = row_count;
   if v_deleted = 0 then
     return jsonb_build_object('success', false, 'error', 'not_found_or_not_owner');
@@ -201,3 +224,4 @@ end;
 $$;
 
 grant execute on function public.delete_own_message(uuid) to authenticated;
+
