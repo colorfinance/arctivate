@@ -72,7 +72,7 @@ export default function VoiceInput({ exercises, onResult, onClose }) {
     recognition.onerror = (event) => {
       setIsListening(false)
       if (event.error === 'not-allowed') {
-        setError('Microphone access denied. Please enable it in browser settings.')
+        setError('Microphone access is needed for voice logging.')
       } else if (event.error === 'no-speech') {
         setError('No speech detected. Try again.')
       }

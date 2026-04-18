@@ -8,7 +8,7 @@ export default function Terms() {
       </Head>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '48px 24px', color: '#E8F0EF', backgroundColor: '#030808', minHeight: '100vh' }}>
         <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>Terms of Service</h1>
-        <p style={{ color: '#5E7D7D', marginBottom: 32 }}>Last updated: March 10, 2026</p>
+        <p style={{ color: '#5E7D7D', marginBottom: 32 }}>Last updated: April 18, 2026</p>
 
         <Section title="1. Acceptance">
           <p>By using Arctivate, you agree to these terms. If you do not agree, do not use the app.</p>
@@ -22,15 +22,22 @@ export default function Terms() {
           <p>You must provide a valid email address to create an account. You are responsible for maintaining the security of your account. One account per person.</p>
         </Section>
 
-        <Section title="4. Acceptable Use">
-          <p>You agree not to:</p>
+        <Section title="4. Acceptable Use & Zero Tolerance for Objectionable Content">
+          <p><strong>Arctivate has zero tolerance for objectionable content or abusive behaviour.</strong> You must be at least 17 years old to use the social features of this app. By posting to the feed, direct messages, groups, or any other user-generated surface, you agree NOT to post, send, upload, or share any of the following:</p>
           <ul>
-            <li>Use the app for any unlawful purpose</li>
-            <li>Attempt to gain unauthorized access to other accounts or our systems</li>
-            <li>Post offensive, harmful, or misleading content in the social feed or group chats</li>
-            <li>Abuse the points system through automated or fraudulent means</li>
-            <li>Reverse engineer or attempt to extract the source code of the app</li>
+            <li>Hate speech, slurs, or content that attacks people based on race, ethnicity, national origin, religion, disability, gender, gender identity, sexual orientation, age, or serious disease</li>
+            <li>Threats, harassment, bullying, stalking, or intimidation of any user</li>
+            <li>Sexually explicit content, nudity, or any sexual content involving minors</li>
+            <li>Content that promotes self-harm, suicide, eating disorders, or dangerous activities</li>
+            <li>Violent or graphic content, including content that glorifies violence</li>
+            <li>Illegal activity, promotion of illegal drugs, or sale of regulated goods</li>
+            <li>Spam, scams, phishing, or impersonation of another person</li>
+            <li>Private personal information of others (doxxing)</li>
+            <li>Copyrighted material you do not own or have permission to post</li>
           </ul>
+          <p style={{ marginTop: 12 }}><strong>Consequences.</strong> We review every report within 24 hours. Posts that violate these rules are removed immediately, and accounts that post such content may be suspended or permanently banned from the service without refund. Serious violations — including threats of violence or any sexual content involving minors — will be reported to the appropriate authorities.</p>
+          <p><strong>Your tools.</strong> You can report any post, message, or user from the feed using the &ldquo;&hellip;&rdquo; menu on that content. You can block any user to stop seeing their content and prevent them from messaging you. You can immediately delete any of your own posts from the &ldquo;&hellip;&rdquo; menu.</p>
+          <p>You also agree not to: use the app for any unlawful purpose, attempt to gain unauthorised access to other accounts or our systems, abuse the points system through automated or fraudulent means, or reverse engineer the app.</p>
         </Section>
 
         <Section title="5. Health Disclaimer">

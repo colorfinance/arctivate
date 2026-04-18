@@ -152,7 +152,7 @@ export default function VoiceMemo({ exercises, selectedExercise, onSaved, onClos
       }, 1000)
     } catch (err) {
       if (err.name === 'NotAllowedError') {
-        setError('Microphone access denied. Please enable it in browser settings.')
+        setError('Microphone access is needed to record voice memos.')
       } else if (err.name === 'NotFoundError') {
         setError('No microphone found on this device.')
       } else {

@@ -4,6 +4,7 @@ import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { checkUserContent } from '../lib/contentFilter'
 
 // Icons
 const HighFiveIcon = ({ filled }) => (
@@ -76,6 +77,32 @@ const ArrowLeftIcon = () => (
   </svg>
 )
 
+const MoreIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
+  </svg>
+)
+
+const FlagIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+    <line x1="4" y1="22" x2="4" y2="15" />
+  </svg>
+)
+
+const BlockIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+  </svg>
+)
+
+const TrashIconSm = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+)
+
 const CameraIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
@@ -101,6 +128,11 @@ export default function Feed() {
   const [composerImagePreview, setComposerImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const imageInputRef = useRef(null)
+
+  // Moderation state
+  const [blockedUsers, setBlockedUsers] = useState(new Set())
+  const [actionMenu, setActionMenu] = useState(null) // { kind: 'feed'|'message', id, userId, ownPost }
+  const [confirmAction, setConfirmAction] = useState(null) // { kind, label, onConfirm }
 
   // DM state
   const [showDMs, setShowDMs] = useState(false)
@@ -132,31 +164,60 @@ export default function Feed() {
       }
 
       setCurrentUserId(user.id)
-      await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id)])
+      const blocked = await fetchBlockedUsers(user.id)
+      await Promise.all([
+        fetchWorkoutFeed(blocked),
+        fetchCommunityMessages(blocked),
+        fetchUserLikes(user.id),
+        fetchUnreadCount(user.id),
+      ])
       setIsLoading(false)
     }
     load()
   }, [])
 
-  async function fetchWorkoutFeed() {
-    const { data } = await supabase
+  async function fetchBlockedUsers(userId) {
+    try {
+      const { data } = await supabase
+        .from('user_blocks')
+        .select('blocked_id')
+        .eq('blocker_id', userId)
+      const set = new Set((data || []).map(r => r.blocked_id))
+      setBlockedUsers(set)
+      return set
+    } catch {
+      return new Set()
+    }
+  }
+
+  async function fetchWorkoutFeed(blocked) {
+    const blockSet = blocked || blockedUsers
+    let query = supabase
       .from('public_feed')
       .select(`*, profiles:user_id (username, avatar_url)`)
       .order('created_at', { ascending: false })
       .limit(50)
-    if (data) setPosts(data)
+    // hidden_at is a new column; if missing the server ignores the filter.
+    try { query = query.is('hidden_at', null) } catch {}
+    const { data } = await query
+    if (data) {
+      setPosts(data.filter(p => !blockSet.has(p.user_id)))
+    }
   }
 
-  async function fetchCommunityMessages() {
+  async function fetchCommunityMessages(blocked) {
+    const blockSet = blocked || blockedUsers
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('community_messages')
         .select(`*, profiles:user_id (username, avatar_url)`)
         .is('group_id', null)
         .order('created_at', { ascending: false })
         .limit(50)
+      try { query = query.is('hidden_at', null) } catch {}
+      const { data, error } = await query
       if (error) return
-      if (data) setMessages(data)
+      if (data) setMessages(data.filter(m => !blockSet.has(m.user_id)))
     } catch {}
   }
 
@@ -371,8 +432,72 @@ export default function Feed() {
     return urlData?.publicUrl || null
   }
 
+  // --- Moderation actions ---
+  async function reportContent(kind, id) {
+    try {
+      const { data, error } = await supabase.rpc('report_content', {
+        p_content_type: kind,
+        p_content_id: id,
+        p_reason: null,
+      })
+      if (error) throw error
+      if (data?.success === false) throw new Error(data.error || 'report_failed')
+      if (kind === 'feed') setPosts(prev => prev.filter(p => p.id !== id))
+      else if (kind === 'message') setMessages(prev => prev.filter(m => m.id !== id))
+      showToast('Reported. Our team will review within 24 hours.')
+    } catch {
+      showToast('Could not send report. Please try again.')
+    }
+  }
+
+  async function blockUser(userId) {
+    if (!userId || userId === currentUserId) return
+    try {
+      const { data, error } = await supabase.rpc('block_user', { p_user_id: userId })
+      if (error) throw error
+      if (data?.success === false) throw new Error(data.error || 'block_failed')
+      setBlockedUsers(prev => new Set([...prev, userId]))
+      setPosts(prev => prev.filter(p => p.user_id !== userId))
+      setMessages(prev => prev.filter(m => m.user_id !== userId))
+      showToast('User blocked. You will no longer see their content.')
+    } catch {
+      showToast('Could not block user. Please try again.')
+    }
+  }
+
+  async function deleteOwnPost(kind, id) {
+    try {
+      const rpcName = kind === 'feed' ? 'delete_own_feed_post' : 'delete_own_message'
+      const param = kind === 'feed' ? 'p_post_id' : 'p_message_id'
+      const { data, error } = await supabase.rpc(rpcName, { [param]: id })
+      if (error) throw error
+      if (data?.success === false) throw new Error(data.error || 'delete_failed')
+      if (kind === 'feed') setPosts(prev => prev.filter(p => p.id !== id))
+      else setMessages(prev => prev.filter(m => m.id !== id))
+      showToast('Post deleted.')
+    } catch {
+      showToast('Could not delete. Please try again.')
+    }
+  }
+
+  function openActionMenu(kind, id, userId) {
+    setActionMenu({
+      kind,
+      id,
+      userId,
+      ownPost: userId === currentUserId,
+    })
+  }
+
   async function postMessage() {
     if ((!newMessage.trim() && !composerImage) || isPosting) return
+
+    const filter = checkUserContent(newMessage)
+    if (!filter.ok) {
+      showToast(filter.reason)
+      return
+    }
+
     setIsPosting(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -712,6 +837,13 @@ export default function Feed() {
                                 <FireIcon />PB
                               </span>
                             )}
+                            <button
+                              onClick={() => openActionMenu('feed', post.id, post.user_id)}
+                              aria-label="More options"
+                              className="p-2 -mr-1 text-arc-muted hover:text-white transition-colors"
+                            >
+                              <MoreIcon />
+                            </button>
                           </div>
 
                           <div className="p-5">
@@ -812,6 +944,13 @@ export default function Feed() {
                                   {msg.metadata?.type === 'meal' && (
                                     <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded font-bold">Meal</span>
                                   )}
+                                  <button
+                                    onClick={() => openActionMenu('message', msg.id, msg.user_id)}
+                                    aria-label="More options"
+                                    className="ml-auto p-1 -mr-1 text-arc-muted hover:text-white transition-colors"
+                                  >
+                                    <MoreIcon />
+                                  </button>
                                 </div>
                                 <p className="text-white/90 text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
 
@@ -952,6 +1091,129 @@ export default function Feed() {
                     <><SendIcon /> Post</>
                   )}
                 </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Post / Message Action Menu (Report / Block / Delete) */}
+      <AnimatePresence>
+        {actionMenu && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setActionMenu(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60]"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-4 z-[60] pb-safe"
+            >
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+              <div className="max-w-lg mx-auto">
+                {actionMenu.ownPost ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        const menu = actionMenu
+                        setActionMenu(null)
+                        setConfirmAction({
+                          title: 'Delete this post?',
+                          body: 'This cannot be undone.',
+                          confirmLabel: 'Delete',
+                          danger: true,
+                          onConfirm: () => deleteOwnPost(menu.kind, menu.id),
+                        })
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-4 rounded-xl text-red-400 hover:bg-red-500/10 transition-colors text-left"
+                    >
+                      <TrashIconSm /> <span className="font-bold">Delete post</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        const menu = actionMenu
+                        setActionMenu(null)
+                        setConfirmAction({
+                          title: 'Report this content?',
+                          body: 'Our team reviews reports within 24 hours. The post will be hidden from your feed immediately.',
+                          confirmLabel: 'Report',
+                          danger: true,
+                          onConfirm: () => reportContent(menu.kind, menu.id),
+                        })
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-4 rounded-xl text-white hover:bg-white/5 transition-colors text-left"
+                    >
+                      <FlagIcon /> <span className="font-bold">Report</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const menu = actionMenu
+                        setActionMenu(null)
+                        setConfirmAction({
+                          title: 'Block this user?',
+                          body: 'You will no longer see their posts, comments, or messages. They will not be notified.',
+                          confirmLabel: 'Block',
+                          danger: true,
+                          onConfirm: () => blockUser(menu.userId),
+                        })
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-4 rounded-xl text-white hover:bg-white/5 transition-colors text-left"
+                    >
+                      <BlockIcon /> <span className="font-bold">Block user</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setActionMenu(null)}
+                  className="w-full mt-2 bg-arc-surface text-white font-bold py-3 rounded-xl"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Confirm dialog for destructive moderation actions */}
+      <AnimatePresence>
+        {confirmAction && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setConfirmAction(null)}
+              className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[70]"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-[70] flex items-center justify-center p-6"
+            >
+              <div className="w-full max-w-sm bg-arc-card border border-white/10 rounded-2xl p-6 shadow-2xl">
+                <h3 className="text-lg font-bold text-white mb-2">{confirmAction.title}</h3>
+                <p className="text-sm text-arc-muted mb-5">{confirmAction.body}</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setConfirmAction(null)}
+                    className="flex-1 bg-arc-surface text-white font-bold py-3 rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const act = confirmAction
+                      setConfirmAction(null)
+                      await act.onConfirm?.()
+                    }}
+                    className={`flex-1 font-bold py-3 rounded-xl text-white ${confirmAction.danger ? 'bg-red-500' : 'bg-arc-accent'}`}
+                  >
+                    {confirmAction.confirmLabel}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </>

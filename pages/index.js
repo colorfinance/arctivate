@@ -13,6 +13,7 @@ export default function Auth() {
   const [message, setMessage] = useState('')
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [isSignUp, setIsSignUp] = useState(false)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -69,6 +70,12 @@ export default function Auth() {
     }
     if (!password || password.length < 6) {
       setMessage('error: Password must be at least 6 characters.')
+      setLoading(false)
+      return
+    }
+
+    if (isSignUp && !acceptedTerms) {
+      setMessage('error: Please agree to the Terms of Service and Community Rules to create an account.')
       setLoading(false)
       return
     }
@@ -191,9 +198,26 @@ export default function Auth() {
               onKeyDown={handleKeyDown}
               className="w-full bg-black/30 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition placeholder:text-arc-muted"
             />
+            {isSignUp && (
+              <label className="flex items-start gap-3 text-left text-xs text-arc-muted cursor-pointer select-none px-1 pt-1">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-arc-accent shrink-0"
+                />
+                <span>
+                  I am at least 17 years old and I agree to the{' '}
+                  <Link href="/terms" className="text-arc-accent underline">Terms of Service</Link>,{' '}
+                  <Link href="/privacy" className="text-arc-accent underline">Privacy Policy</Link>, and the
+                  zero-tolerance community rules against hate speech, harassment,
+                  and other objectionable content.
+                </span>
+              </label>
+            )}
             <button
               onClick={handleSubmit}
-              disabled={loading}
+              disabled={loading || (isSignUp && !acceptedTerms)}
               className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow active:scale-95 transition disabled:opacity-50"
             >
               {loading ? (isSignUp ? 'Creating account...' : 'Signing in...') : (isSignUp ? 'CREATE ACCOUNT' : 'SIGN IN')}
@@ -218,10 +242,12 @@ export default function Auth() {
           )}
         </div>
 
-        <div className="mt-6 flex items-center justify-center gap-4 text-xs text-arc-muted">
+        <div className="mt-6 flex items-center justify-center gap-4 text-xs text-arc-muted flex-wrap">
           <Link href="/privacy" className="hover:text-white transition underline">Privacy Policy</Link>
           <span>·</span>
           <Link href="/terms" className="hover:text-white transition underline">Terms of Service</Link>
+          <span>·</span>
+          <Link href="/support" className="hover:text-white transition underline">Support</Link>
         </div>
 
         <div className="mt-4">

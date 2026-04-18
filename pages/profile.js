@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
+import Link from 'next/link'
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -591,9 +592,18 @@ export default function Profile() {
           )}
         </motion.div>
 
+        {/* Support Links */}
+        <div className="mt-6 flex items-center justify-center gap-3 text-[11px] text-arc-muted flex-wrap">
+          <Link href="/support" className="hover:text-white transition underline">Help &amp; Support</Link>
+          <span>·</span>
+          <Link href="/terms" className="hover:text-white transition underline">Terms</Link>
+          <span>·</span>
+          <Link href="/privacy" className="hover:text-white transition underline">Privacy</Link>
+        </div>
+
         {/* App Version */}
-        <div className="text-center text-[10px] text-arc-muted/40 pb-4">
-          Arctivate v1.0.0
+        <div className="text-center text-[10px] text-arc-muted/40 pt-3 pb-4">
+          Arctivate v2.0.0
         </div>
       </main>
 
