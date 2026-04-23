@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
+import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { filterContent } from '../lib/contentFilter'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 
@@ -112,6 +114,12 @@ export default function Feed() {
   const [unreadCount, setUnreadCount] = useState(0)
   const dmScrollRef = useRef(null)
 
+  // Safety: blocked users + moderation
+  const [blockedUsers, setBlockedUsers] = useState(new Set())
+  const [showReportModal, setShowReportModal] = useState(null)
+  const [reportReason, setReportReason] = useState('inappropriate')
+  const [reportSubmitting, setReportSubmitting] = useState(false)
+
   const showToast = (msg) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
@@ -132,11 +140,51 @@ export default function Feed() {
       }
 
       setCurrentUserId(user.id)
-      await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id)])
+      await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id), fetchBlockedUsers(user.id)])
       setIsLoading(false)
     }
     load()
   }, [])
+
+  async function fetchBlockedUsers(userId) {
+    try {
+      const { data } = await supabase.from('blocked_users').select('blocked_id').eq('user_id', userId)
+      if (data) setBlockedUsers(new Set(data.map(b => b.blocked_id)))
+    } catch {}
+  }
+
+  async function blockUser(blockedId) {
+    if (!currentUserId || blockedId === currentUserId) return
+    try {
+      await supabase.from('blocked_users').insert({ user_id: currentUserId, blocked_id: blockedId })
+      setBlockedUsers(prev => new Set([...prev, blockedId]))
+      showToast('User blocked')
+    } catch { showToast('Could not block user') }
+  }
+
+  async function reportContent(contentType, contentId) {
+    setReportSubmitting(true)
+    try {
+      await supabase.from('content_reports').insert({
+        reporter_id: currentUserId,
+        content_type: contentType,
+        content_id: contentId,
+        reason: reportReason,
+      })
+      showToast('Reported — we will review this content')
+      setShowReportModal(null)
+    } catch { showToast('Could not submit report') }
+    finally { setReportSubmitting(false) }
+  }
+
+  async function deleteOwnPost(postId, type) {
+    const table = type === 'feed' ? 'public_feed' : 'community_messages'
+    const { error } = await supabase.from(table).delete().eq('id', postId).eq('user_id', currentUserId)
+    if (error) { showToast('Could not delete'); return }
+    if (type === 'feed') setPosts(prev => prev.filter(p => p.id !== postId))
+    else setMessages(prev => prev.filter(m => m.id !== postId))
+    showToast('Post deleted')
+  }
 
   async function fetchWorkoutFeed() {
     const { data } = await supabase
@@ -373,6 +421,15 @@ export default function Feed() {
 
   async function postMessage() {
     if ((!newMessage.trim() && !composerImage) || isPosting) return
+
+    if (newMessage.trim()) {
+      const { clean } = filterContent(newMessage)
+      if (!clean) {
+        showToast('Your message contains inappropriate content. Please revise.')
+        return
+      }
+    }
+
     setIsPosting(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -682,10 +739,11 @@ export default function Feed() {
                   </div>
                 ) : (
                   <AnimatePresence initial={false}>
-                    {posts.map((post, index) => {
+                    {posts.filter(p => !blockedUsers.has(p.user_id)).map((post, index) => {
                       const workout = post.workout_data
                       const hasHighFived = userLikes.has(`workout:${post.id}`)
                       const isOwnPost = post.user_id === currentUserId
+                      const displayName = post.profiles?.username || 'User'
                       const shareText = `Just logged ${workout.exercise_name}: ${workout.value}${getUnit(workout.metric_type)}${workout.is_new_pb ? ' - NEW PB!' : ''} on Arctivate!`
 
                       return (
@@ -701,10 +759,10 @@ export default function Feed() {
                               disabled={isOwnPost}
                               className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold disabled:cursor-default"
                             >
-                              {post.profiles?.username?.[0]?.toUpperCase() || '?'}
+                              {displayName[0]?.toUpperCase() || '?'}
                             </button>
                             <div className="flex-1">
-                              <span className="font-bold text-sm text-white">{post.profiles?.username || 'Anonymous'}</span>
+                              <span className="font-bold text-sm text-white">{displayName}</span>
                               <span className="block text-[11px] text-arc-muted">{formatTimeAgo(post.created_at)}</span>
                             </div>
                             {workout.is_new_pb && (
@@ -753,12 +811,21 @@ export default function Feed() {
                               )}
                             </div>
                             <div className="flex gap-2">
-                              <button onClick={() => shareToTwitter(shareText)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-white transition-colors">
-                                <TwitterIcon />
-                              </button>
-                              <button onClick={() => shareToFacebook(shareText)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-white transition-colors">
-                                <FacebookIcon />
-                              </button>
+                              {isOwnPost && (
+                                <button onClick={() => deleteOwnPost(post.id, 'feed')} className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
+                                  Delete
+                                </button>
+                              )}
+                              {!isOwnPost && (
+                                <>
+                                  <button onClick={() => setShowReportModal({ type: 'feed_post', id: post.id })} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
+                                    Report
+                                  </button>
+                                  <button onClick={() => blockUser(post.user_id)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
+                                    Block
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </motion.div>
@@ -785,9 +852,10 @@ export default function Feed() {
                   </div>
                 ) : (
                   <AnimatePresence initial={false}>
-                    {messages.map((msg, index) => {
+                    {messages.filter(m => !blockedUsers.has(m.user_id)).map((msg, index) => {
                       const hasLiked = userLikes.has(`message:${msg.id}`)
                       const isOwnMessage = msg.user_id === currentUserId
+                      const msgDisplayName = msg.profiles?.username || 'User'
 
                       return (
                         <motion.div key={msg.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
@@ -803,11 +871,11 @@ export default function Feed() {
                                 disabled={isOwnMessage}
                                 className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold shrink-0 disabled:cursor-default"
                               >
-                                {msg.profiles?.username?.[0]?.toUpperCase() || '?'}
+                                {msgDisplayName[0]?.toUpperCase() || '?'}
                               </button>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-bold text-sm text-white">{msg.profiles?.username || 'Anonymous'}</span>
+                                  <span className="font-bold text-sm text-white">{msgDisplayName}</span>
                                   <span className="text-[11px] text-arc-muted">{formatTimeAgo(msg.created_at)}</span>
                                   {msg.metadata?.type === 'meal' && (
                                     <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded font-bold">Meal</span>
@@ -864,9 +932,21 @@ export default function Feed() {
                               )}
                             </div>
                             <div className="flex gap-2">
-                              <button onClick={() => shareToTwitter(msg.content)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-white transition-colors">
-                                <TwitterIcon />
-                              </button>
+                              {isOwnMessage && (
+                                <button onClick={() => deleteOwnPost(msg.id, 'message')} className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
+                                  Delete
+                                </button>
+                              )}
+                              {!isOwnMessage && (
+                                <>
+                                  <button onClick={() => setShowReportModal({ type: 'community_message', id: msg.id })} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
+                                    Report
+                                  </button>
+                                  <button onClick={() => blockUser(msg.user_id)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
+                                    Block
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </motion.div>
@@ -951,6 +1031,39 @@ export default function Feed() {
                   ) : (
                     <><SendIcon /> Post</>
                   )}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Report Modal */}
+      <AnimatePresence>
+        {showReportModal && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowReportModal(null)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
+              <h2 className="text-xl font-black italic tracking-tighter text-center mb-4">REPORT CONTENT</h2>
+              <p className="text-arc-muted text-sm text-center mb-6">This will be reviewed by our moderation team.</p>
+              <div className="space-y-2 mb-6">
+                {[
+                  { value: 'spam', label: 'Spam' },
+                  { value: 'harassment', label: 'Harassment or bullying' },
+                  { value: 'hate_speech', label: 'Hate speech' },
+                  { value: 'inappropriate', label: 'Inappropriate content' },
+                  { value: 'other', label: 'Other' },
+                ].map(opt => (
+                  <button key={opt.value} onClick={() => setReportReason(opt.value)} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-sm transition-all ${reportReason === opt.value ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-arc-surface text-arc-muted hover:text-white border border-transparent'}`}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setShowReportModal(null)} className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl">Cancel</button>
+                <button onClick={() => reportContent(showReportModal.type, showReportModal.id)} disabled={reportSubmitting} className="flex-1 bg-red-500 text-white font-bold py-4 rounded-xl disabled:opacity-50">
+                  {reportSubmitting ? 'Reporting…' : 'Submit Report'}
                 </button>
               </div>
             </motion.div>
