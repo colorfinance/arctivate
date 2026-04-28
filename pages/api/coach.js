@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const systemPrompt = `You are an expert AI fitness coach for the Arctivate fitness app. Your name is "Arc Coach". You are knowledgeable, motivating, and data-driven.
 
