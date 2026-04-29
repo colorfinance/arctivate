@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 export const config = {
   api: {
@@ -7,6 +7,17 @@ export const config = {
     },
   },
 };
+
+function logUpstreamError(label, error) {
+  const status = error?.status ?? error?.response?.status;
+  const body = error?.response?.data ?? error?.body ?? error?.error;
+  console.error(`${label}:`, {
+    message: error?.message,
+    status,
+    body,
+    name: error?.name,
+  });
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -26,8 +37,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No message provided' });
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const ai = new GoogleGenAI({ apiKey });
 
     const systemPrompt = `You are an expert AI fitness coach for the Arctivate fitness app. Your name is "Arc Coach". You are knowledgeable, motivating, and data-driven.
 
@@ -48,23 +58,31 @@ GUIDELINES:
 - Never provide medical advice. Recommend seeing a professional for injuries or health concerns.
 - Be encouraging but honest. If someone is stalling, tell them directly with solutions.`;
 
-    const result = await model.generateContent([systemPrompt, message]);
-    const response = result.response;
-    const text = response.text();
+    const result = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        { role: 'user', parts: [{ text: systemPrompt }, { text: message }] },
+      ],
+    });
+
+    const text = result.text;
 
     res.status(200).json({ reply: text });
   } catch (error) {
-    console.error('Coach API Error:', error.message || error);
+    logUpstreamError('Coach API Error', error);
 
-    if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('API key not valid')) {
-      return res.status(500).json({ error: 'Invalid API key. Please check your GOOGLE_API_KEY.' });
+    const msg = error?.message || '';
+    const status = error?.status ?? error?.response?.status;
+
+    if (status === 401 || status === 403 || msg.includes('API_KEY_INVALID') || msg.includes('API key not valid') || msg.includes('PERMISSION_DENIED')) {
+      return res.status(500).json({ error: 'AI service rejected the API key (403). Verify GOOGLE_API_KEY in Vercel and that the Generative Language API is enabled.' });
     }
 
-    if (error.message?.includes('quota') || error.message?.includes('RATE_LIMIT')) {
+    if (status === 429 || msg.includes('quota') || msg.includes('RATE_LIMIT')) {
       return res.status(429).json({ error: 'Rate limit reached. Please try again in a moment.' });
     }
 
-    if (error.message?.includes('SAFETY')) {
+    if (msg.includes('SAFETY')) {
       return res.status(400).json({ error: 'Message could not be processed. Please rephrase.' });
     }
 

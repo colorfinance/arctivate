@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 export const config = {
   api: {
@@ -7,6 +7,17 @@ export const config = {
     },
   },
 };
+
+function logUpstreamError(label, error) {
+  const status = error?.status ?? error?.response?.status;
+  const body = error?.response?.data ?? error?.body ?? error?.error;
+  console.error(`${label}:`, {
+    message: error?.message,
+    status,
+    body,
+    name: error?.name,
+  });
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -27,12 +38,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No image provided' });
     }
 
-    // Validate base64 image format
     if (!image.includes(',') || !image.startsWith('data:image/')) {
       return res.status(400).json({ error: 'Invalid image format' });
     }
 
-    // Extract base64 part
     const base64Data = image.split(',')[1];
     const mimeMatch = image.match(/^data:(image\/[a-z+]+);base64,/);
 
@@ -42,8 +51,7 @@ export default async function handler(req, res) {
 
     const mimeType = mimeMatch[1];
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt = `You are a nutrition expert. Identify the food in this image. Estimate the calories and macronutrients (protein, carbs, fat in grams) for the serving size shown.
 
@@ -59,30 +67,31 @@ Rules:
 - "f" is fat in grams as a whole number
 - If you cannot identify food, use: {"name": "Unknown", "desc": "Could not identify food", "cals": 0, "p": 0, "c": 0, "f": 0}`;
 
-    const imagePart = {
-      inlineData: {
-        data: base64Data,
-        mimeType: mimeType,
-      },
-    };
+    const result = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData: { data: base64Data, mimeType } },
+          ],
+        },
+      ],
+    });
 
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = result.response;
-    const text = response.text();
+    const text = result.text || '';
 
-    // Clean up potential markdown formatting
     let cleanJson = text
       .replace(/```json\s*/gi, '')
       .replace(/```\s*/g, '')
       .trim();
 
-    // Try to extract JSON if there's extra text
     const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       cleanJson = jsonMatch[0];
     }
 
-    // Parse and validate JSON
     let data;
     try {
       data = JSON.parse(cleanJson);
@@ -91,13 +100,11 @@ Rules:
       return res.status(500).json({ error: 'Failed to parse food analysis. Please try again.' });
     }
 
-    // Validate required fields
     if (!data.name || data.cals === undefined) {
       console.error('Invalid response structure:', data);
       return res.status(500).json({ error: 'Invalid food analysis response. Please try again.' });
     }
 
-    // Ensure numeric values
     data.cals = parseInt(data.cals, 10) || 0;
     data.p = parseInt(data.p, 10) || 0;
     data.c = parseInt(data.c, 10) || 0;
@@ -105,21 +112,24 @@ Rules:
 
     res.status(200).json(data);
   } catch (error) {
-    console.error('Gemini API Error:', error.message || error);
+    logUpstreamError('Gemini API Error', error);
 
-    if (error.message?.includes('API_KEY_INVALID') || error.message?.includes('API key not valid')) {
-      return res.status(500).json({ error: 'Invalid API key. Please check your GOOGLE_API_KEY.' });
+    const msg = error?.message || '';
+    const status = error?.status ?? error?.response?.status;
+
+    if (status === 401 || status === 403 || msg.includes('API_KEY_INVALID') || msg.includes('API key not valid') || msg.includes('PERMISSION_DENIED')) {
+      return res.status(500).json({ error: 'AI service rejected the API key (403). Verify GOOGLE_API_KEY in Vercel and that the Generative Language API is enabled.' });
     }
 
-    if (error.message?.includes('quota') || error.message?.includes('RATE_LIMIT')) {
+    if (status === 429 || msg.includes('quota') || msg.includes('RATE_LIMIT')) {
       return res.status(429).json({ error: 'API rate limit reached. Please try again in a moment.' });
     }
 
-    if (error.message?.includes('not found') || error.message?.includes('404')) {
+    if (status === 404 || msg.includes('not found')) {
       return res.status(500).json({ error: 'Gemini model not available. Please try again.' });
     }
 
-    if (error.message?.includes('SAFETY')) {
+    if (msg.includes('SAFETY')) {
       return res.status(400).json({ error: 'Image could not be processed. Please try a different photo.' });
     }
 

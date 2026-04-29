@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 export const config = {
   api: {
@@ -7,6 +7,17 @@ export const config = {
     },
   },
 };
+
+function logUpstreamError(label, error) {
+  const status = error?.status ?? error?.response?.status;
+  const body = error?.response?.data ?? error?.body ?? error?.error;
+  console.error(`${label}:`, {
+    message: error?.message,
+    status,
+    body,
+    name: error?.name,
+  });
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -26,17 +37,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No transcript or audio provided' });
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const ai = new GoogleGenAI({ apiKey });
 
     let spokenText = transcript;
 
     if (audio) {
-      const transcribeResult = await model.generateContent([
-        { text: 'Transcribe this audio to text. Return ONLY the transcription, no commentary.' },
-        { inlineData: { data: audio, mimeType: mimeType || 'audio/webm' } },
-      ]);
-      spokenText = transcribeResult.response.text().trim();
+      const transcribeResult = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'Transcribe this audio to text. Return ONLY the transcription, no commentary.' },
+              { inlineData: { data: audio, mimeType: mimeType || 'audio/webm' } },
+            ],
+          },
+        ],
+      });
+      spokenText = (transcribeResult.text || '').trim();
     }
 
     if (!spokenText) {
@@ -76,11 +94,12 @@ Fields:
 - "matched": true if exercise matched user's list, false if new
 - "notes": Any additional context or parsing notes`;
 
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = response.text();
+    const result = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    const text = result.text || '';
 
-    // Clean and parse JSON
     let cleanJson = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -91,10 +110,10 @@ Fields:
     try {
       data = JSON.parse(cleanJson);
     } catch (parseError) {
+      console.error('Voice workout JSON parse error:', parseError.message, 'Raw text:', text);
       return res.status(500).json({ error: 'Could not parse voice command. Please try again.' });
     }
 
-    // Validate and sanitize
     data.weight = data.weight ? parseFloat(data.weight) : null;
     data.reps = data.reps ? parseInt(data.reps, 10) : null;
     data.sets = data.sets ? parseInt(data.sets, 10) : null;
@@ -104,7 +123,16 @@ Fields:
 
     res.status(200).json(data);
   } catch (error) {
-    if (error.message?.includes('quota') || error.message?.includes('RATE_LIMIT')) {
+    logUpstreamError('Voice workout API Error', error);
+
+    const msg = error?.message || '';
+    const status = error?.status ?? error?.response?.status;
+
+    if (status === 401 || status === 403 || msg.includes('API_KEY_INVALID') || msg.includes('PERMISSION_DENIED')) {
+      return res.status(500).json({ error: 'AI service rejected the API key (403). Verify GOOGLE_API_KEY in Vercel and that the Generative Language API is enabled.' });
+    }
+
+    if (status === 429 || msg.includes('quota') || msg.includes('RATE_LIMIT')) {
       return res.status(429).json({ error: 'Rate limit reached. Please try again.' });
     }
 
