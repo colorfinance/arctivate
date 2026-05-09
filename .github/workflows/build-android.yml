@@ -23,6 +23,9 @@ jobs:
       - name: Build web assets
         run: npm run build
 
+      - name: Build offline shell
+        run: node scripts/build-offline-shell.js
+
       - name: Sync Capacitor
         run: npx cap sync android
 
