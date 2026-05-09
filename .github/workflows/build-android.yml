@@ -52,7 +52,7 @@ jobs:
           cat >> android/gradle.properties <<EOF
           ARCTIVATE_UPLOAD_STORE_FILE=arctivate-upload-key.jks
           ARCTIVATE_UPLOAD_STORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ARCTIVATE_UPLOAD_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}
+          ARCTIVATE_UPLOAD_KEY_ALIAS=arctivate-upload
           ARCTIVATE_UPLOAD_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
           EOF
 
