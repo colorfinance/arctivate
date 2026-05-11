@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1024px;height:1024px;background:#000;overflow:hidden}
+.bg{
+  width:1024px;height:1024px;
+  background:
+    radial-gradient(circle at 70% 25%, rgba(94, 234, 212, 0.18) 0%, rgba(94, 234, 212, 0.06) 25%, transparent 50%),
+    radial-gradient(circle at 30% 80%, rgba(0, 212, 170, 0.08) 0%, transparent 60%),
+    linear-gradient(140deg, #0a2528 0%, #051618 35%, #020a0c 80%, #010608 100%);
+  position:relative;
+}
+svg{position:absolute;top:0;left:0;width:100%;height:100%}
+</style>
+</head><body>
+<div class="bg">
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bolt" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#7FF5DF"/>
+      <stop offset="50%" stop-color="#5EEAD4"/>
+      <stop offset="100%" stop-color="#2DD4BF"/>
+    </linearGradient>
+    <radialGradient id="boltGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(94, 234, 212, 0.6)"/>
+      <stop offset="40%" stop-color="rgba(94, 234, 212, 0.2)"/>
+      <stop offset="100%" stop-color="rgba(94, 234, 212, 0)"/>
+    </radialGradient>
+    <radialGradient id="dotGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(255, 255, 255, 0.9)"/>
+      <stop offset="30%" stop-color="rgba(220, 250, 245, 0.5)"/>
+      <stop offset="100%" stop-color="rgba(94, 234, 212, 0)"/>
+    </radialGradient>
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- ambient bolt glow behind -->
+  <ellipse cx="512" cy="540" rx="280" ry="340" fill="url(#boltGlow)"/>
+
+  <!-- Lightning bolt: classic zig-zag, rounded -->
+  <g filter="url(#softGlow)">
+    <path d="M 560 230
+             L 380 540
+             L 500 540
+             L 440 800
+             L 660 470
+             L 540 470
+             L 600 230 Z"
+          fill="url(#bolt)"
+          stroke="rgba(255,255,255,0.15)" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+
+  <!-- flare arc trail leading into the dot -->
+  <path d="M 660 280 Q 730 240 770 280"
+        fill="none"
+        stroke="rgba(220, 250, 245, 0.55)"
+        stroke-width="4"
+        stroke-linecap="round"/>
+  <path d="M 690 268 Q 740 245 770 275"
+        fill="none"
+        stroke="rgba(255, 255, 255, 0.35)"
+        stroke-width="2"
+        stroke-linecap="round"/>
+
+  <!-- flare dot glow halo -->
+  <circle cx="780" cy="278" r="48" fill="url(#dotGlow)"/>
+  <!-- flare dot core -->
+  <circle cx="780" cy="278" r="18" fill="#FFFFFF"/>
+  <circle cx="780" cy="278" r="11" fill="#FFFFFF" opacity="0.95"/>
+</svg>
+</div>
+</body></html>
