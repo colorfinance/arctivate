@@ -6,7 +6,7 @@ html,body{width:1024px;height:1024px;background:#000;overflow:hidden}
 .bg{
   width:1024px;height:1024px;
   background:
-    radial-gradient(circle at 70% 25%, rgba(94, 234, 212, 0.18) 0%, rgba(94, 234, 212, 0.06) 25%, transparent 50%),
+    radial-gradient(circle at 70% 25%, rgba(94, 234, 212, 0.22) 0%, rgba(94, 234, 212, 0.06) 28%, transparent 55%),
     radial-gradient(circle at 30% 80%, rgba(0, 212, 170, 0.08) 0%, transparent 60%),
     linear-gradient(140deg, #0a2528 0%, #051618 35%, #020a0c 80%, #010608 100%);
   position:relative;
@@ -22,16 +22,62 @@ svg{position:absolute;top:0;left:0;width:100%;height:100%}
       <stop offset="50%" stop-color="#5EEAD4"/>
       <stop offset="100%" stop-color="#2DD4BF"/>
     </linearGradient>
+
     <radialGradient id="boltGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="rgba(94, 234, 212, 0.6)"/>
-      <stop offset="40%" stop-color="rgba(94, 234, 212, 0.2)"/>
+      <stop offset="0%" stop-color="rgba(94, 234, 212, 0.55)"/>
+      <stop offset="40%" stop-color="rgba(94, 234, 212, 0.18)"/>
       <stop offset="100%" stop-color="rgba(94, 234, 212, 0)"/>
     </radialGradient>
-    <radialGradient id="dotGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="rgba(255, 255, 255, 0.9)"/>
-      <stop offset="30%" stop-color="rgba(220, 250, 245, 0.5)"/>
+
+    <!-- Lens flare halo: large soft glow -->
+    <radialGradient id="flareHalo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(255, 255, 255, 0.85)"/>
+      <stop offset="15%" stop-color="rgba(220, 250, 245, 0.45)"/>
+      <stop offset="45%" stop-color="rgba(94, 234, 212, 0.15)"/>
       <stop offset="100%" stop-color="rgba(94, 234, 212, 0)"/>
     </radialGradient>
+
+    <!-- Hot core -->
+    <radialGradient id="flareCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="40%" stop-color="rgba(255, 255, 255, 0.95)"/>
+      <stop offset="100%" stop-color="rgba(255, 255, 255, 0)"/>
+    </radialGradient>
+
+    <!-- Horizontal anamorphic streak -->
+    <linearGradient id="anamorph" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="rgba(150, 220, 245, 0)"/>
+      <stop offset="35%" stop-color="rgba(180, 230, 250, 0.5)"/>
+      <stop offset="50%" stop-color="rgba(220, 245, 255, 0.85)"/>
+      <stop offset="65%" stop-color="rgba(180, 230, 250, 0.5)"/>
+      <stop offset="100%" stop-color="rgba(150, 220, 245, 0)"/>
+    </linearGradient>
+
+    <!-- Vertical cross spike -->
+    <linearGradient id="vSpike" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255, 255, 255, 0)"/>
+      <stop offset="50%" stop-color="rgba(255, 255, 255, 0.65)"/>
+      <stop offset="100%" stop-color="rgba(255, 255, 255, 0)"/>
+    </linearGradient>
+
+    <!-- Diagonal spike -->
+    <linearGradient id="dSpike" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="rgba(180, 230, 250, 0)"/>
+      <stop offset="50%" stop-color="rgba(255, 255, 255, 0.45)"/>
+      <stop offset="100%" stop-color="rgba(180, 230, 250, 0)"/>
+    </linearGradient>
+
+    <radialGradient id="ghost1" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(125, 230, 235, 0.35)"/>
+      <stop offset="60%" stop-color="rgba(94, 234, 212, 0.15)"/>
+      <stop offset="100%" stop-color="rgba(94, 234, 212, 0)"/>
+    </radialGradient>
+
+    <radialGradient id="ghost2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(255, 220, 180, 0.28)"/>
+      <stop offset="100%" stop-color="rgba(255, 220, 180, 0)"/>
+    </radialGradient>
+
     <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
       <feGaussianBlur stdDeviation="14" result="blur"/>
       <feMerge>
@@ -41,10 +87,10 @@ svg{position:absolute;top:0;left:0;width:100%;height:100%}
     </filter>
   </defs>
 
-  <!-- ambient bolt glow behind -->
+  <!-- Ambient bolt glow behind -->
   <ellipse cx="512" cy="540" rx="280" ry="340" fill="url(#boltGlow)"/>
 
-  <!-- Lightning bolt: classic zig-zag, rounded -->
+  <!-- Lightning bolt -->
   <g filter="url(#softGlow)">
     <path d="M 560 230
              L 380 540
@@ -57,23 +103,28 @@ svg{position:absolute;top:0;left:0;width:100%;height:100%}
           stroke="rgba(255,255,255,0.15)" stroke-width="3" stroke-linejoin="round"/>
   </g>
 
-  <!-- flare arc trail leading into the dot -->
-  <path d="M 660 280 Q 730 240 770 280"
-        fill="none"
-        stroke="rgba(220, 250, 245, 0.55)"
-        stroke-width="4"
-        stroke-linecap="round"/>
-  <path d="M 690 268 Q 740 245 770 275"
-        fill="none"
-        stroke="rgba(255, 255, 255, 0.35)"
-        stroke-width="2"
-        stroke-linecap="round"/>
+  <!-- LENS FLARE at upper-right of bolt tip -->
+  <!-- Subtle ghost orbs along the flare axis (diagonal from flare center) -->
+  <circle cx="600" cy="370" r="34" fill="url(#ghost2)"/>
+  <circle cx="660" cy="330" r="22" fill="url(#ghost1)"/>
+  <circle cx="860" cy="200" r="30" fill="url(#ghost1)"/>
+  <circle cx="920" cy="150" r="18" fill="url(#ghost2)"/>
 
-  <!-- flare dot glow halo -->
-  <circle cx="780" cy="278" r="48" fill="url(#dotGlow)"/>
-  <!-- flare dot core -->
-  <circle cx="780" cy="278" r="18" fill="#FFFFFF"/>
-  <circle cx="780" cy="278" r="11" fill="#FFFFFF" opacity="0.95"/>
+  <!-- Horizontal anamorphic streak -->
+  <rect x="500" y="265" width="600" height="14" fill="url(#anamorph)" rx="7"/>
+  <rect x="540" y="270" width="500" height="4" fill="rgba(255,255,255,0.85)" rx="2"/>
+
+  <!-- Large soft halo -->
+  <circle cx="780" cy="272" r="140" fill="url(#flareHalo)"/>
+
+  <!-- Cross / star spikes -->
+  <rect x="775" y="140" width="10" height="265" fill="url(#vSpike)" rx="5"/>
+  <rect x="640" y="267" width="280" height="10" fill="url(#dSpike)" rx="5"/>
+
+  <!-- Hot center -->
+  <circle cx="780" cy="272" r="55" fill="url(#flareCore)"/>
+  <circle cx="780" cy="272" r="22" fill="#FFFFFF"/>
+  <circle cx="780" cy="272" r="11" fill="#FFFFFF"/>
 </svg>
 </div>
 </body></html>
