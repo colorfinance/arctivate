@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+html,body{width:100%;height:100%;background:#030808;font-family:'Inter',-apple-system,sans-serif;overflow:hidden;color:#E8F0EF}
+.fg{
+  width:1024px;height:500px;
+  background:
+    radial-gradient(ellipse at 75% 50%, rgba(0,212,170,0.30) 0%, rgba(0,212,170,0.05) 35%, transparent 60%),
+    radial-gradient(ellipse at 10% 100%, rgba(255,179,65,0.15) 0%, transparent 40%),
+    linear-gradient(135deg, #051818 0%, #030808 60%, #020404 100%);
+  display:flex;align-items:center;justify-content:space-between;padding:0 70px;position:relative;overflow:hidden;
+}
+.fg::before{
+  content:'';position:absolute;inset:0;
+  background-image:
+    radial-gradient(circle at 20% 20%, rgba(0,212,170,0.08) 1px, transparent 1.5px),
+    radial-gradient(circle at 80% 80%, rgba(0,212,170,0.05) 1px, transparent 1.5px);
+  background-size:40px 40px, 60px 60px;
+}
+.text{position:relative;z-index:2;max-width:560px}
+.eyebrow{font-size:14px;font-weight:700;color:#00D4AA;letter-spacing:0.35em;margin-bottom:18px;text-transform:uppercase}
+.title{font-size:64px;font-weight:900;line-height:1.0;letter-spacing:-0.03em;margin-bottom:18px}
+.title .accent{color:#00D4AA;display:block}
+.tag{font-size:21px;color:#94B3B3;font-weight:500;line-height:1.45;margin-bottom:28px;max-width:480px}
+.chips{display:flex;gap:10px;flex-wrap:wrap}
+.chip{background:rgba(0,212,170,0.12);color:#00D4AA;border:1px solid rgba(0,212,170,0.35);padding:8px 16px;border-radius:100px;font-size:13px;font-weight:600}
+.right{position:relative;width:340px;height:440px;z-index:2}
+.phone{
+  position:absolute;top:0;right:0;width:240px;height:440px;
+  background:linear-gradient(180deg,#0a1414,#050b0b);
+  border-radius:34px;border:3px solid #1a2a2a;
+  box-shadow:0 0 0 1.5px #000, 0 25px 60px -10px rgba(0,212,170,0.4), 0 15px 30px -5px rgba(0,0,0,0.8);
+  padding:18px 14px;display:flex;flex-direction:column;gap:10px;overflow:hidden;
+}
+.notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:90px;height:8px;background:#000;border-radius:0 0 10px 10px}
+.ph-head{display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:0 4px}
+.ph-title{font-size:14px;font-weight:700}
+.ph-pts{background:linear-gradient(135deg,#00D4AA,#00B894);color:#001a14;padding:3px 9px;border-radius:100px;font-size:10px;font-weight:700}
+.ph-card{background:#0f1c1c;border:1px solid #1f3535;border-radius:12px;padding:11px}
+.ph-card-title{font-size:11px;font-weight:600}
+.ph-card-meta{font-size:9px;color:#94B3B3;margin-top:2px}
+.ph-pill{display:inline-block;background:linear-gradient(135deg,#FFB341,#FF8C42);color:#1a0a00;padding:2px 7px;border-radius:100px;font-size:8px;font-weight:700;margin-top:6px}
+.ph-bar{height:4px;background:#1f3535;border-radius:100px;margin-top:6px;overflow:hidden}
+.ph-bar::after{content:'';display:block;width:75%;height:100%;background:linear-gradient(90deg,#00D4AA,#00B894);border-radius:100px}
+.streak{text-align:center;padding:8px 0}
+.streak-num{font-size:28px;font-weight:800;color:#FFB341;line-height:1}
+.streak-lbl{font-size:9px;color:#94B3B3;margin-top:2px}
+.phone.back{
+  width:200px;height:380px;top:30px;right:230px;
+  transform:rotate(-8deg);
+  opacity:0.55;
+  filter:blur(0.5px);
+}
+</style>
+</head><body>
+<div class="fg">
+  <div class="text">
+    <div class="eyebrow">FITNESS · REIMAGINED</div>
+    <h1 class="title">Show up.<span class="accent">Earn rewards.</span></h1>
+    <p class="tag">Gamify your training with points, streaks, AI coaching, and real rewards from partner brands.</p>
+    <div class="chips">
+      <span class="chip">Workouts</span>
+      <span class="chip">Habits</span>
+      <span class="chip">Food Scan</span>
+      <span class="chip">AI Coach</span>
+      <span class="chip">Rewards</span>
+    </div>
+  </div>
+  <div class="right">
+    <div class="phone back">
+      <div class="notch"></div>
+      <div class="ph-head" style="margin-top:8px"><div class="ph-title">Today</div><div class="ph-pts">⚡ 1,240</div></div>
+      <div class="ph-card streak">
+        <div style="font-size:18px">🔥</div>
+        <div class="streak-num">47</div>
+        <div class="streak-lbl">DAY STREAK</div>
+      </div>
+      <div class="ph-card"><div class="ph-card-title">Drink 3L water</div><div class="ph-bar"></div></div>
+      <div class="ph-card"><div class="ph-card-title">10k steps</div><div class="ph-bar"></div></div>
+    </div>
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="ph-head"><div class="ph-title">Push Day</div><div class="ph-pts">⚡ 1,240</div></div>
+      <div class="ph-card">
+        <div class="ph-card-title">Bench Press</div>
+        <div class="ph-card-meta">4 sets · Top set 92.5kg</div>
+        <span class="ph-pill">NEW PB</span>
+      </div>
+      <div class="ph-card">
+        <div class="ph-card-title">Incline DB Press</div>
+        <div class="ph-card-meta">3 sets · 28kg · +45 pts</div>
+      </div>
+      <div class="ph-card">
+        <div class="ph-card-title">Tricep Pushdown</div>
+        <div class="ph-card-meta">3 sets · 35kg · +30 pts</div>
+      </div>
+      <div class="ph-card streak">
+        <div class="streak-num" style="font-size:22px">+135</div>
+        <div class="streak-lbl">POINTS EARNED</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>
