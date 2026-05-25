@@ -1,7 +1,10 @@
 name: Build Android AAB
 
 on:
-  workflow_dispatch: # Manual trigger only — needs signing keys for release builds
+  push:
+    branches:
+      - claude/test-arctivate-android-tUeaz
+  workflow_dispatch: # Manual trigger also available
 
 jobs:
   build:
@@ -20,17 +23,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build web assets
-        run: npm run build
-
-      - name: Sync Capacitor
-        run: npx cap sync android
+      - name: Build web assets and sync Capacitor
+        run: npm run build:android
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3

@@ -22,7 +22,6 @@ android/app/build/
 android/build/
 android/captures/
 android/local.properties
-android/gradle.properties
 *.jks
 *.keystore
 *.aab
