@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Arctivate — Brand Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Montserrat:ital,wght@0,500;0,600;0,700;0,900;1,900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #070E14;
+    --ink-2: #0a141d;
+    --paper: #f6f4ef;
+    --paper-2: #ede9df;
+    --muted: #6B7785;
+    --muted-dark: #8896a6;
+    --copy: #c4ccd6;
+    --line-dark: rgba(255,255,255,0.08);
+    --teal-light: #5EE7D6;
+    --teal: #15B8AE;
+    --teal-deep: #0E8F88;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--ink); color: var(--paper); font-family: 'Montserrat', system-ui, sans-serif; -webkit-font-smoothing: antialiased; line-height: 1.5; }
+  a { color: inherit; }
+
+  /* ============ HERO ============ */
+  .hero {
+    position: relative; overflow: hidden;
+    padding: 80px 64px 96px;
+    border-bottom: 1px solid var(--line-dark);
+    isolation: isolate;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(60% 50% at 78% 30%, rgba(94,231,214,0.16), transparent 60%),
+      radial-gradient(40% 40% at 20% 90%, rgba(14,143,136,0.18), transparent 60%);
+  }
+  .hero-bolt {
+    position: absolute; right: -120px; top: -100px;
+    width: 720px; height: 920px;
+    transform: rotate(-4deg); opacity: 0.95;
+    z-index: 1; pointer-events: none;
+  }
+  .hero-bolt svg { width: 100%; height: 100%; display: block; }
+
+  .strip {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2.5px;
+    text-transform: uppercase; color: var(--muted-dark); font-weight: 500;
+    margin-bottom: 64px; position: relative; z-index: 3;
+  }
+  .strip .l, .strip .r { display: flex; gap: 18px; align-items: center; white-space: nowrap; }
+  .strip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal-light); display: inline-block; margin-right: 10px; box-shadow: 0 0 0 4px rgba(94,231,214,0.18); }
+  .strip .sep { color: rgba(136,150,166,0.4); }
+
+  h1 {
+    position: relative; z-index: 3;
+    font-weight: 900; font-style: italic; letter-spacing: -3px; line-height: 0.88;
+    font-size: clamp(64px, 10vw, 144px); margin: 0;
+    max-width: 900px;
+  }
+  h1 .g {
+    background: linear-gradient(120deg, var(--teal-light) 0%, var(--teal) 55%, var(--teal-deep) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede {
+    position: relative; z-index: 3;
+    font-family: 'JetBrains Mono', monospace; font-size: 18px; color: var(--copy);
+    margin-top: 32px; max-width: 620px; letter-spacing: 0.5px; line-height: 1.5;
+  }
+
+  /* ============ NAV PILLS ============ */
+  .pills {
+    position: relative; z-index: 3;
+    display: flex; gap: 10px; flex-wrap: wrap; margin-top: 40px;
+  }
+  .pill {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px;
+    text-transform: uppercase; font-weight: 700; text-decoration: none;
+    padding: 10px 16px; border-radius: 999px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.10);
+    transition: all .15s;
+  }
+  .pill:hover { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+
+  /* ============ SECTION ============ */
+  section { padding: 80px 64px; border-bottom: 1px solid var(--line-dark); }
+  .section-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 40px; gap: 32px; flex-wrap: wrap;
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--muted-dark); font-weight: 700;
+  }
+  .section-num .n { color: var(--teal-light); margin-right: 12px; }
+  h2 {
+    font-weight: 900; font-style: italic; letter-spacing: -2px; line-height: 0.95;
+    font-size: clamp(36px, 5vw, 64px); margin: 4px 0 0;
+  }
+  .section-sub {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted-dark);
+    letter-spacing: 0.5px; max-width: 380px; margin: 0; text-align: right;
+  }
+
+  /* ============ CARDS GRID ============ */
+  .grid { display: grid; gap: 20px; }
+  .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    background: var(--ink-2); border: 1px solid var(--line-dark); border-radius: 14px;
+    overflow: hidden; display: flex; flex-direction: column;
+    text-decoration: none; color: inherit;
+    transition: border-color .15s, transform .15s;
+    position: relative;
+  }
+  .card:hover { border-color: rgba(94,231,214,0.4); transform: translateY(-2px); }
+
+  .card-visual {
+    background: var(--ink); display: flex; align-items: center; justify-content: center;
+    padding: 32px; position: relative; overflow: hidden;
+  }
+  .card-visual.tall { min-height: 240px; }
+  .card-visual.short { min-height: 160px; }
+  .card-visual img { max-width: 100%; max-height: 100%; height: auto; display: block; }
+  .card-visual.square img { max-height: 160px; }
+
+  .card-body {
+    padding: 22px 24px; display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--line-dark); gap: 16px;
+  }
+  .card-title {
+    font-weight: 700; font-size: 14px; letter-spacing: -0.2px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .card-title .meta {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--muted-dark); font-weight: 500;
+  }
+  .card-arrow {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--muted-dark); font-weight: 700;
+    background: rgba(255,255,255,0.04); padding: 8px 12px; border-radius: 999px;
+    border: 1px solid var(--line-dark);
+    transition: all .15s;
+  }
+  .card:hover .card-arrow { background: var(--teal-light); color: var(--ink); border-color: var(--teal-light); }
+
+  /* Featured guideline card */
+  .feature-card {
+    background: linear-gradient(135deg, var(--ink-2) 0%, var(--ink) 100%);
+    border: 1px solid rgba(94,231,214,0.20);
+    border-radius: 18px; padding: 48px;
+    display: grid; grid-template-columns: 1fr auto; gap: 48px;
+    align-items: center; position: relative; overflow: hidden;
+    text-decoration: none; color: inherit;
+    transition: border-color .15s;
+  }
+  .feature-card:hover { border-color: rgba(94,231,214,0.5); }
+  .feature-card::before {
+    content: ""; position: absolute; right: -50px; top: -100px;
+    width: 340px; height: 480px; opacity: 0.35;
+    background: linear-gradient(135deg, var(--teal-light), var(--teal) 55%, var(--teal-deep));
+    clip-path: polygon(73.3% 0%, 16.7% 52.5%, 46.7% 52.5%, 26.7% 100%, 83.3% 47.5%, 53.3% 47.5%);
+    transform: rotate(-4deg); pointer-events: none;
+  }
+  .feature-card .label {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--teal-light); font-weight: 700; margin-bottom: 14px;
+  }
+  .feature-card h3 {
+    font-weight: 900; font-style: italic; letter-spacing: -1.5px; line-height: 0.95;
+    font-size: 52px; margin: 0 0 16px;
+  }
+  .feature-card h3 .g {
+    background: linear-gradient(120deg, var(--teal-light), var(--teal) 55%, var(--teal-deep));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .feature-card p {
+    font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--copy);
+    margin: 0; max-width: 540px; line-height: 1.6;
+  }
+  .feature-cta {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--paper); color: var(--ink);
+    padding: 18px 28px; border-radius: 999px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 2px;
+    text-transform: uppercase; font-weight: 700;
+    z-index: 2; position: relative;
+    transition: background .15s;
+  }
+  .feature-card:hover .feature-cta { background: var(--teal-light); }
+
+  /* QR cards */
+  .qr-card {
+    background: var(--ink-2); border: 1px solid var(--line-dark); border-radius: 14px;
+    padding: 32px; display: grid; grid-template-columns: 1fr auto; gap: 32px; align-items: center;
+  }
+  .qr-card .meta-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--muted-dark); font-weight: 700; }
+  .qr-card h4 { font-weight: 900; font-style: italic; letter-spacing: -0.5px; font-size: 32px; margin: 8px 0; }
+  .qr-card .url { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted-dark); word-break: break-all; line-height: 1.5; margin-bottom: 16px; }
+  .qr-card .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .qr-card .actions a { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; text-decoration: none; background: rgba(255,255,255,0.04); border: 1px solid var(--line-dark); padding: 7px 12px; border-radius: 999px; color: var(--paper); }
+  .qr-card .actions a:hover { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+  .qr-card .qr { width: 160px; height: 160px; background: var(--paper); padding: 10px; border-radius: 8px; }
+  .qr-card .qr img { width: 100%; height: 100%; display: block; }
+
+  /* Palette */
+  .palette { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .sw { background: var(--ink-2); border: 1px solid var(--line-dark); border-radius: 10px; overflow: hidden; }
+  .sw-chip { height: 80px; }
+  .sw-info { padding: 14px 16px; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .sw-info .hex { color: var(--paper); font-weight: 700; letter-spacing: 0.5px; }
+  .sw-info .name { color: var(--muted-dark); margin-top: 4px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
+
+  /* ============ FOOTER ============ */
+  footer {
+    padding: 64px; display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; flex-wrap: wrap;
+  }
+  footer .left .small {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--muted-dark); font-weight: 700; margin-bottom: 12px;
+  }
+  footer .left h3 {
+    font-weight: 900; font-style: italic; letter-spacing: -1px; font-size: 48px; margin: 0;
+    background: linear-gradient(120deg, var(--teal-light), var(--teal) 55%, var(--teal-deep));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .powered {
+    display: inline-flex; align-items: center; gap: 14px;
+    padding: 14px 18px; background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line-dark); border-radius: 12px;
+    text-decoration: none;
+  }
+  .powered:hover { border-color: rgba(94,231,214,0.4); }
+  .powered .pl { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--muted-dark); font-weight: 700; }
+  .powered img { background: #fff; padding: 4px 8px; border-radius: 5px; height: 36px; display: block; }
+
+  @media (max-width: 880px) {
+    .hero, section, footer { padding-left: 32px; padding-right: 32px; }
+    .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
+    .feature-card { grid-template-columns: 1fr; padding: 32px; }
+    .palette { grid-template-columns: repeat(2, 1fr); }
+    .strip { flex-direction: column; align-items: flex-start; gap: 16px; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero" data-screen-label="00 Hero">
+    <div class="hero-bolt">
+      <svg viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="heroBolt" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#5EE7D6"/>
+            <stop offset="55%" stop-color="#15B8AE"/>
+            <stop offset="100%" stop-color="#0E8F88"/>
+          </linearGradient>
+        </defs>
+        <path d="M 88 0 L 20 84 L 56 84 L 32 160 L 100 76 L 64 76 Z" fill="url(#heroBolt)"/>
+      </svg>
+    </div>
+
+    <div class="strip">
+      <div class="l">
+        <span><span class="dot"></span>Brand Hub</span>
+        <span class="sep">/</span>
+        <span>Vol. 01 — 2026</span>
+        <span class="sep">/</span>
+        <span>v1.0</span>
+      </div>
+      <div class="r">
+        <span>arctivate · identity system</span>
+      </div>
+    </div>
+
+    <h1>The<br/><span class="g">Arctivate</span><br/>brand.</h1>
+    <p class="lede">// Every logo, banner, color and QR code that holds the brand together.<br/>// One place. Everything you need.</p>
+
+    <div class="pills">
+      <a class="pill" href="#guidelines">→ Guidelines</a>
+      <a class="pill" href="#logos">→ Logos</a>
+      <a class="pill" href="#banners">→ Launch banners</a>
+      <a class="pill" href="#qr">→ App QR codes</a>
+      <a class="pill" href="#palette">→ Palette</a>
+    </div>
+  </section>
+
+  <!-- ============ 01 — GUIDELINES (FEATURED) ============ -->
+  <section id="guidelines" data-screen-label="01 Guidelines">
+    <div class="section-head">
+      <div>
+        <div class="section-num"><span class="n">01</span>Brand Guidelines</div>
+        <h2>The rulebook.</h2>
+      </div>
+      <p class="section-sub">// Seven sections: logo · clearspace · sizing · misuse · color · typography · applications.</p>
+    </div>
+
+    <a class="feature-card" href="brand-guidelines.html">
+      <div>
+        <div class="label">// Featured</div>
+        <h3>Read the<br/><span class="g">Brand Guidelines</span></h3>
+        <p>The marks, colors, type, and rules that keep our identity sharp. Everything a designer, partner or printer needs to use the brand correctly.</p>
+      </div>
+      <div class="feature-cta">Open guidelines →</div>
+    </a>
+
+    <div class="grid cols-3" style="margin-top: 20px;">
+      <a class="card" href="brand-guidelines-standalone.html" download="arctivate-brand-guidelines.html">
+        <div class="card-visual short">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--teal-light);font-weight:700;">↓ Self-contained HTML</div>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Standalone HTML<span class="meta">Works offline · 397KB</span></div>
+          <span class="card-arrow">↓</span>
+        </div>
+      </a>
+      <a class="card" href="brand-guidelines-print.html" target="_blank">
+        <div class="card-visual short">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--teal-light);font-weight:700;">⌘P → Save as PDF</div>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Print to PDF<span class="meta">A4 · one section per page</span></div>
+          <span class="card-arrow">↗</span>
+        </div>
+      </a>
+      <a class="card" href="download-guidelines.html">
+        <div class="card-visual short">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--teal-light);font-weight:700;">All download options</div>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Download page<span class="meta">PDF · standalone · more</span></div>
+          <span class="card-arrow">↗</span>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <!-- ============ 02 — LOGOS ============ -->
+  <section id="logos" data-screen-label="02 Logos">
+    <div class="section-head">
+      <div>
+        <div class="section-num"><span class="n">02</span>Logo Set</div>
+        <h2>Four marks.</h2>
+      </div>
+      <p class="section-sub">// SVG · PNG · EPS. Glyphs converted to vector paths — no font dependency.</p>
+    </div>
+
+    <div class="grid cols-2">
+      <a class="card" href="logo-set/svg/arctivate-horizontal.svg" download>
+        <div class="card-visual tall">
+          <img src="logo-set/svg/arctivate-horizontal.svg" alt="Horizontal lockup"/>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Horizontal · primary<span class="meta">SVG · PNG · EPS</span></div>
+          <span class="card-arrow">↓ SVG</span>
+        </div>
+      </a>
+      <a class="card" href="logo-set/svg/arctivate-stacked.svg" download>
+        <div class="card-visual tall">
+          <img src="logo-set/svg/arctivate-stacked.svg" alt="Stacked lockup"/>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Stacked<span class="meta">SVG · PNG · EPS</span></div>
+          <span class="card-arrow">↓ SVG</span>
+        </div>
+      </a>
+      <a class="card" href="logo-set/svg/arctivate-wordmark.svg" download>
+        <div class="card-visual tall">
+          <img src="logo-set/svg/arctivate-wordmark.svg" alt="Wordmark"/>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Wordmark<span class="meta">SVG · PNG · EPS</span></div>
+          <span class="card-arrow">↓ SVG</span>
+        </div>
+      </a>
+      <a class="card" href="logo-set/svg/arctivate-mark.svg" download>
+        <div class="card-visual tall square">
+          <img src="logo-set/svg/arctivate-mark.svg" alt="Mark"/>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Mark · icon<span class="meta">SVG · PNG · EPS</span></div>
+          <span class="card-arrow">↓ SVG</span>
+        </div>
+      </a>
+    </div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">
+      <a class="pill" href="#" onclick="dl(event,'logo-set','arctivate-logo-set')">↓ Download full set (folder)</a>
+    </div>
+  </section>
+
+  <!-- ============ 03 — BANNERS ============ -->
+  <section id="banners" data-screen-label="03 Banners">
+    <div class="section-head">
+      <div>
+        <div class="section-num"><span class="n">03</span>App Launch Banners</div>
+        <h2>Drop 001.</h2>
+      </div>
+      <p class="section-sub">// Three sizes for web, square social, and 9:16 stories. PNG &amp; SVG ready.</p>
+    </div>
+
+    <div class="grid cols-3">
+      <a class="card" href="#" onclick="dl(event,'banners/png/hero-1600x900.png','arctivate-hero-1600x900.png')">
+        <div class="card-visual">
+          <img src="banners/png/hero-1600x900.png" alt="Hero banner"/>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Hero<span class="meta">1600 × 900 · 16:9</span></div>
+          <span class="card-arrow">↓ PNG</span>
+        </div>
+      </a>
+      <a class="card" href="#" onclick="dl(event,'banners/png/square-1080x1080.png','arctivate-square-1080x1080.png')">
+        <div class="card-visual">
+          <img src="banners/png/square-1080x1080.png" alt="Square banner"/>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Square<span class="meta">1080 × 1080 · 1:1</span></div>
+          <span class="card-arrow">↓ PNG</span>
+        </div>
+      </a>
+      <a class="card" href="#" onclick="dl(event,'banners/png/story-1080x1920.png','arctivate-story-1080x1920.png')">
+        <div class="card-visual">
+          <img src="banners/png/story-1080x1920.png" alt="Story banner" style="max-height:280px;"/>
+        </div>
+        <div class="card-body">
+          <div class="card-title">Story<span class="meta">1080 × 1920 · 9:16</span></div>
+          <span class="card-arrow">↓ PNG</span>
+        </div>
+      </a>
+    </div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">
+      <a class="pill" href="app-launch-banners.html">→ View all banners + downloads</a>
+    </div>
+  </section>
+
+  <!-- ============ 04 — QR CODES ============ -->
+  <section id="qr" data-screen-label="04 QR codes">
+    <div class="section-head">
+      <div>
+        <div class="section-num"><span class="n">04</span>App Store QR codes</div>
+        <h2>Scan &amp; install.</h2>
+      </div>
+      <p class="section-sub">// SVG · scalable to any size, light &amp; dark variants.</p>
+    </div>
+
+    <div class="grid cols-2">
+      <div class="qr-card">
+        <div>
+          <div class="meta-num">01 — Apple iOS</div>
+          <h4>App Store</h4>
+          <div class="url">apps.apple.com/au/app/<br/>arctivate/id6761358412</div>
+          <div class="actions">
+            <a href="#" onclick="dl(event,'assets/qr-apple.svg','arctivate-qr-apple.svg')">↓ SVG dark</a>
+            <a href="#" onclick="dl(event,'assets/qr-apple-light.svg','arctivate-qr-apple-light.svg')">↓ SVG light</a>
+            <a href="https://apps.apple.com/au/app/arctivate/id6761358412" target="_blank" rel="noopener">Open ↗</a>
+          </div>
+        </div>
+        <div class="qr"><img src="assets/qr-apple.svg" alt="Apple App Store QR"/></div>
+      </div>
+      <div class="qr-card">
+        <div>
+          <div class="meta-num">02 — Android</div>
+          <h4>Google Play</h4>
+          <div class="url">play.google.com/store/apps/<br/>details?id=com.arctivate.app</div>
+          <div class="actions">
+            <a href="#" onclick="dl(event,'assets/qr-google.svg','arctivate-qr-google.svg')">↓ SVG dark</a>
+            <a href="#" onclick="dl(event,'assets/qr-google-light.svg','arctivate-qr-google-light.svg')">↓ SVG light</a>
+            <a href="https://play.google.com/store/apps/details?id=com.arctivate.app" target="_blank" rel="noopener">Open ↗</a>
+          </div>
+        </div>
+        <div class="qr"><img src="assets/qr-google.svg" alt="Google Play QR"/></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 — PALETTE ============ -->
+  <section id="palette" data-screen-label="05 Palette">
+    <div class="section-head">
+      <div>
+        <div class="section-num"><span class="n">05</span>Palette</div>
+        <h2>Teal &amp; ink.</h2>
+      </div>
+      <p class="section-sub">// Brand gradient runs 120°: light → core → deep.</p>
+    </div>
+
+    <div class="palette">
+      <div class="sw"><div class="sw-chip" style="background:#5EE7D6;"></div><div class="sw-info"><div class="hex">#5EE7D6</div><div class="name">Teal · Light</div></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#15B8AE;"></div><div class="sw-info"><div class="hex">#15B8AE</div><div class="name">Teal · Core</div></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#0E8F88;"></div><div class="sw-info"><div class="hex">#0E8F88</div><div class="name">Teal · Deep</div></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#070E14;"></div><div class="sw-info"><div class="hex">#070E14</div><div class="name">Ink</div></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#f6f4ef;"></div><div class="sw-info"><div class="hex">#f6f4ef</div><div class="name">Paper</div></div></div>
+    </div>
+
+    <div style="margin-top:32px;height:120px;border-radius:14px;background:linear-gradient(120deg,#5EE7D6 0%,#15B8AE 55%,#0E8F88 100%);position:relative;">
+      <span style="position:absolute;bottom:16px;right:20px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1.5px;color:rgba(7,14,20,0.65);font-weight:600;">// 120° · 3 stops · brand gradient</span>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="left">
+      <div class="small">// End of brand hub</div>
+      <h3>Stay sharp.</h3>
+    </div>
+    <a class="powered" href="https://www.arcfitnessaustralia.com.au/" target="_blank" rel="noopener">
+      <span class="pl">Powered by</span>
+      <img src="assets/arc-fitness-logo.png" alt="ARC fitness"/>
+    </a>
+  </footer>
+
+<script>
+async function dl(e, src, filename) {
+  e.preventDefault();
+  const link = e.currentTarget;
+  const original = link.textContent;
+  link.textContent = 'Downloading…';
+  try {
+    const res = await fetch(src);
+    const blob = await res.blob();
+    let mime = blob.type;
+    if (filename.endsWith('.png')) mime = 'image/png';
+    else if (filename.endsWith('.svg')) mime = 'image/svg+xml';
+    else if (filename.endsWith('.html')) mime = 'text/html';
+    else if (filename.endsWith('.eps')) mime = 'application/postscript';
+    const typedBlob = new Blob([blob], { type: mime });
+    const url = URL.createObjectURL(typedBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    link.textContent = '✓ Saved';
+    setTimeout(() => { link.textContent = original; }, 1500);
+  } catch (err) {
+    console.error(err);
+    link.textContent = 'Error';
+    setTimeout(() => { link.textContent = original; }, 2000);
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Arctivate — App Launch · Hero</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Montserrat:ital,wght@0,500;0,700;0,900;1,900&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:#1a1d23;}
+  body{display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:'Montserrat',sans-serif;}
+  .banner{
+    width:1600px;height:900px;
+    background:#070E14;color:#f6f4ef;
+    position:relative;overflow:hidden;
+    flex-shrink:0;isolation:isolate;
+  }
+  /* Ambient — plain radial gradient, no filter (html-to-image friendly) */
+  .ambient{position:absolute;inset:0;pointer-events:none;z-index:0;
+    background:
+      radial-gradient(circle at 75% 25%, rgba(94,231,214,0.20), transparent 50%),
+      radial-gradient(circle at 20% 90%, rgba(14,143,136,0.18), transparent 50%);
+  }
+  /* Bolt — clip-path on a gradient div. No SVG, no filter. */
+  .big-bolt{
+    position:absolute;pointer-events:none;z-index:1;
+    background:linear-gradient(135deg, #5EE7D6 0%, #15B8AE 55%, #0E8F88 100%);
+    clip-path:polygon(73.3% 0%, 16.7% 52.5%, 46.7% 52.5%, 26.7% 100%, 83.3% 47.5%, 53.3% 47.5%);
+    right:-150px;top:-100px;width:1000px;height:1300px;
+    transform:rotate(-4deg);opacity:0.95;
+  }
+  .edit-strip{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:center;
+    padding:30px 80px;font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:2.5px;
+    text-transform:uppercase;color:#8896a6;font-weight:500;z-index:6;
+  }
+  .edit-strip .dot{width:8px;height:8px;border-radius:50%;background:#5EE7D6;display:inline-block;margin-right:10px;
+    box-shadow:0 0 0 4px rgba(94,231,214,0.18);
+  }
+  .edit-strip .l, .edit-strip .r{display:flex;gap:18px;align-items:center;white-space:nowrap;}
+  .edit-strip .l > span, .edit-strip .r > span{white-space:nowrap;display:inline-flex;align-items:center;}
+  .edit-strip .sep{color:rgba(136,150,166,0.4);}
+
+  .content{position:absolute;left:80px;right:80px;top:120px;bottom:120px;
+    display:flex;flex-direction:column;justify-content:center;z-index:3;
+  }
+  .b-head{font-weight:900;font-style:italic;letter-spacing:-3px;line-height:0.86;margin:0;color:#f6f4ef;font-size:200px;position:relative;z-index:3;}
+  .b-head .row{display:block;}
+  .b-head .g{background:linear-gradient(120deg,#5EE7D6 0%,#15B8AE 50%,#0E8F88 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;}
+  .b-sub{font-weight:500;color:#c4ccd6;line-height:1.35;margin:0;position:relative;z-index:3;
+    font-size:24px;margin-top:32px;max-width:560px;font-family:'JetBrains Mono',monospace;letter-spacing:1px;
+  }
+
+  .qr-row{position:absolute;right:80px;bottom:140px;display:flex;gap:14px;z-index:6;}
+  .qr-ticket{background:#f6f4ef;color:#070E14;display:grid;border:1px solid rgba(0,0,0,0.06);position:relative;overflow:hidden;
+    grid-template-columns:1fr 130px;gap:18px;align-items:center;padding:18px 22px 18px 28px;border-radius:6px;width:340px;
+  }
+  .qr-ticket .ticket-bar{position:absolute;left:0;top:0;bottom:0;width:6px;background:linear-gradient(180deg,#5EE7D6,#0E8F88);}
+  .qr-ticket .num{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:11px;letter-spacing:2px;color:#6B7785;display:flex;align-items:center;gap:8px;}
+  .qr-ticket .num-dash{display:inline-block;width:18px;height:1px;background:#6B7785;}
+  .qr-ticket .platform{font-family:'Montserrat';font-weight:900;font-style:italic;letter-spacing:-0.5px;line-height:1;margin:6px 0;color:#070E14;font-size:30px;}
+  .qr-ticket .url-note{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#6B7785;font-weight:500;}
+  .qr-ticket img{display:block;width:130px;height:130px;}
+
+  .footer-row{position:absolute;left:80px;right:80px;bottom:48px;display:flex;justify-content:space-between;align-items:center;z-index:6;}
+  .arctivate-mark{height:42px;display:block;}
+  .powered-tag{display:inline-flex;align-items:center;gap:10px;text-decoration:none;}
+  .powered-tag .pl{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;font-weight:500;color:#8896a6;}
+  .powered-tag img{background:#fff;padding:4px 6px;border-radius:4px;display:block;height:32px;}
+
+  .exporter {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 100;
+    display: flex; gap: 8px; align-items: center;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(12px);
+    padding: 12px 20px; border-radius: 999px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #f6f4ef; font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .exporter button {
+    background: #5EE7D6; color: #070E14;
+    border: none; padding: 10px 18px; border-radius: 999px;
+    font-family: inherit; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    font-weight: 700; cursor: pointer;
+  }
+  .exporter button:hover { background: #fff; }
+  .exporter button:disabled { background: rgba(255,255,255,0.2); color: rgba(255,255,255,0.6); cursor: wait; }
+  @media print { .exporter, html, body { display: none !important; } }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <div class="ambient"></div>
+    <div class="big-bolt"></div>
+    <div class="edit-strip">
+      <div class="l">
+        <span><span class="dot"></span>Now Live</span>
+        <span class="sep">/</span>
+        <span>Drop 001</span>
+        <span class="sep">/</span>
+        <span>iOS + Android</span>
+      </div>
+      <div class="r"><span>Vol. 01 — 2026</span></div>
+    </div>
+    <div class="content">
+      <h2 class="b-head">
+        <span class="row">The</span>
+        <span class="row g">Arctivate</span>
+        <span class="row">app.</span>
+      </h2>
+      <p class="b-sub">// train · track · conquer<br/>// download free on ios + android</p>
+    </div>
+    <div class="qr-row">
+      <div class="qr-ticket">
+        <div class="ticket-bar"></div>
+        <div>
+          <div class="num"><span class="num-dash"></span>01 — Apple</div>
+          <div class="platform">App Store</div>
+          <div class="url-note">Scan to install</div>
+        </div>
+        <img src="../assets/qr-apple.svg" alt=""/>
+      </div>
+      <div class="qr-ticket">
+        <div class="ticket-bar"></div>
+        <div>
+          <div class="num"><span class="num-dash"></span>02 — Android</div>
+          <div class="platform">Google Play</div>
+          <div class="url-note">Scan to install</div>
+        </div>
+        <img src="../assets/qr-google.svg" alt=""/>
+      </div>
+    </div>
+    <div class="footer-row">
+      <img class="arctivate-mark" src="../logo-set/svg/arctivate-wordmark.svg" alt=""/>
+      <a class="powered-tag" href="https://www.arcfitnessaustralia.com.au/" target="_blank" rel="noopener">
+        <span class="pl">Powered by</span>
+        <img src="../assets/arc-fitness-logo.png" alt="ARC fitness"/>
+      </a>
+    </div>
+  </div>
+
+  <div class="exporter">
+    <span id="status">Loading…</span>
+    <button id="btn-png" onclick="exportImage('image/png','png')">↓ PNG</button>
+    <button id="btn-jpg" onclick="exportImage('image/jpeg','jpg')">↓ JPG</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js"></script>
+  <script>
+    const W = 1600, H = 900;
+    const status = document.getElementById('status');
+    const btnPng = document.getElementById('btn-png');
+    const btnJpg = document.getElementById('btn-jpg');
+    const el = document.querySelector('.banner');
+
+    async function ready() {
+      try { await document.fonts.ready; } catch(e) {}
+      const imgs = [...document.images];
+      await Promise.all(imgs.map(i => i.complete ? null : new Promise(r => { i.onload = r; i.onerror = r; })));
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    async function exportImage(mime, ext) {
+      btnPng.disabled = true; btnJpg.disabled = true;
+      status.textContent = 'Rendering…';
+      try {
+        await ready();
+        const t0 = Date.now();
+        let url;
+        if (mime === 'image/jpeg') {
+          url = await htmlToImage.toJpeg(el, { width: W, height: H, pixelRatio: 2, quality: 0.92, backgroundColor: '#070E14', cacheBust: false });
+        } else {
+          const blob = await htmlToImage.toBlob(el, { width: W, height: H, pixelRatio: 2, cacheBust: false });
+          url = URL.createObjectURL(blob);
+        }
+        const a = document.createElement('a');
+        a.href = url; a.download = `arctivate-hero-1600x900.${ext}`;
+        document.body.appendChild(a); a.click(); a.remove();
+        if (mime !== 'image/jpeg') setTimeout(() => URL.revokeObjectURL(url), 2000);
+        const ms = Date.now() - t0;
+        status.textContent = `✓ Saved (${ms}ms)`;
+      } catch (e) { console.error(e); status.textContent = 'Error: ' + e.message; }
+      finally {
+        btnPng.disabled = false; btnJpg.disabled = false;
+        setTimeout(() => { status.textContent = 'Ready'; }, 3000);
+      }
+    }
+
+    // Auto-download on page load
+    window.addEventListener('load', async () => {
+      await ready();
+      status.textContent = 'Ready';
+      setTimeout(() => exportImage('image/png','png'), 600);
+    });
+  </script>
+</body>
+</html>
