@@ -1,0 +1,929 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Arctivate — Brand Guidelines</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,900;1,900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #070E14;
+      --ink-2: #0d1822;
+      --paper: #f6f4ef;
+      --paper-2: #ede9df;
+      --line: rgba(7,14,20,0.10);
+      --line-dark: rgba(255,255,255,0.08);
+      --muted: #6B7785;
+      --muted-dark: #8896a6;
+      --teal-light: #5EE7D6;
+      --teal: #15B8AE;
+      --teal-deep: #0E8F88;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--paper); color: var(--ink);
+      font-family: 'Montserrat', system-ui, sans-serif;
+      font-weight: 500;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.55;
+    }
+
+    /* ============ Page system ============ */
+    .page {
+      width: 100%;
+      padding: 96px 64px;
+      border-bottom: 1px solid var(--line);
+      position: relative;
+    }
+    .page.dark { background: var(--ink); color: var(--paper); border-bottom-color: var(--line-dark); }
+    .page.cream { background: var(--paper-2); }
+    .inner { max-width: 1200px; margin: 0 auto; }
+
+    /* ============ Typography ============ */
+    h1, h2, h3, h4 { margin: 0; font-weight: 900; letter-spacing: -1px; line-height: 1; }
+    h1 { font-size: clamp(64px, 9vw, 132px); }
+    h2 { font-size: clamp(40px, 5vw, 72px); letter-spacing: -1.5px; }
+    h3 { font-size: 28px; letter-spacing: -0.5px; }
+    h4 { font-size: 18px; letter-spacing: 0; font-weight: 700; }
+
+    .eyebrow {
+      font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
+      font-weight: 700; color: var(--muted); margin-bottom: 16px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .dark .eyebrow { color: var(--muted-dark); }
+    .eyebrow::before {
+      content: ""; display: block; width: 28px; height: 2px;
+      background: var(--teal);
+    }
+    .lede { font-size: 22px; line-height: 1.4; max-width: 720px; font-weight: 500; color: var(--ink); }
+    .dark .lede { color: var(--paper); }
+    p { margin: 0 0 18px; max-width: 680px; color: var(--ink); }
+    .dark p { color: #d6dde6; }
+    .small { font-size: 13px; color: var(--muted); }
+    .dark .small { color: var(--muted-dark); }
+    .mono { font-family: ui-monospace, 'JetBrains Mono', Menlo, monospace; font-weight: 500; letter-spacing: 0.5px; }
+
+    .section-label {
+      position: absolute; top: 32px; left: 64px;
+      font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+      font-weight: 700; color: var(--muted);
+      display: flex; gap: 16px; align-items: center;
+    }
+    .dark .section-label { color: var(--muted-dark); }
+    .section-label .num {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--ink); color: var(--paper);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; letter-spacing: 0;
+    }
+    .dark .section-label .num { background: var(--teal); color: var(--ink); }
+
+    /* ============ COVER ============ */
+    .cover {
+      min-height: 100vh;
+      background: var(--ink);
+      color: var(--paper);
+      display: flex; flex-direction: column;
+      padding: 64px;
+      position: relative; overflow: hidden;
+    }
+    .cover::before {
+      content: ""; position: absolute; right: -10%; top: -20%;
+      width: 70%; height: 140%;
+      background: radial-gradient(closest-side, rgba(94,231,214,0.16), rgba(21,184,174,0.05) 50%, transparent 75%);
+      filter: blur(8px);
+    }
+    .cover-top {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      position: relative; z-index: 1;
+    }
+    .cover-brand {
+      font-size: 11px; letter-spacing: 4px; text-transform: uppercase; font-weight: 700;
+      color: var(--teal);
+    }
+    .cover-meta {
+      text-align: right; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted-dark); font-weight: 600;
+      line-height: 1.8;
+    }
+    .cover-center {
+      flex: 1; display: flex; flex-direction: column; justify-content: center;
+      position: relative; z-index: 1; max-width: 900px;
+    }
+    .cover h1 { line-height: 0.9; margin-bottom: 32px; }
+    .cover h1 .gradient {
+      background: linear-gradient(120deg, var(--teal-light), var(--teal) 55%, var(--teal-deep));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      font-style: italic;
+    }
+    .cover-tag { font-size: 32px; font-weight: 500; color: #d6dde6; line-height: 1.3; max-width: 720px; }
+    .cover-bottom {
+      display: flex; justify-content: space-between; align-items: flex-end;
+      position: relative; z-index: 1;
+      padding-top: 48px;
+      border-top: 1px solid var(--line-dark);
+    }
+    .cover-bottom .label {
+      font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+      color: var(--muted-dark); font-weight: 700; margin-bottom: 4px;
+    }
+    .cover-bottom .value {
+      font-size: 14px; color: var(--paper); font-weight: 600;
+    }
+    .toc { display: flex; gap: 48px; }
+    .toc ol { list-style: none; padding: 0; margin: 0; counter-reset: t; }
+    .toc li {
+      counter-increment: t;
+      font-size: 13px; color: #d6dde6;
+      padding: 4px 0;
+    }
+    .toc li::before {
+      content: counter(t, decimal-leading-zero) "  ";
+      color: var(--teal); font-weight: 700;
+    }
+
+    /* ============ LOGO PAGE ============ */
+    .logo-hero {
+      background: var(--ink);
+      border-radius: 20px;
+      padding: 80px 48px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 32px;
+      min-height: 280px;
+    }
+    .logo-hero img { max-width: 60%; height: auto; max-height: 200px; }
+
+    .variants-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;
+      margin-top: 32px;
+    }
+    .vcard {
+      background: var(--ink); border-radius: 14px;
+      padding: 48px 32px; min-height: 180px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .vcard img { max-width: 80%; max-height: 110px; height: auto; }
+    .vcard .vname {
+      position: absolute; top: 14px; left: 18px;
+      font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted-dark); font-weight: 700;
+    }
+
+    /* ============ CLEARSPACE ============ */
+    .clearspace {
+      display: grid; grid-template-columns: 1.2fr 1fr; gap: 64px;
+      align-items: center;
+    }
+    .clearspace-vis {
+      background: var(--paper-2);
+      border-radius: 14px;
+      padding: 48px;
+      display: flex; justify-content: center; align-items: center;
+      position: relative;
+    }
+    .cs-frame {
+      position: relative;
+      padding: 56px;
+    }
+    .cs-frame::before {
+      content: ""; position: absolute; inset: 0;
+      border: 1.5px dashed rgba(21,184,174,0.5);
+      border-radius: 6px;
+    }
+    .cs-frame img { display: block; max-width: 100%; height: auto; max-height: 120px; }
+    /* X marks at corners */
+    .cs-x {
+      position: absolute;
+      width: 24px; height: 24px;
+      background: var(--teal);
+      color: var(--ink);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 14px;
+      border-radius: 4px;
+    }
+    .cs-x.tl { top: -12px; left: -12px; }
+    .cs-x.tr { top: -12px; right: -12px; }
+    .cs-x.bl { bottom: -12px; left: -12px; }
+    .cs-x.br { bottom: -12px; right: -12px; }
+    .rule {
+      font-size: 14px; color: var(--ink); line-height: 1.6;
+      max-width: 380px;
+    }
+    .rule .x-inline {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; background: var(--teal); color: var(--ink);
+      font-weight: 900; font-size: 11px; border-radius: 3px;
+      vertical-align: -3px; margin: 0 4px;
+    }
+
+    /* ============ MIN SIZE ============ */
+    .minsize {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+      margin-top: 24px;
+    }
+    .ms-card {
+      background: var(--paper-2);
+      border-radius: 12px; padding: 32px 24px;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 16px;
+    }
+    .ms-card .ms-vis {
+      display: flex; align-items: flex-end; justify-content: center;
+      width: 100%; min-height: 100px;
+    }
+    .ms-card img { display: block; }
+    .ms-meta {
+      text-align: center; font-size: 11px; color: var(--muted);
+      letter-spacing: 2px; text-transform: uppercase; font-weight: 700;
+    }
+    .ms-meta strong { display: block; color: var(--ink); font-size: 22px; letter-spacing: -0.5px; text-transform: none; font-weight: 900; margin-bottom: 4px; }
+
+    /* ============ MISUSE ============ */
+    .misuse {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+      margin-top: 24px;
+    }
+    .mu-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 48px 32px 20px;
+      min-height: 200px;
+      display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+      position: relative; overflow: hidden;
+    }
+    .mu-card .stamp {
+      position: absolute; top: 14px; right: 14px;
+      width: 26px; height: 26px;
+      background: #e23a2e; color: white;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 16px;
+    }
+    .mu-card img, .mu-card .mu-vis {
+      max-width: 90%; max-height: 80px; height: auto; display: block; margin-bottom: 24px;
+    }
+    .mu-card .label {
+      font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted); font-weight: 700; text-align: center;
+    }
+    /* misuse visualizations */
+    .mu-stretch { transform: scaleX(1.6) scaleY(0.8); }
+    .mu-rotate { transform: rotate(-12deg); }
+    .mu-recolor { filter: hue-rotate(120deg) saturate(0.6); }
+    .mu-shadow { filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.45)); }
+    .mu-outline { filter: invert(1) brightness(0.4); }
+    .mu-on-busy {
+      background-image: repeating-linear-gradient(45deg, #d97757 0, #d97757 8px, #e2916b 8px, #e2916b 16px);
+    }
+
+    /* ============ COLOR ============ */
+    .color-hero {
+      background: linear-gradient(120deg, var(--teal-light) 0%, var(--teal) 55%, var(--teal-deep) 100%);
+      border-radius: 16px;
+      height: 200px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .color-hero::after {
+      content: "120° · 3 stops";
+      position: absolute; bottom: 18px; right: 22px;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 11px; color: rgba(7,14,20,0.6);
+      letter-spacing: 1px; font-weight: 600;
+    }
+    .swatches {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+    }
+    .swatch {
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .swatch .chip {
+      height: 140px;
+      position: relative;
+    }
+    .swatch .chip::after {
+      content: attr(data-name);
+      position: absolute; top: 14px; left: 16px;
+      font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+      font-weight: 700; color: rgba(7,14,20,0.5);
+    }
+    .swatch.dark-chip .chip::after { color: rgba(255,255,255,0.6); }
+    .swatch .info { padding: 18px 18px 22px; }
+    .swatch .hex {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 16px; font-weight: 600; color: var(--ink);
+      margin-bottom: 12px; letter-spacing: 0.5px;
+    }
+    .swatch .vals {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 11px; color: var(--muted); line-height: 1.7;
+    }
+
+    /* ============ TYPOGRAPHY ============ */
+    .type-display {
+      font-size: clamp(120px, 16vw, 220px);
+      font-weight: 900; font-style: italic;
+      line-height: 0.9; letter-spacing: -4px;
+      background: linear-gradient(120deg, var(--teal-light), var(--teal) 55%, var(--teal-deep));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      margin: 24px 0 48px;
+    }
+    .type-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
+    }
+    .type-card {
+      background: var(--paper-2); border-radius: 14px;
+      padding: 36px;
+    }
+    .type-card .sample {
+      font-size: 64px; line-height: 1; letter-spacing: -1.5px;
+      margin-bottom: 32px; color: var(--ink);
+    }
+    .type-card.display .sample { font-weight: 900; font-style: italic; }
+    .type-card.body .sample { font-weight: 600; }
+    .type-card .specs {
+      display: flex; justify-content: space-between;
+      padding-top: 20px; border-top: 1px solid var(--line);
+      font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted); font-weight: 700;
+    }
+    .type-card .specs strong { color: var(--ink); font-weight: 900; }
+    .type-scale {
+      margin-top: 32px;
+      background: var(--ink); color: var(--paper);
+      border-radius: 14px; padding: 40px;
+    }
+    .scale-row {
+      display: grid; grid-template-columns: 80px 1fr 100px;
+      gap: 24px; align-items: baseline;
+      padding: 18px 0;
+      border-bottom: 1px solid var(--line-dark);
+    }
+    .scale-row:last-child { border-bottom: none; }
+    .scale-row .sz {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 11px; color: var(--muted-dark); letter-spacing: 1px;
+    }
+    .scale-row .scl-sample { line-height: 1; }
+    .scale-row .use {
+      font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted-dark); font-weight: 700;
+    }
+
+    /* ============ APPLICATIONS ============ */
+    .apps {
+      display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 20px;
+      margin-top: 32px;
+    }
+    .app {
+      border-radius: 16px; overflow: hidden;
+      min-height: 320px; padding: 32px;
+      display: flex; flex-direction: column; justify-content: space-between;
+      position: relative;
+    }
+    .app .alabel {
+      font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    /* Business card */
+    .app.card {
+      background: var(--ink);
+      grid-row: span 2;
+      padding: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .biz {
+      width: 80%; aspect-ratio: 1.75 / 1;
+      background: var(--paper);
+      border-radius: 6px;
+      padding: 28px;
+      display: flex; flex-direction: column; justify-content: space-between;
+      box-shadow: 0 30px 60px rgba(0,0,0,0.4);
+    }
+    .biz img { width: 60%; }
+    .biz .name { font-weight: 900; font-size: 18px; letter-spacing: -0.5px; }
+    .biz .role { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 16px; }
+    .biz .contact { font-size: 11px; color: var(--ink); line-height: 1.7; font-family: ui-monospace, Menlo, monospace; }
+
+    /* Avatar */
+    .app.avatar {
+      background: linear-gradient(120deg, var(--teal-light), var(--teal) 55%, var(--teal-deep));
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px;
+    }
+    .avatar-circle {
+      width: 140px; height: 140px;
+      background: var(--ink);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .avatar-circle img { width: 50%; }
+    .app.avatar .alabel { color: rgba(7,14,20,0.7); }
+
+    /* Apparel / tag */
+    .app.tag {
+      background: var(--paper-2);
+    }
+    .app.tag .alabel { color: var(--muted); align-self: flex-start; }
+    .app.tag .tag-art {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+    }
+    .app.tag img { max-width: 70%; max-height: 80px; }
+
+    /* Social */
+    .app.social { background: var(--ink); }
+    .app.social .alabel { color: var(--muted-dark); }
+    .app.social .social-art {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+    }
+    .app.social img { max-width: 75%; }
+
+    /* ============ FOOTER ============ */
+    .footer {
+      background: var(--ink); color: var(--paper);
+      padding: 64px;
+      display: flex; justify-content: space-between; align-items: flex-end;
+    }
+    .footer h2 {
+      font-style: italic;
+      background: linear-gradient(120deg, var(--teal-light), var(--teal) 55%, var(--teal-deep));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .footer .small { color: var(--muted-dark); }
+
+    .powered {
+      display: inline-flex; align-items: center; gap: 18px;
+      margin-top: 32px; padding: 18px 24px 18px 22px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line-dark);
+      border-radius: 14px;
+      text-decoration: none;
+      transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    }
+    .powered:hover {
+      background: rgba(94,231,214,0.10);
+      border-color: rgba(94,231,214,0.35);
+      transform: translateY(-2px);
+    }
+    .powered-label {
+      font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+      font-weight: 700; color: var(--muted-dark);
+    }
+    .powered img {
+      height: 44px; width: auto; display: block;
+      background: #fff; padding: 6px 10px; border-radius: 6px;
+    }
+
+    @media print {
+      @page { size: A4; margin: 0; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      html, body { background: var(--paper); }
+      .page, .cover, .footer {
+        page-break-after: always; break-after: page;
+        page-break-inside: avoid; break-inside: avoid;
+        padding: 48px 44px;
+      }
+      .footer { page-break-after: auto; break-after: auto; }
+      .cover { min-height: auto; padding: 48px 44px; }
+      .page { border-bottom: none; }
+      h1 { font-size: 88px; }
+      h2 { font-size: 44px; }
+      h3 { font-size: 22px; }
+      .lede { font-size: 18px; }
+      .cover h1 { font-size: 120px; }
+      .cover-tag { font-size: 24px; }
+      .logo-hero { padding: 40px; min-height: 220px; }
+      .logo-hero img { max-height: 160px; }
+      .section-label { position: static; margin-bottom: 24px; }
+      .variants-grid, .misuse, .swatches, .minsize, .apps, .clearspace, .type-grid { page-break-inside: avoid; break-inside: avoid; }
+      .type-display { font-size: 140px; margin: 16px 0 32px; }
+      .color-hero { height: 140px; }
+      .app { min-height: 240px; }
+      .app.card { grid-row: auto; }
+      a[href]::after { content: ""; }
+      /* Avoid page-break in critical groupings */
+      .vcard, .swatch, .ms-card, .mu-card, .type-card, .scale-row { break-inside: avoid; }
+    }
+    @media (max-width: 880px) {
+      .page { padding: 64px 24px; }
+      .footer { padding: 48px 24px; flex-direction: column; gap: 32px; align-items: flex-start; }
+      .variants-grid, .misuse, .swatches { grid-template-columns: 1fr 1fr; }
+      .minsize { grid-template-columns: 1fr; }
+      .clearspace, .type-grid { grid-template-columns: 1fr; }
+      .apps { grid-template-columns: 1fr; }
+      .app.card { grid-row: auto; }
+      .cover-top, .cover-bottom { flex-direction: column; gap: 24px; }
+      .toc { flex-direction: column; gap: 24px; }
+      .section-label { position: static; margin-bottom: 32px; }
+    }
+  </style>
+</head>
+<body>
+
+  <template id="__bundler_thumbnail" data-bg-color="#070E14">
+    <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#5EE7D6"/>
+          <stop offset="0.55" stop-color="#15B8AE"/>
+          <stop offset="1" stop-color="#0E8F88"/>
+        </linearGradient>
+      </defs>
+      <path d="M 660 220 L 460 460 L 560 460 L 500 580 L 720 380 L 620 380 Z" fill="url(#tg)"/>
+    </svg>
+  </template>
+
+  <!-- ========== COVER ========== -->
+  <section class="cover">
+    <div class="cover-top">
+      <div class="cover-brand">Arctivate · Visual Identity</div>
+      <div class="cover-meta">
+        <a href="https://www.arcfitnessaustralia.com.au/" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:12px;text-decoration:none;color:inherit;margin-bottom:14px;">
+          <span style="font-size:10px;letter-spacing:3px;text-transform:uppercase;font-weight:700;color:var(--muted-dark);">Powered by</span>
+          <img src="assets/arc-fitness-logo.png" alt="ARC fitness" style="height:36px;width:auto;background:#fff;padding:4px 8px;border-radius:5px;display:block;"/>
+        </a><br/>
+        Volume 01 · 2026<br/>
+        Brand Guidelines
+      </div>
+    </div>
+
+    <div class="cover-center">
+      <h1><span class="gradient">Arctivate</span></h1>
+      <div class="cover-tag">The marks, colors, and rules that keep our identity sharp.</div>
+    </div>
+
+    <div class="cover-bottom">
+      <div class="toc">
+        <div>
+          <ol>
+            <li>The Logo</li>
+            <li>Clearspace</li>
+            <li>Minimum Size</li>
+            <li>Misuse</li>
+          </ol>
+        </div>
+        <div>
+          <ol style="counter-reset: t 4;">
+            <li>Color</li>
+            <li>Typography</li>
+            <li>Applications</li>
+          </ol>
+        </div>
+      </div>
+      <div>
+        <div class="label">Issue</div>
+        <div class="value">v1.0</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 01 — THE LOGO ========== -->
+  <section class="page">
+    <div class="section-label"><span class="num">01</span><span>The Logo</span></div>
+    <div class="inner">
+      <div class="eyebrow">Primary Lockup</div>
+      <h2>Bolt &amp; wordmark.</h2>
+      <p style="margin-top:24px;">The Arctivate identity pairs an italic, gradient-filled wordmark with a forward-leaning lightning bolt. The bolt mirrors the italic slant of the type — together they read as motion, energy, and activation.</p>
+
+      <div class="logo-hero">
+        <img src="logo-set/svg/arctivate-horizontal.svg" alt="Arctivate horizontal lockup"/>
+      </div>
+
+      <div class="eyebrow" style="margin-top:48px;">Variants</div>
+      <p>Use the horizontal lockup as the default. Switch to stacked, wordmark, or mark when space, scale, or context demand it.</p>
+
+      <div class="variants-grid">
+        <div class="vcard">
+          <div class="vname">Horizontal</div>
+          <img src="logo-set/svg/arctivate-horizontal.svg" alt="Horizontal"/>
+        </div>
+        <div class="vcard">
+          <div class="vname">Stacked</div>
+          <img src="logo-set/svg/arctivate-stacked.svg" alt="Stacked"/>
+        </div>
+        <div class="vcard">
+          <div class="vname">Wordmark</div>
+          <img src="logo-set/svg/arctivate-wordmark.svg" alt="Wordmark"/>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:20px;margin-top:20px;">
+        <div class="vcard">
+          <div class="vname">Mark</div>
+          <img src="logo-set/svg/arctivate-mark.svg" alt="Mark" style="max-height:160px;"/>
+        </div>
+        <div class="vcard" style="align-items:flex-start;justify-content:flex-start;padding:32px;">
+          <div class="vname">When to use what</div>
+          <div style="color:#d6dde6;font-size:14px;line-height:1.7;margin-top:24px;max-width:480px;">
+            <strong style="color:#fff;display:block;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Horizontal</strong>Default for nav, headers, presentations, and signage. Most legible at small scale.<br/><br/>
+            <strong style="color:#fff;display:block;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Stacked</strong>Square or near-square spaces — posters, gridded layouts, packaging panels.<br/><br/>
+            <strong style="color:#fff;display:block;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Wordmark</strong>When the mark is shown nearby or context makes the bolt redundant.<br/><br/>
+            <strong style="color:#fff;display:block;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Mark</strong>Avatars, favicons, app icons, and any tight square crop.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 02 — CLEARSPACE ========== -->
+  <section class="page cream">
+    <div class="section-label"><span class="num">02</span><span>Clearspace</span></div>
+    <div class="inner">
+      <div class="eyebrow">Breathing room</div>
+      <h2>Give the bolt room to strike.</h2>
+      <p style="margin-top:24px;">Keep a minimum clearspace equal to the width of the bolt around the entire logo. Nothing — type, imagery, edges of the page — should enter that zone.</p>
+
+      <div class="clearspace" style="margin-top:48px;">
+        <div class="clearspace-vis">
+          <div class="cs-frame">
+            <span class="cs-x tl">X</span><span class="cs-x tr">X</span>
+            <span class="cs-x bl">X</span><span class="cs-x br">X</span>
+            <img src="logo-set/svg/arctivate-horizontal.svg" alt="Horizontal with clearspace"/>
+          </div>
+        </div>
+        <div class="rule">
+          <h4 style="margin-bottom:14px;">The X rule</h4>
+          <p>The minimum clearspace, <span class="x-inline">X</span>, equals the width of the bolt in the lockup. Multiply it for tighter brand expressions — keep it minimum for cramped UI.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 03 — MIN SIZE ========== -->
+  <section class="page">
+    <div class="section-label"><span class="num">03</span><span>Minimum Size</span></div>
+    <div class="inner">
+      <div class="eyebrow">Legibility floor</div>
+      <h2>Don't crush it.</h2>
+      <p style="margin-top:24px;">Below these sizes the gradient muddies and the bolt loses its bite. If you need to go smaller, switch to the mark.</p>
+
+      <div class="minsize">
+        <div class="ms-card">
+          <div class="ms-vis"><img src="logo-set/svg/arctivate-horizontal.svg" style="height:32px;width:auto;" alt="Min horizontal"/></div>
+          <div class="ms-meta"><strong>120 px</strong>Horizontal · digital</div>
+        </div>
+        <div class="ms-card">
+          <div class="ms-vis"><img src="logo-set/svg/arctivate-stacked.svg" style="height:64px;width:auto;" alt="Min stacked"/></div>
+          <div class="ms-meta"><strong>72 px</strong>Stacked · digital</div>
+        </div>
+        <div class="ms-card">
+          <div class="ms-vis"><img src="logo-set/svg/arctivate-mark.svg" style="height:48px;width:auto;" alt="Min mark"/></div>
+          <div class="ms-meta"><strong>24 px</strong>Mark · favicon &amp; icons</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 04 — MISUSE ========== -->
+  <section class="page cream">
+    <div class="section-label"><span class="num">04</span><span>Misuse</span></div>
+    <div class="inner">
+      <div class="eyebrow">Don'ts</div>
+      <h2>Hands off the bolt.</h2>
+      <p style="margin-top:24px;">The logo ships as a fixed system. Don't stretch, rotate, recolor, outline, drop-shadow, or set it on visually noisy backgrounds.</p>
+
+      <div class="misuse">
+        <div class="mu-card">
+          <span class="stamp">✕</span>
+          <img src="logo-set/svg/arctivate-horizontal.svg" class="mu-stretch" alt="Stretched"/>
+          <div class="label">Don't stretch</div>
+        </div>
+        <div class="mu-card">
+          <span class="stamp">✕</span>
+          <img src="logo-set/svg/arctivate-horizontal.svg" class="mu-rotate" alt="Rotated"/>
+          <div class="label">Don't rotate</div>
+        </div>
+        <div class="mu-card">
+          <span class="stamp">✕</span>
+          <img src="logo-set/svg/arctivate-horizontal.svg" class="mu-recolor" alt="Recolored"/>
+          <div class="label">Don't recolor</div>
+        </div>
+        <div class="mu-card">
+          <span class="stamp">✕</span>
+          <img src="logo-set/svg/arctivate-horizontal.svg" class="mu-shadow" alt="Shadowed"/>
+          <div class="label">Don't add effects</div>
+        </div>
+        <div class="mu-card">
+          <span class="stamp">✕</span>
+          <img src="logo-set/svg/arctivate-horizontal.svg" class="mu-outline" alt="Outlined"/>
+          <div class="label">Don't outline or invert</div>
+        </div>
+        <div class="mu-card mu-on-busy">
+          <span class="stamp">✕</span>
+          <img src="logo-set/svg/arctivate-horizontal.svg" alt="On busy bg" style="background:transparent;"/>
+          <div class="label" style="color:var(--ink);">Don't place on noisy art</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 05 — COLOR ========== -->
+  <section class="page">
+    <div class="section-label"><span class="num">05</span><span>Color</span></div>
+    <div class="inner">
+      <div class="eyebrow">Palette</div>
+      <h2>Teal across three steps.</h2>
+      <p style="margin-top:24px;">The gradient runs 120° from <span class="mono">#5EE7D6</span> → <span class="mono">#15B8AE</span> at 55% → <span class="mono">#0E8F88</span>. Always preserve all three stops. The ink is reserved for backgrounds and the wordmark in single-color treatments.</p>
+
+      <div class="color-hero" style="margin-top:32px;"></div>
+
+      <div class="swatches">
+        <div class="swatch">
+          <div class="chip" style="background:#5EE7D6" data-name="Teal · Light"></div>
+          <div class="info">
+            <div class="hex">#5EE7D6</div>
+            <div class="vals">
+              RGB · 94 231 214<br/>
+              CMYK · 56 0 24 0<br/>
+              HSL · 172 73% 64%
+            </div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background:#15B8AE" data-name="Teal · Core"></div>
+          <div class="info">
+            <div class="hex">#15B8AE</div>
+            <div class="vals">
+              RGB · 21 184 174<br/>
+              CMYK · 79 0 36 4<br/>
+              HSL · 176 80% 40%
+            </div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background:#0E8F88" data-name="Teal · Deep"></div>
+          <div class="info">
+            <div class="hex">#0E8F88</div>
+            <div class="vals">
+              RGB · 14 143 136<br/>
+              CMYK · 85 0 41 28<br/>
+              HSL · 177 82% 31%
+            </div>
+          </div>
+        </div>
+        <div class="swatch dark-chip">
+          <div class="chip" style="background:#070E14" data-name="Ink"></div>
+          <div class="info">
+            <div class="hex">#070E14</div>
+            <div class="vals">
+              RGB · 7 14 20<br/>
+              CMYK · 78 50 22 91<br/>
+              HSL · 212 48% 5%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:48px;display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+        <div style="background:var(--ink);color:var(--paper);border-radius:14px;padding:32px;">
+          <h4 style="color:var(--teal-light);margin-bottom:12px;">On dark</h4>
+          <p style="color:#d6dde6;">Use ink (<span class="mono">#070E14</span>) as the canonical background. The gradient pops against deep navy and reads as motion at any scale.</p>
+        </div>
+        <div style="background:var(--paper-2);border-radius:14px;padding:32px;">
+          <h4 style="margin-bottom:12px;color:var(--teal-deep);">On light</h4>
+          <p>The gradient holds up on warm off-white. Avoid pure paper-white (#fff) — it cools the brand. Use the cream <span class="mono">#f6f4ef</span> instead.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 06 — TYPOGRAPHY ========== -->
+  <section class="page cream">
+    <div class="section-label"><span class="num">06</span><span>Typography</span></div>
+    <div class="inner">
+      <div class="eyebrow">Type</div>
+      <h2>Montserrat, end to end.</h2>
+      <p style="margin-top:24px;">One family does the whole job. The italic black sets the brand voice; the medium and semibold weights carry copy, UI, and tabular data without contrast.</p>
+
+      <div class="type-display">Activate.</div>
+
+      <div class="type-grid">
+        <div class="type-card display">
+          <div class="sample">Aa</div>
+          <div class="specs"><strong>Montserrat Black Italic</strong><span>900 · italic</span></div>
+          <p class="small" style="margin-top:14px;">Wordmark, hero, and pull-quote use only. Tight tracking (−2). Never set body copy.</p>
+        </div>
+        <div class="type-card body">
+          <div class="sample">Aa</div>
+          <div class="specs"><strong>Montserrat SemiBold</strong><span>600 · upright</span></div>
+          <p class="small" style="margin-top:14px;">Section headings, labels, navigation, button text. Wide tracking (+2 to +4) at small sizes.</p>
+        </div>
+      </div>
+
+      <div class="type-scale">
+        <h4 style="color:var(--teal-light);margin-bottom:12px;">Scale</h4>
+        <div class="scale-row">
+          <div class="sz">132 / 0.9</div>
+          <div class="scl-sample" style="font-size:84px;font-weight:900;font-style:italic;letter-spacing:-2px;">Display</div>
+          <div class="use">Hero · cover</div>
+        </div>
+        <div class="scale-row">
+          <div class="sz">72 / 1.0</div>
+          <div class="scl-sample" style="font-size:48px;font-weight:900;letter-spacing:-1px;">Headline</div>
+          <div class="use">Section H2</div>
+        </div>
+        <div class="scale-row">
+          <div class="sz">28 / 1.2</div>
+          <div class="scl-sample" style="font-size:24px;font-weight:700;">Subhead</div>
+          <div class="use">Section H3</div>
+        </div>
+        <div class="scale-row">
+          <div class="sz">16 / 1.55</div>
+          <div class="scl-sample" style="font-size:16px;font-weight:500;">Body — the workhorse weight.</div>
+          <div class="use">Paragraph</div>
+        </div>
+        <div class="scale-row">
+          <div class="sz">11 / 1.4</div>
+          <div class="scl-sample" style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;">EYEBROW LABEL</div>
+          <div class="use">Tag · meta</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 07 — APPLICATIONS ========== -->
+  <section class="page">
+    <div class="section-label"><span class="num">07</span><span>Applications</span></div>
+    <div class="inner">
+      <div class="eyebrow">In the world</div>
+      <h2>How it shows up.</h2>
+      <p style="margin-top:24px;">A few canonical placements. The bolt always leads; the gradient never gets recolored; ink is the canonical background.</p>
+
+      <div class="apps">
+        <div class="app card">
+          <div class="biz">
+            <img src="logo-set/svg/arctivate-horizontal.svg" alt="On business card"/>
+            <div>
+              <div class="name">Your Name</div>
+              <div class="role">Title · Department</div>
+              <div class="contact">
+                hello@arctivate.com<br/>
+                +1 555 012 3456<br/>
+                arctivate.com
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="app avatar">
+          <div class="avatar-circle">
+            <img src="logo-set/svg/arctivate-mark.svg" alt="Avatar"/>
+          </div>
+          <div class="alabel">Avatar · Social</div>
+        </div>
+        <div class="app tag">
+          <div class="alabel">Print · One color</div>
+          <div class="tag-art">
+            <img src="logo-set/svg/arctivate-stacked.svg" alt="Stacked print"/>
+          </div>
+          <div class="alabel" style="text-align:right;color:var(--muted);">Stacked lockup</div>
+        </div>
+        <div class="app social" style="grid-column: span 2;">
+          <div class="alabel">Header · Banner</div>
+          <div class="social-art">
+            <img src="logo-set/svg/arctivate-horizontal.svg" alt="Banner"/>
+          </div>
+          <div class="alabel" style="align-self:flex-end;color:var(--muted-dark);">arctivate.com</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== FOOTER ========== -->
+  <section class="footer">
+    <div>
+      <div class="small" style="letter-spacing:3px;text-transform:uppercase;margin-bottom:12px;">End of guidelines</div>
+      <h2>Stay sharp.</h2>
+      <a class="powered" href="https://www.arcfitnessaustralia.com.au/" target="_blank" rel="noopener">
+        <span class="powered-label">Powered by</span>
+        <img src="assets/arc-fitness-logo.png" alt="ARC fitness"/>
+      </a>
+    </div>
+    <div style="text-align:right;">
+      <div class="small" style="letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px;">Arctivate · Brand Guidelines</div>
+      <div class="small">v1.0 · 2026 · Internal use</div>
+    </div>
+  </section>
+
+  <script>
+    (async () => {
+      try { await document.fonts.ready; } catch (e) {}
+      // Wait for images to load too so layout settles
+      const imgs = [...document.images];
+      await Promise.all(imgs.map(img => img.complete ? null : new Promise(r => {
+        img.addEventListener('load', r, { once: true });
+        img.addEventListener('error', r, { once: true });
+      })));
+      setTimeout(() => window.print(), 500);
+    })();
+  </script>
+
+</body>
+</html>
