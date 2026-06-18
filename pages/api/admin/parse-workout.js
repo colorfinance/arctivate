@@ -92,20 +92,21 @@ export default async function handler(req, res) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    const prompt = `You are a strength & conditioning coach. The image shows a workout written on a whiteboard, paper, or screen. Extract the workout into structured data.
+    const prompt = `You are a strength & conditioning coach with excellent OCR skills. The image shows a workout written or printed on a whiteboard, paper, sign, or screen. Read EVERY line and extract the full workout.
 
 Return ONLY valid JSON in this exact format, no other text:
 {"title": "Workout Name", "description": "Short summary or scheme (e.g. AMRAP 20, For Time)", "exercises": [{"name": "Back Squat", "metric_type": "weight", "sets": 5, "reps": 5, "target": 100, "notes": "tempo 3-1-1"}]}
 
 Rules:
-- "title" is a short name for the session. If none is written, infer one (e.g. "Leg Day").
-- "description" captures the overall scheme/notes, or "" if none.
-- "exercises" is an ordered array of every movement listed.
-- "metric_type" MUST be one of: "weight" (lifts in kg), "time" (e.g. runs/holds in minutes), "reps" (bodyweight rep targets), "distance" (e.g. metres/km). Choose the best fit.
+- Read the whole image carefully. Extract EVERY distinct movement as its own entry in "exercises", in the order listed.
+- Do your best even if text is messy, angled, or low contrast. Make a sensible attempt at each line rather than giving up.
+- "title" is a short name for the session. If none is written, infer one from the movements (e.g. "Leg Day").
+- "description" captures the overall scheme/notes (rounds, time cap, etc.), or "" if none.
+- "metric_type" MUST be one of: "weight" (lifts in kg/lb), "time" (runs/holds/cardio in minutes), "reps" (bodyweight rep targets), "distance" (metres/km). Choose the best fit.
 - "sets" and "reps" are whole numbers, or null if not specified.
 - "target" is the prescribed load/time/distance as a number, or null if not specified (e.g. squat at 100kg -> 100; 5km run -> 5).
 - "notes" is any per-exercise note (tempo, rest, RPE), or "" if none.
-- If you cannot read any workout, return: {"title": "Unknown", "description": "Could not read workout", "exercises": []}`;
+- Only return an empty "exercises" array if the image genuinely contains no workout at all.`;
 
     const result = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -118,9 +119,27 @@ Rules:
           ],
         },
       ],
+      config: {
+        // Force clean JSON, give the model room, and disable "thinking" — for
+        // dense boards the default thinking budget can consume the whole output
+        // allowance and return empty text.
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+        maxOutputTokens: 4096,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     });
 
     const text = result.text || '';
+
+    if (!text.trim()) {
+      const finishReason = result?.candidates?.[0]?.finishReason;
+      console.error('Empty Gemini response. finishReason:', finishReason);
+      if (finishReason === 'SAFETY') {
+        return res.status(400).json({ error: 'Image could not be processed. Please try a different photo.' });
+      }
+      return res.status(500).json({ error: 'The AI returned an empty result. Please try again with a clearer, well-lit photo.' });
+    }
 
     let cleanJson = text
       .replace(/```json\s*/gi, '')
