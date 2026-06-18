@@ -1,8 +1,25 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabaseClient'
 
 export default function Nav() {
   const router = useRouter()
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    const checkAdmin = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        const { data } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+        if (active && data?.is_admin) setIsAdmin(true)
+      } catch {}
+    }
+    checkAdmin()
+    return () => { active = false }
+  }, [])
 
   const isActive = (path) => router.pathname === path ? "text-arc-accent" : "hover:text-white transition"
 
@@ -40,6 +57,12 @@ export default function Nav() {
             <span className="text-base" aria-hidden="true">👤</span>
             <span>Profile</span>
         </Link>
+        {isAdmin && (
+            <Link href="/admin/workouts" aria-label="Admin" aria-current={router.pathname === '/admin/workouts' ? 'page' : undefined} className={itemClasses('/admin/workouts')}>
+                <span className="text-base" aria-hidden="true">🛠️</span>
+                <span>Admin</span>
+            </Link>
+        )}
     </nav>
   )
 }
