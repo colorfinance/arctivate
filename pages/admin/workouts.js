@@ -159,7 +159,7 @@ export default function AdminWorkouts() {
     const reader = new FileReader()
     reader.onerror = () => { setScanning(false); showToast('Failed to read image') }
     reader.onloadend = () => {
-      resizeImage(reader.result, 1100, (resized) => parseWorkout(resized), (msg) => { setScanning(false); showToast(msg) })
+      resizeImage(reader.result, 1600, (resized) => parseWorkout(resized), (msg) => { setScanning(false); showToast(msg) })
     }
     reader.readAsDataURL(file)
   }
