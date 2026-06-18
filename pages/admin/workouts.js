@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/router'
+import Link from 'next/link'
 import Nav from '../../components/Nav'
 import LoadingState from '../../components/LoadingState'
 import { supabase } from '../../lib/supabaseClient'
@@ -277,6 +278,16 @@ export default function AdminWorkouts() {
       </header>
 
       <main className="pt-24 px-5 space-y-6 max-w-lg mx-auto">
+
+        {/* Sub-nav between admin pages */}
+        <div className="flex gap-2">
+          <span className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-accent-gradient text-white">
+            Workout of the Day
+          </span>
+          <Link href="/admin/admins" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
+            Admins
+          </Link>
+        </div>
 
         {/* Photo scan */}
         <section className="relative">
