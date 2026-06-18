@@ -113,6 +113,12 @@ export default function Train() {
   const [isLoading, setIsLoading] = useState(true)
   const [isLogging, setIsLogging] = useState(false)
 
+  // Workout of the Day (admin-programmed)
+  const [todayWorkout, setTodayWorkout] = useState(null)
+  const [prescribed, setPrescribed] = useState([])
+  const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
+  const [activePrescribed, setActivePrescribed] = useState(null) // current dwe loaded into logger
+
   // Success/Share Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [lastWorkoutData, setLastWorkoutData] = useState(null)
@@ -148,7 +154,7 @@ export default function Train() {
             return
         }
 
-        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id)])
+        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id), fetchTodayWorkout(user.id)])
         setIsLoading(false)
     }
     load()
@@ -264,6 +270,83 @@ export default function Train() {
     } catch {}
   }
 
+  // Fetch the admin-programmed Workout of the Day (if any) for today, plus
+  // which prescribed movements this user has already logged.
+  async function fetchTodayWorkout(userId) {
+    try {
+      const tz = new Date().getTimezoneOffset() * 60000
+      const today = new Date(Date.now() - tz).toISOString().slice(0, 10)
+
+      const { data: workout, error } = await supabase
+        .from('daily_workouts')
+        .select('*')
+        .eq('workout_date', today)
+        .eq('is_published', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      // Table may not exist yet (migration not applied) — fail silently.
+      if (error || !workout) return
+
+      setTodayWorkout(workout)
+
+      const { data: exs } = await supabase
+        .from('daily_workout_exercises')
+        .select('*')
+        .eq('daily_workout_id', workout.id)
+        .order('position', { ascending: true })
+
+      if (exs) setPrescribed(exs)
+
+      // Determine which prescribed movements are already done.
+      try {
+        const { data: doneLogs } = await supabase
+          .from('workout_logs')
+          .select('daily_workout_exercise_id')
+          .eq('user_id', userId)
+          .eq('daily_workout_id', workout.id)
+
+        if (doneLogs) {
+          setCompletedPrescribed(new Set(doneLogs.map(l => l.daily_workout_exercise_id).filter(Boolean)))
+        }
+      } catch {}
+    } catch {}
+  }
+
+  // Load a prescribed movement into the logger: select (or create) the matching
+  // exercise and pre-fill the prescribed sets/reps so the user just adds weight.
+  const startPrescribed = async (dwe) => {
+    try {
+      let match = exercises.find(e => e.name.trim().toLowerCase() === dwe.name.trim().toLowerCase())
+
+      if (!match) {
+        const { data: { user } } = await supabase.auth.getUser()
+        const insertData = { user_id: user?.id, name: dwe.name, metric_type: dwe.metric_type || 'weight' }
+        let { data, error } = await supabase.from('exercises').insert(insertData).select().single()
+        if (error && error.message?.includes('user_id')) {
+          delete insertData.user_id
+          const retry = await supabase.from('exercises').insert(insertData).select().single()
+          data = retry.data; error = retry.error
+        }
+        if (error) { showToast('Could not load movement'); return }
+        match = data
+        setExercises(prev => [...prev, data])
+      }
+
+      setSelectedExId(match.id)
+      setActivePrescribed(dwe)
+      setReps(dwe.target_reps != null ? String(dwe.target_reps) : '')
+      setSets(dwe.target_sets != null ? String(dwe.target_sets) : '')
+      setValue('')
+      setRpe('')
+      showToast(`Logging: ${dwe.name}`)
+      if (typeof window !== 'undefined') window.scrollTo({ top: 200, behavior: 'smooth' })
+    } catch {
+      showToast('Could not load movement')
+    }
+  }
+
   const showToast = (msg) => setToast(msg)
 
   const createExercise = async () => {
@@ -366,27 +449,35 @@ export default function Train() {
         if (!isNaN(parsed)) logPayload.rpe = parsed
       }
 
-      const optionalFields = ['rpe', 'reps', 'sets']
+      // Link this log to the programmed Workout of the Day if applicable.
+      const linkedPrescribed = activePrescribed && exercises.find(e => e.id === selectedExId)?.name?.trim().toLowerCase() === activePrescribed.name?.trim().toLowerCase()
+        ? activePrescribed
+        : null
+      if (linkedPrescribed && todayWorkout) {
+        logPayload.daily_workout_id = todayWorkout.id
+        logPayload.daily_workout_exercise_id = linkedPrescribed.id
+      }
+
+      const optionalFields = ['rpe', 'reps', 'sets', 'daily_workout_id', 'daily_workout_exercise_id']
       let { error: logError, data: insertedLog } = await supabase
         .from('workout_logs')
         .insert(logPayload)
         .select('id')
         .single()
 
-      // If insert fails due to unknown column, strip optional fields and retry
-      if (logError && logError.message) {
-        for (const field of optionalFields) {
-          if (logPayload[field] !== undefined && logError.message.includes(field)) {
-            delete logPayload[field]
-            const retry = await supabase
-              .from('workout_logs')
-              .insert(logPayload)
-              .select('id')
-              .single()
-            logError = retry.error
-            insertedLog = retry.data
-            break
-          }
+      // If insert fails due to unknown column(s), strip optional fields and
+      // retry — looping so multiple missing columns (e.g. on a DB where the
+      // Workout-of-the-Day migration hasn't run) are all handled.
+      for (const field of optionalFields) {
+        if (logError && logError.message && logPayload[field] !== undefined && logError.message.includes(field)) {
+          delete logPayload[field]
+          const retry = await supabase
+            .from('workout_logs')
+            .insert(logPayload)
+            .select('id')
+            .single()
+          logError = retry.error
+          insertedLog = retry.data
         }
       }
 
@@ -441,6 +532,16 @@ export default function Train() {
         date: now.toISOString()
       })
       setShowSuccessModal(true)
+
+      // If this completed a Workout-of-the-Day movement, tick it off.
+      if (linkedPrescribed) {
+        setCompletedPrescribed(prev => {
+          const next = new Set(prev)
+          next.add(linkedPrescribed.id)
+          return next
+        })
+        setActivePrescribed(null)
+      }
 
       setValue('')
       setReps('')
@@ -625,6 +726,78 @@ export default function Train() {
                 </motion.div>
             </section>
 
+            {/* Today's Workout (admin-programmed) */}
+            {todayWorkout && prescribed.length > 0 && (
+                <motion.section
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}
+                    className="relative"
+                >
+                    <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-cyan/20 via-arc-accent/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
+                    <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
+                        <div className="h-[2px] bg-accent-gradient-r" />
+                        <div className="p-5 space-y-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <span className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.2em]">Today's Workout</span>
+                                    <h2 className="text-lg font-black italic tracking-tight mt-0.5">{todayWorkout.title}</h2>
+                                    {todayWorkout.description && (
+                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug">{todayWorkout.description}</p>
+                                    )}
+                                </div>
+                                <div className="shrink-0 text-right">
+                                    <span className="font-mono text-sm font-bold text-arc-accent">
+                                        {completedPrescribed.size}/{prescribed.length}
+                                    </span>
+                                    <span className="block text-[8px] text-arc-muted uppercase tracking-wider">Done</span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                {prescribed.map((dwe) => {
+                                    const done = completedPrescribed.has(dwe.id)
+                                    const isActive = activePrescribed?.id === dwe.id
+                                    const unit = dwe.metric_type === 'time' ? 'min' : dwe.metric_type === 'distance' ? 'km' : dwe.metric_type === 'reps' ? 'reps' : 'kg'
+                                    const scheme = [
+                                        dwe.target_sets != null ? `${dwe.target_sets}×` : '',
+                                        dwe.target_reps != null ? `${dwe.target_reps}` : '',
+                                    ].join('')
+                                    return (
+                                        <button
+                                            key={dwe.id}
+                                            onClick={() => startPrescribed(dwe)}
+                                            className={`w-full text-left flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                                                isActive
+                                                    ? 'border-arc-accent/50 bg-arc-accent/10 shadow-glow'
+                                                    : done
+                                                        ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+                                                        : 'border-white/[0.05] bg-arc-surface hover:border-arc-accent/30'
+                                            }`}
+                                        >
+                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
+                                                {done && (
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
+                                                <div className="text-[10px] text-arc-muted font-mono">
+                                                    {scheme && <span>{scheme} </span>}
+                                                    {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unit} </span>}
+                                                    {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
+                                                </div>
+                                            </div>
+                                            {!done && (
+                                                <span className="text-[9px] font-bold text-arc-accent uppercase tracking-wider shrink-0">Log →</span>
+                                            )}
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                </motion.section>
+            )}
+
             {/* Logger Input - Main Card */}
             <motion.section
                 initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.25 }}
@@ -656,7 +829,7 @@ export default function Train() {
                         <div className="relative">
                             <select
                                 value={selectedExId}
-                                onChange={(e) => setSelectedExId(e.target.value)}
+                                onChange={(e) => { setSelectedExId(e.target.value); setActivePrescribed(null) }}
                                 className="w-full bg-arc-surface border border-white/[0.06] text-white p-4 rounded-xl font-bold appearance-none outline-none focus:border-arc-accent/40 transition-colors"
                             >
                                 {exercises.map(ex => (
