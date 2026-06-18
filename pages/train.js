@@ -258,6 +258,9 @@ export default function Train() {
             id: log.id,
             name: log.exercises?.name || 'Unknown',
             val: log.value,
+            reps: log.reps ?? null,
+            sets: log.sets ?? null,
+            rpe: log.rpe ?? null,
             points: log.points_awarded || 50,
             time: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             isPB: log.is_new_pb || false,
@@ -515,6 +518,9 @@ export default function Train() {
         id: savedLogId,
         name: ex.name,
         val: valNum,
+        reps: logPayload.reps ?? null,
+        sets: logPayload.sets ?? null,
+        rpe: logPayload.rpe ?? null,
         points: pointsEarned,
         time: timeString,
         isPB: isPB,
@@ -922,14 +928,22 @@ export default function Train() {
             <section className="space-y-4">
                  <div className="flex justify-between items-center px-1">
                      <h3 className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Recent Activity</h3>
-                     {logs.length > 0 && (
+                     <div className="flex items-center gap-4">
                          <button
-                             onClick={() => setShowWorkoutArt(true)}
-                             className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1"
+                             onClick={() => router.push('/history')}
+                             className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
                          >
-                             <ImageIcon /> Create Art
+                             History →
                          </button>
-                     )}
+                         {logs.length > 0 && (
+                             <button
+                                 onClick={() => setShowWorkoutArt(true)}
+                                 className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1"
+                             >
+                                 <ImageIcon /> Create Art
+                             </button>
+                         )}
+                     </div>
                  </div>
                  <div className="space-y-2.5 pb-10">
                     <AnimatePresence initial={false}>
@@ -957,8 +971,12 @@ export default function Train() {
                                         )}
                                     </div>
                                     <div className="text-[10px] text-arc-muted font-mono">
-                                        {log.time} • <span className="text-white/80">{log.val}</span>
+                                        {log.time} • {(log.sets != null || log.reps != null) && (
+                                            <span className="text-white/80">{log.sets != null ? `${log.sets}×` : ''}{log.reps != null ? log.reps : ''} · </span>
+                                        )}
+                                        <span className="text-white/80">{log.val}</span>
                                         <span className="text-arc-muted ml-0.5">{log.metricType === 'time' ? 'min' : 'kg'}</span>
+                                        {log.rpe != null && <span className="text-arc-muted ml-2">RPE {log.rpe}</span>}
                                     </div>
                                 </div>
                                 <div className="font-mono text-arc-accent font-bold text-sm bg-arc-accent/10 px-2.5 py-1 rounded-lg">+{log.points}</div>
