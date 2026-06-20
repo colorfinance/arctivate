@@ -74,7 +74,6 @@ const todayStr = () => {
 
 export default function AdminWorkouts() {
   const router = useRouter()
-  const fileRef = useRef(null)
   const galleryRef = useRef(null)
 
   const [isLoading, setIsLoading] = useState(true)
@@ -151,8 +150,7 @@ export default function AdminWorkouts() {
   // --- Photo → AI parse -----------------------------------------------------
   const handlePhoto = async (e) => {
     const file = e.target.files?.[0]
-    // Reset both inputs so re-selecting the same file still fires onChange.
-    if (fileRef.current) fileRef.current.value = ''
+    // Reset the input so re-selecting the same file still fires onChange.
     if (galleryRef.current) galleryRef.current.value = ''
     if (file) await scanFile(file)
   }
@@ -300,14 +298,12 @@ export default function AdminWorkouts() {
             <div className="p-6 space-y-4">
               <div>
                 <h2 className="font-black italic tracking-tight text-lg">Snap a workout</h2>
-                <p className="text-[11px] text-arc-muted mt-1">Take a photo of a whiteboard or written plan, or upload one from your camera roll — AI turns it into a workout you can edit.</p>
+                <p className="text-[11px] text-arc-muted mt-1">Take a photo of a whiteboard or written plan, or pick one from your camera roll — AI turns it into a workout you can edit.</p>
               </div>
-              {/* Camera capture */}
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
-              {/* Gallery / camera roll (no capture attr) */}
+              {/* File picker — phones offer both "Take Photo" and the camera roll */}
               <input ref={galleryRef} type="file" accept="image/*" onChange={handlePhoto} className="hidden" />
               <button
-                onClick={() => fileRef.current?.click()}
+                onClick={() => galleryRef.current?.click()}
                 disabled={scanning}
                 className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50 flex items-center justify-center gap-2"
               >
@@ -316,14 +312,7 @@ export default function AdminWorkouts() {
                     <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
                     <span>READING…</span>
                   </>
-                ) : '📸 TAKE A PHOTO'}
-              </button>
-              <button
-                onClick={() => galleryRef.current?.click()}
-                disabled={scanning}
-                className="w-full bg-arc-surface border border-white/[0.06] text-white font-bold tracking-wide py-3.5 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 hover:border-arc-accent/30 transition-colors"
-              >
-                🖼️ Upload from camera roll
+                ) : '📸 SCAN WORKOUT PHOTO'}
               </button>
             </div>
           </div>
