@@ -66,15 +66,31 @@ const Toast = ({ message, onClose }) => {
   )
 }
 
-const todayStr = () => {
-  const d = new Date()
+const fmtDate = (d) => {
   const tz = d.getTimezoneOffset() * 60000
   return new Date(d - tz).toISOString().slice(0, 10)
 }
 
+const todayStr = () => fmtDate(new Date())
+
+// Monday-based start of the week containing the given YYYY-MM-DD string.
+const mondayOf = (dateStr) => {
+  const d = new Date(dateStr + 'T00:00:00')
+  const offset = (d.getDay() + 6) % 7 // 0 = Monday
+  d.setDate(d.getDate() - offset)
+  return fmtDate(d)
+}
+
+const addDays = (dateStr, n) => {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + n)
+  return fmtDate(d)
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
 export default function AdminWorkouts() {
   const router = useRouter()
-  const fileRef = useRef(null)
   const galleryRef = useRef(null)
 
   const [isLoading, setIsLoading] = useState(true)
@@ -83,6 +99,8 @@ export default function AdminWorkouts() {
 
   const [workoutId, setWorkoutId] = useState(null) // existing row for the date
   const [date, setDate] = useState(todayStr())
+  const [weekStart, setWeekStart] = useState(mondayOf(todayStr()))
+  const [weekStatus, setWeekStatus] = useState({}) // { 'YYYY-MM-DD': { title, published } }
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [source, setSource] = useState('manual')
@@ -111,6 +129,35 @@ export default function AdminWorkouts() {
     if (!isAdmin) return
     loadForDate(date)
   }, [date, isAdmin])
+
+  // --- Load which days in the visible week already have a workout -----------
+  useEffect(() => {
+    if (!isAdmin) return
+    loadWeekStatus(weekStart)
+  }, [weekStart, isAdmin])
+
+  async function loadWeekStatus(start) {
+    const end = addDays(start, 6)
+    const { data } = await supabase
+      .from('daily_workouts')
+      .select('workout_date, title, is_published, created_at')
+      .gte('workout_date', start)
+      .lte('workout_date', end)
+      .order('created_at', { ascending: true })
+
+    const map = {}
+    ;(data || []).forEach((w) => {
+      // Latest row wins for a given date (created_at ascending => last overwrites).
+      map[w.workout_date] = { title: w.title, published: w.is_published }
+    })
+    setWeekStatus(map)
+  }
+
+  // Select a day to edit, keeping the visible week in sync.
+  const selectDay = (d) => {
+    setDate(d)
+    setWeekStart(mondayOf(d))
+  }
 
   async function loadForDate(d) {
     const { data: existing } = await supabase
@@ -151,8 +198,7 @@ export default function AdminWorkouts() {
   // --- Photo → AI parse -----------------------------------------------------
   const handlePhoto = async (e) => {
     const file = e.target.files?.[0]
-    // Reset both inputs so re-selecting the same file still fires onChange.
-    if (fileRef.current) fileRef.current.value = ''
+    // Reset the input so re-selecting the same file still fires onChange.
     if (galleryRef.current) galleryRef.current.value = ''
     if (file) await scanFile(file)
   }
@@ -256,6 +302,7 @@ export default function AdminWorkouts() {
       if (exErr) throw exErr
 
       showToast(publish ? 'Workout published to all users 🎉' : 'Saved as draft')
+      loadWeekStatus(weekStart)
     } catch (err) {
       console.error('[Arctivate] save workout failed:', err)
       showToast(`Failed to save: ${err.message || 'unknown error'}`)
@@ -300,14 +347,12 @@ export default function AdminWorkouts() {
             <div className="p-6 space-y-4">
               <div>
                 <h2 className="font-black italic tracking-tight text-lg">Snap a workout</h2>
-                <p className="text-[11px] text-arc-muted mt-1">Take a photo of a whiteboard or written plan, or upload one from your camera roll — AI turns it into a workout you can edit.</p>
+                <p className="text-[11px] text-arc-muted mt-1">Take a photo of a whiteboard or written plan, or pick one from your camera roll — AI turns it into a workout you can edit.</p>
               </div>
-              {/* Camera capture */}
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
-              {/* Gallery / camera roll (no capture attr) */}
+              {/* File picker — phones offer both "Take Photo" and the camera roll */}
               <input ref={galleryRef} type="file" accept="image/*" onChange={handlePhoto} className="hidden" />
               <button
-                onClick={() => fileRef.current?.click()}
+                onClick={() => galleryRef.current?.click()}
                 disabled={scanning}
                 className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50 flex items-center justify-center gap-2"
               >
@@ -316,16 +361,54 @@ export default function AdminWorkouts() {
                     <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
                     <span>READING…</span>
                   </>
-                ) : '📸 TAKE A PHOTO'}
-              </button>
-              <button
-                onClick={() => galleryRef.current?.click()}
-                disabled={scanning}
-                className="w-full bg-arc-surface border border-white/[0.06] text-white font-bold tracking-wide py-3.5 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 hover:border-arc-accent/30 transition-colors"
-              >
-                🖼️ Upload from camera roll
+                ) : '📸 SCAN WORKOUT PHOTO'}
               </button>
             </div>
+          </div>
+        </section>
+
+        {/* Week planner */}
+        <section className="bg-arc-card border border-white/[0.04] rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <button onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label="Previous week"
+              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center">‹</button>
+            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-[0.2em]">
+              Week of {new Date(weekStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+            <button onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label="Next week"
+              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center">›</button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1.5">
+            {WEEKDAYS.map((label, i) => {
+              const d = addDays(weekStart, i)
+              const status = weekStatus[d]
+              const isSelected = d === date
+              const isToday = d === todayStr()
+              const dayNum = new Date(d + 'T00:00:00').getDate()
+              return (
+                <button
+                  key={d}
+                  onClick={() => selectDay(d)}
+                  className={`relative flex flex-col items-center justify-center py-2.5 rounded-xl border transition-all ${
+                    isSelected
+                      ? 'border-arc-accent/60 bg-arc-accent/10 shadow-glow'
+                      : 'border-white/[0.05] bg-arc-surface hover:border-arc-accent/30'
+                  }`}
+                >
+                  <span className={`text-[8px] font-bold uppercase tracking-wider ${isToday ? 'text-arc-cyan' : 'text-arc-muted'}`}>{label}</span>
+                  <span className="text-sm font-black font-mono mt-0.5">{dayNum}</span>
+                  <span className={`mt-1 w-1.5 h-1.5 rounded-full ${
+                    status ? (status.published ? 'bg-arc-accent' : 'bg-amber-400') : 'bg-white/10'
+                  }`} />
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex items-center justify-center gap-4 text-[9px] text-arc-muted">
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-arc-accent" /> Published</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Draft</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-white/10" /> Empty</span>
           </div>
         </section>
 
@@ -333,9 +416,11 @@ export default function AdminWorkouts() {
         <section className="bg-arc-card border border-white/[0.04] rounded-2xl p-5 space-y-4">
           <div>
             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            <input type="date" value={date} onChange={(e) => e.target.value && selectDay(e.target.value)}
               className="w-full bg-arc-surface border border-white/[0.06] text-white p-3 rounded-xl outline-none focus:border-arc-accent/40" />
-            {workoutId && <p className="text-[10px] text-arc-cyan mt-1.5">Editing the existing workout for this date.</p>}
+            {workoutId
+              ? <p className="text-[10px] text-arc-cyan mt-1.5">Editing the existing workout for this date.</p>
+              : <p className="text-[10px] text-arc-muted mt-1.5">No workout yet for this date — build one below.</p>}
           </div>
           <div>
             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Title</label>
