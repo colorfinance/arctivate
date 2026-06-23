@@ -122,11 +122,14 @@ export default function AdminAdmins() {
         {/* Sub-nav between admin pages */}
         <div className="flex gap-2">
           <Link href="/admin/workouts" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
-            Workout of the Day
+            Workouts
           </Link>
           <span className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-accent-gradient text-white">
             Admins
           </span>
+          <Link href="/admin/feedback" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
+            Feedback
+          </Link>
         </div>
 
         {/* Grant by email */}

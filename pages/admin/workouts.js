@@ -332,10 +332,13 @@ export default function AdminWorkouts() {
         {/* Sub-nav between admin pages */}
         <div className="flex gap-2">
           <span className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-accent-gradient text-white">
-            Workout of the Day
+            Workouts
           </span>
           <Link href="/admin/admins" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
             Admins
+          </Link>
+          <Link href="/admin/feedback" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
+            Feedback
           </Link>
         </div>
 
