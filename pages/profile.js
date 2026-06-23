@@ -520,12 +520,28 @@ export default function Profile() {
           </div>
         </motion.div>
 
+        {/* Send Feedback */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.28 }}
+          className="mt-8"
+        >
+          <button
+            onClick={() => router.push('/feedback')}
+            className="w-full bg-arc-surface border border-white/5 text-arc-muted font-bold py-4 rounded-2xl flex items-center justify-center gap-3 hover:text-white hover:border-white/10 transition-colors"
+          >
+            <span aria-hidden="true">💬</span>
+            <span>Send Feedback</span>
+          </button>
+        </motion.div>
+
         {/* Sign Out */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="mt-8 mb-4"
+          className="mt-4 mb-4"
         >
           <button
             onClick={handleSignOut}
