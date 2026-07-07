@@ -11,6 +11,7 @@ const ShareActionCard = dynamic(() => import('../components/train/ShareActionCar
 const VoiceInput = dynamic(() => import('../components/train/VoiceInput'), { ssr: false })
 const VoiceMemo = dynamic(() => import('../components/train/VoiceMemo'), { ssr: false })
 const WorkoutArt = dynamic(() => import('../components/train/WorkoutArt'), { ssr: false })
+const WorkoutPhotos = dynamic(() => import('../components/train/WorkoutPhotos'), { ssr: false })
 
 // Confetti is only loaded on demand when a user hits a PB
 const fireConfetti = async (opts) => {
@@ -985,6 +986,9 @@ export default function Train() {
                     </AnimatePresence>
                  </div>
             </section>
+
+            {/* Private workout photos */}
+            <WorkoutPhotos onToast={showToast} />
         </main>
 
         {/* Add Exercise Modal / Bottom Sheet */}
