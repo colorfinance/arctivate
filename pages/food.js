@@ -31,6 +31,11 @@ export default function Food() {
   const [isRecording, setIsRecording] = useState(false)
   const [voiceProcessing, setVoiceProcessing] = useState(false)
   const [voiceResult, setVoiceResult] = useState(null)
+  // Edit an already-logged food entry (name, meal, serving size, macros)
+  const [editingLog, setEditingLog] = useState(null)
+  const [editForm, setEditForm] = useState(null)   // { name, meal_type, servings, cals, p, c, f }
+  const [editBase, setEditBase] = useState(null)   // per-serving base { cals, p, c, f }
+  const [savingEdit, setSavingEdit] = useState(false)
   const fileInputRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -450,6 +455,73 @@ export default function Food() {
       showToast('Food removed')
     } catch {
       showToast('Failed to remove food')
+    }
+  }
+
+  const num = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  // Open the edit sheet for a logged food entry.
+  const openEdit = (log) => {
+    const m = log.macros || {}
+    const servings = num(m.servings) > 0 ? num(m.servings) : 1
+    const cals = num(log.calories)
+    const p = num(m.p), c = num(m.c), f = num(m.f)
+    // Base = nutrition for ONE serving, so serving-size changes scale cleanly.
+    const base = m.base && typeof m.base === 'object'
+      ? { cals: num(m.base.cals), p: num(m.base.p), c: num(m.base.c), f: num(m.base.f) }
+      : { cals: cals / servings, p: p / servings, c: c / servings, f: f / servings }
+    setEditBase(base)
+    setEditForm({ name: log.item_name || '', meal_type: m.meal_type || 'snack', servings, cals, p, c, f })
+    setEditingLog(log)
+  }
+
+  const closeEdit = () => { setEditingLog(null); setEditForm(null); setEditBase(null) }
+
+  // Change serving size — rescales calories & macros from the per-serving base.
+  const applyServings = (s) => {
+    setEditForm((prev) => {
+      if (!prev || !editBase) return prev
+      const n = num(s)
+      return {
+        ...prev,
+        servings: s,
+        cals: Math.round(editBase.cals * n),
+        p: Math.round(editBase.p * n),
+        c: Math.round(editBase.c * n),
+        f: Math.round(editBase.f * n),
+      }
+    })
+  }
+
+  const saveEdit = async () => {
+    if (!editingLog || !editForm || savingEdit) return
+    setSavingEdit(true)
+    try {
+      const servings = num(editForm.servings) > 0 ? num(editForm.servings) : 1
+      const cals = Math.round(num(editForm.cals))
+      const p = Math.round(num(editForm.p))
+      const c = Math.round(num(editForm.c))
+      const f = Math.round(num(editForm.f))
+      // Recompute the per-serving base from the final values so future edits stay consistent.
+      const base = { cals: cals / servings, p: p / servings, c: c / servings, f: f / servings }
+      const macros = { p, c, f, meal_type: editForm.meal_type || 'snack', servings, base }
+
+      const { error } = await supabase
+        .from('food_logs')
+        .update({ item_name: (editForm.name || '').trim() || 'Food', calories: cals, macros })
+        .eq('id', editingLog.id)
+      if (error) throw error
+
+      await fetchDailyCalories()
+      closeEdit()
+      showToast('Food updated')
+    } catch {
+      showToast('Failed to update food')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -922,6 +994,13 @@ export default function Food() {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-black text-arc-cyan">{log.calories} cal</span>
                             <button
+                              onClick={() => openEdit(log)}
+                              className="text-white/20 hover:text-arc-cyan transition-colors p-1"
+                              title="Edit"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                            </button>
+                            <button
                               onClick={() => shareToFeed({ name: log.item_name, cals: log.calories, p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 })}
                               className="text-white/20 hover:text-arc-accent transition-colors p-1"
                               title="Share to feed"
@@ -952,6 +1031,105 @@ export default function Food() {
           </div>
         )}
       </main>
+
+      {/* Edit Food Modal */}
+      <AnimatePresence>
+        {editingLog && editForm && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={closeEdit}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed inset-x-0 bottom-0 bg-arc-card rounded-t-3xl z-50 border-t border-white/10 p-6 pb-safe max-h-[90vh] overflow-y-auto"
+            >
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-5" />
+              <h2 className="text-lg font-black italic tracking-tight text-center mb-5">EDIT FOOD</h2>
+
+              <div className="space-y-4">
+                {/* Name */}
+                <div>
+                  <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Name</label>
+                  <input
+                    type="text" value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                  />
+                </div>
+
+                {/* Meal type */}
+                <div>
+                  <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Meal</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {['breakfast', 'lunch', 'dinner', 'snack'].map((mt) => (
+                      <button
+                        key={mt}
+                        onClick={() => setEditForm({ ...editForm, meal_type: mt })}
+                        className={`py-2.5 rounded-xl text-[11px] font-bold capitalize transition-all ${editForm.meal_type === mt ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                      >
+                        {mt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Serving size */}
+                <div>
+                  <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Serving size</label>
+                  <div className="flex gap-2 mb-2">
+                    {[0.5, 1, 1.5, 2].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => applyServings(s)}
+                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${num(editForm.servings) === s ? 'bg-arc-accent/20 border border-arc-accent/50 text-arc-accent' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                      >
+                        {s === 0.5 ? '½' : s === 1.5 ? '1½' : `${s}`}×
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number" min="0" step="0.25" value={editForm.servings}
+                    onChange={(e) => applyServings(e.target.value)}
+                    placeholder="Custom servings"
+                    className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-mono text-center"
+                  />
+                  <p className="text-[10px] text-arc-muted mt-1.5 text-center">Changing servings rescales the calories & macros below.</p>
+                </div>
+
+                {/* Nutrition */}
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { key: 'cals', label: 'Cal' },
+                    { key: 'p', label: 'P (g)' },
+                    { key: 'c', label: 'C (g)' },
+                    { key: 'f', label: 'F (g)' },
+                  ].map((fld) => (
+                    <div key={fld.key}>
+                      <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1.5 block text-center">{fld.label}</label>
+                      <input
+                        type="number" min="0" value={editForm[fld.key]}
+                        onChange={(e) => setEditForm({ ...editForm, [fld.key]: e.target.value })}
+                        className="w-full bg-arc-surface border border-white/5 text-center font-mono font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={saveEdit}
+                  disabled={savingEdit}
+                  className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
+                >
+                  {savingEdit ? 'SAVING…' : 'SAVE CHANGES'}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Result Modal (from image scan) */}
       <AnimatePresence>
