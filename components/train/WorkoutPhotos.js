@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../../lib/supabaseClient'
 
@@ -51,7 +51,7 @@ const LockIcon = () => (
   </svg>
 )
 
-export default function WorkoutPhotos({ onToast }) {
+function WorkoutPhotos({ onToast, onAvailabilityChange }, ref) {
   const fileRef = useRef(null)
   const [photos, setPhotos] = useState([])
   const [loading, setLoading] = useState(true)
@@ -60,6 +60,14 @@ export default function WorkoutPhotos({ onToast }) {
   const [viewer, setViewer] = useState(null)
 
   const toast = (m) => onToast && onToast(m)
+
+  // Let the parent (Train logger header) trigger the picker.
+  useImperativeHandle(ref, () => ({ openPicker: pick }))
+
+  const markAvailable = (v) => {
+    setAvailable(v)
+    if (onAvailabilityChange) onAvailabilityChange(v)
+  }
 
   useEffect(() => { load() }, [])
 
@@ -76,13 +84,14 @@ export default function WorkoutPhotos({ onToast }) {
         .limit(60)
 
       // Table not created yet (migration not applied) — hide the section.
-      if (error) { setAvailable(false); setLoading(false); return }
+      if (error) { markAvailable(false); setLoading(false); return }
 
+      markAvailable(true)
       const rows = data || []
       const withUrls = await signRows(rows)
       setPhotos(withUrls)
     } catch {
-      setAvailable(false)
+      markAvailable(false)
     } finally {
       setLoading(false)
     }
@@ -118,10 +127,10 @@ export default function WorkoutPhotos({ onToast }) {
         .from(BUCKET)
         .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
       if (upErr) {
-        setAvailable(true)
         toast('Upload failed — is the workout-photos bucket set up?')
         return
       }
+      markAvailable(true)
 
       const { data: row, error: insErr } = await supabase
         .from('workout_photos')
@@ -157,9 +166,11 @@ export default function WorkoutPhotos({ onToast }) {
     }
   }
 
-  // Hide entirely until the migration is applied.
-  if (!available) return null
-  if (loading) return null
+  // The hidden input is always mounted so the parent's ref.openPicker() works.
+  const input = <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
+
+  // Hide the gallery until the migration is applied (but keep the input mounted).
+  if (!available || loading) return input
 
   return (
     <section className="space-y-4">
@@ -168,16 +179,10 @@ export default function WorkoutPhotos({ onToast }) {
           My Workout Photos
           <span className="flex items-center gap-0.5 text-arc-cyan normal-case tracking-normal font-medium"><LockIcon /> Private</span>
         </h3>
-        <button
-          onClick={pick}
-          disabled={uploading}
-          className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
-        >
-          {uploading ? 'Uploading…' : <><CameraIcon /> Add Photo</>}
-        </button>
+        {uploading && <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em]">Uploading…</span>}
       </div>
 
-      <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
+      {input}
 
       {photos.length === 0 ? (
         <button
@@ -247,3 +252,5 @@ export default function WorkoutPhotos({ onToast }) {
     </section>
   )
 }
+
+export default forwardRef(WorkoutPhotos)
