@@ -1,17 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
+// Static import so the parent can call its picker via ref
+import WorkoutPhotos from '../components/train/WorkoutPhotos'
 
 // Lazy-load heavy/modal components to keep initial bundle small
 const ShareActionCard = dynamic(() => import('../components/train/ShareActionCard'), { ssr: false })
 const VoiceInput = dynamic(() => import('../components/train/VoiceInput'), { ssr: false })
 const VoiceMemo = dynamic(() => import('../components/train/VoiceMemo'), { ssr: false })
 const WorkoutArt = dynamic(() => import('../components/train/WorkoutArt'), { ssr: false })
-const WorkoutPhotos = dynamic(() => import('../components/train/WorkoutPhotos'), { ssr: false })
 
 // Confetti is only loaded on demand when a user hits a PB
 const fireConfetti = async (opts) => {
@@ -113,6 +114,18 @@ export default function Train() {
   const [toast, setToast] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isLogging, setIsLogging] = useState(false)
+
+  // Private workout photos (add-photo trigger lives in the logger header)
+  const photosRef = useRef(null)
+  const [photosAvailable, setPhotosAvailable] = useState(false)
+
+  // Edit an already-logged set
+  const [editingLog, setEditingLog] = useState(null)
+  const [editVal, setEditVal] = useState('')
+  const [editReps, setEditReps] = useState('')
+  const [editSets, setEditSets] = useState('')
+  const [editRpe, setEditRpe] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   // Workout of the Day (admin-programmed)
   const [todayWorkout, setTodayWorkout] = useState(null)
@@ -561,6 +574,61 @@ export default function Train() {
     }
   }
 
+  // Open the edit sheet for a logged set.
+  const openEditLog = (log) => {
+    setEditingLog(log)
+    setEditVal(log.val != null ? String(log.val) : '')
+    setEditReps(log.reps != null ? String(log.reps) : '')
+    setEditSets(log.sets != null ? String(log.sets) : '')
+    setEditRpe(log.rpe != null ? String(log.rpe) : '')
+  }
+
+  const closeEditLog = () => setEditingLog(null)
+
+  const saveEditLog = async () => {
+    if (!editingLog || savingEdit) return
+    const valNum = parseFloat(editVal)
+    if (isNaN(valNum) || valNum <= 0) { showToast('Please enter a valid number'); return }
+
+    setSavingEdit(true)
+    try {
+      const repsNum = editReps === '' ? null : parseInt(editReps, 10)
+      const setsNum = editSets === '' ? null : parseInt(editSets, 10)
+      const rpeNum = editRpe === '' ? null : parseInt(editRpe, 10)
+
+      const payload = { value: valNum }
+      if (repsNum !== null && !isNaN(repsNum)) payload.reps = repsNum
+      if (setsNum !== null && !isNaN(setsNum)) payload.sets = setsNum
+      if (rpeNum !== null && !isNaN(rpeNum)) payload.rpe = rpeNum
+
+      let { error } = await supabase.from('workout_logs').update(payload).eq('id', editingLog.id)
+
+      // Strip unknown columns (older DBs) and retry.
+      for (const field of ['reps', 'sets', 'rpe']) {
+        if (error && error.message && payload[field] !== undefined && error.message.includes(field)) {
+          delete payload[field]
+          const retry = await supabase.from('workout_logs').update(payload).eq('id', editingLog.id)
+          error = retry.error
+        }
+      }
+      if (error) throw error
+
+      setLogs((prev) => prev.map((l) => l.id === editingLog.id
+        ? { ...l, val: valNum, reps: repsNum, sets: setsNum, rpe: rpeNum }
+        : l))
+
+      // Keep the PB display fresh if we edited the current exercise's set.
+      if (selectedExId) fetchPB(selectedExId)
+
+      closeEditLog()
+      showToast('Set updated')
+    } catch {
+      showToast('Failed to update set')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   // Voice Input Result Handler
   const handleVoiceResult = (parsed) => {
     if (parsed.matched && parsed.exercise) {
@@ -826,6 +894,11 @@ export default function Train() {
                                 <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
                                     <VoiceMemoIcon /> Memo
                                 </button>
+                                {photosAvailable && (
+                                    <button onClick={() => photosRef.current?.openPicker()} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                        <ImageIcon /> Photo
+                                    </button>
+                                )}
                                 <button onClick={() => setIsAdding(true)} className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
                                     + New
                                 </button>
@@ -941,7 +1014,8 @@ export default function Train() {
                                  onClick={() => setShowWorkoutArt(true)}
                                  className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1"
                              >
-                                 <ImageIcon /> Create Art
+                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                                 Share
                              </button>
                          )}
                      </div>
@@ -980,7 +1054,16 @@ export default function Train() {
                                         {log.rpe != null && <span className="text-arc-muted ml-2">RPE {log.rpe}</span>}
                                     </div>
                                 </div>
-                                <div className="font-mono text-arc-accent font-bold text-sm bg-arc-accent/10 px-2.5 py-1 rounded-lg">+{log.points}</div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => openEditLog(log)}
+                                        className="text-white/20 hover:text-arc-cyan transition-colors p-1"
+                                        title="Edit set"
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                                    </button>
+                                    <div className="font-mono text-arc-accent font-bold text-sm bg-arc-accent/10 px-2.5 py-1 rounded-lg">+{log.points}</div>
+                                </div>
                             </motion.div>
                         ))}
                     </AnimatePresence>
@@ -988,8 +1071,72 @@ export default function Train() {
             </section>
 
             {/* Private workout photos */}
-            <WorkoutPhotos onToast={showToast} />
+            <WorkoutPhotos ref={photosRef} onToast={showToast} onAvailabilityChange={setPhotosAvailable} />
         </main>
+
+        {/* Edit Set Modal / Bottom Sheet */}
+        <AnimatePresence>
+            {editingLog && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={closeEditLog}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-2" />
+                        <div className="text-center">
+                            <h2 className="text-xl font-black italic tracking-tighter">EDIT SET</h2>
+                            <p className="text-[11px] text-arc-muted mt-1">{editingLog.name}</p>
+                        </div>
+
+                        {/* Value */}
+                        <div>
+                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block text-center">
+                                {editingLog.metricType === 'time' ? 'Time (min)' : 'Weight (kg)'}
+                            </label>
+                            <input
+                                type="number" value={editVal} onChange={(e) => setEditVal(e.target.value)}
+                                step={editingLog.metricType === 'time' ? '0.1' : '0.5'} min="0"
+                                className="w-full bg-transparent border-b-2 border-white/[0.08] text-center font-mono text-4xl font-black text-white py-3 outline-none focus:border-arc-accent/60 transition-colors"
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Reps / Sets / RPE */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">Reps</label>
+                                <input type="number" value={editReps} onChange={(e) => setEditReps(e.target.value)} placeholder="—" min="1"
+                                    className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono text-lg font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                            </div>
+                            <div>
+                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">Sets</label>
+                                <input type="number" value={editSets} onChange={(e) => setEditSets(e.target.value)} placeholder="—" min="1"
+                                    className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono text-lg font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                            </div>
+                            <div>
+                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">RPE</label>
+                                <input type="number" value={editRpe} onChange={(e) => setEditRpe(e.target.value)} placeholder="—" min="1" max="10"
+                                    className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono text-lg font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={saveEditLog}
+                            disabled={savingEdit || !editVal}
+                            className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
+                        >
+                            {savingEdit ? 'SAVING…' : 'SAVE CHANGES'}
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
 
         {/* Add Exercise Modal / Bottom Sheet */}
         <AnimatePresence>
