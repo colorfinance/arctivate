@@ -1004,6 +1004,12 @@ export default function Train() {
                      <h3 className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Recent Activity</h3>
                      <div className="flex items-center gap-4">
                          <button
+                             onClick={() => router.push('/calendar')}
+                             className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
+                         >
+                             Calendar
+                         </button>
+                         <button
                              onClick={() => router.push('/history')}
                              className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
                          >
