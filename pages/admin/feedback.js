@@ -45,6 +45,7 @@ export default function AdminFeedback() {
   const [items, setItems] = useState([])
   const [filter, setFilter] = useState('all')
   const [busyId, setBusyId] = useState(null)
+  const [viewerImg, setViewerImg] = useState(null)
 
   const showToast = (m) => setToast(m)
 
@@ -153,6 +154,13 @@ export default function AdminFeedback() {
 
               <p className="text-sm text-white/90 whitespace-pre-wrap break-words">{f.message}</p>
 
+              {f.image_url && (
+                <button onClick={() => setViewerImg(f.image_url)} className="mt-2 block w-full">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={f.image_url} alt="Screenshot" className="w-full max-h-56 object-contain rounded-lg border border-white/[0.06] bg-black/20 hover:border-arc-accent/40 transition-colors" />
+                </button>
+              )}
+
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.04]">
                 <span className="text-[10px] text-arc-muted truncate max-w-[40%]">
                   {f.profiles?.username ? `@${f.profiles.username}` : 'Anonymous'}
@@ -181,6 +189,20 @@ export default function AdminFeedback() {
           ))}
         </section>
       </main>
+
+      {/* Screenshot viewer */}
+      <AnimatePresence>
+        {viewerImg && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setViewerImg(null)}
+            className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex items-center justify-center p-5"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={viewerImg} alt="Screenshot" className="max-w-full max-h-full rounded-2xl border border-white/10" />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Nav />
     </div>

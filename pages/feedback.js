@@ -1,9 +1,44 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+
+const IMG_BUCKET = 'feedback-images'
+
+// Resize an image File to a JPEG blob to keep uploads small.
+function resizeToBlob(file, maxWidth = 1400) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('Failed to load image'))
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          let { width, height } = img
+          if (width > height) {
+            if (width > maxWidth) { height *= maxWidth / width; width = maxWidth }
+          } else {
+            if (height > maxWidth) { width *= maxWidth / height; height = maxWidth }
+          }
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return reject(new Error('Canvas not supported'))
+          ctx.drawImage(img, 0, 0, width, height)
+          canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Failed to process image'))), 'image/jpeg', 0.85)
+        } catch (err) {
+          reject(err)
+        }
+      }
+      img.src = e.target.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 const CATEGORIES = [
   { value: 'general', label: '💬 General' },
@@ -39,8 +74,23 @@ export default function Feedback() {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [mine, setMine] = useState([])
+  const fileRef = useRef(null)
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
 
   const showToast = (m) => setToast(m)
+
+  const onPickImage = (e) => {
+    const file = e.target.files?.[0]
+    if (fileRef.current) fileRef.current.value = ''
+    if (!file) return
+    setImageFile(file)
+    const reader = new FileReader()
+    reader.onload = () => setImagePreview(reader.result)
+    reader.readAsDataURL(file)
+  }
+
+  const clearImage = () => { setImageFile(null); setImagePreview(null) }
 
   useEffect(() => {
     const init = async () => {
@@ -70,16 +120,44 @@ export default function Feedback() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { showToast('Please log in'); setSending(false); return }
 
-      const { data, error } = await supabase
-        .from('feedback')
-        .insert({ user_id: user.id, category, message: message.trim() })
-        .select('*')
-        .single()
+      // Upload the screenshot first (best-effort — text still sends if it fails).
+      let imageUrl = null
+      if (imageFile) {
+        try {
+          const blob = await resizeToBlob(imageFile)
+          const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+          const { error: upErr } = await supabase.storage
+            .from(IMG_BUCKET)
+            .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+          if (upErr) {
+            showToast('Screenshot could not be attached — sending text only')
+          } else {
+            const { data: urlData } = supabase.storage.from(IMG_BUCKET).getPublicUrl(path)
+            imageUrl = urlData?.publicUrl || null
+          }
+        } catch {
+          showToast('Screenshot could not be attached — sending text only')
+        }
+      }
+
+      const payload = { user_id: user.id, category, message: message.trim() }
+      if (imageUrl) payload.image_url = imageUrl
+
+      let { data, error } = await supabase.from('feedback').insert(payload).select('*').single()
+
+      // If the image_url column doesn't exist yet, retry without it.
+      if (error && error.message && error.message.includes('image_url')) {
+        delete payload.image_url
+        const retry = await supabase.from('feedback').insert(payload).select('*').single()
+        data = retry.data
+        error = retry.error
+      }
       if (error) throw error
 
       setMine((prev) => [data, ...prev])
       setMessage('')
       setCategory('general')
+      clearImage()
       showToast('Thanks! Your feedback was sent 🙌')
     } catch (err) {
       console.error('[Arctivate] feedback submit failed:', err)
@@ -144,6 +222,30 @@ export default function Feedback() {
                 className="w-full bg-arc-surface border border-white/[0.06] text-white p-4 rounded-xl outline-none focus:border-arc-accent/40 resize-none text-sm placeholder-white/20"
               />
 
+              {/* Screenshot attachment */}
+              <input ref={fileRef} type="file" accept="image/*" onChange={onPickImage} className="hidden" />
+              {imagePreview ? (
+                <div className="relative rounded-xl overflow-hidden border border-white/[0.06]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={imagePreview} alt="Screenshot preview" className="w-full max-h-56 object-contain bg-black/30" />
+                  <button
+                    onClick={clearImage}
+                    className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-500/80 transition-colors"
+                    aria-label="Remove screenshot"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="w-full border border-dashed border-white/[0.12] rounded-xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:border-arc-accent/40 hover:text-white transition-colors text-sm font-bold"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  Attach a screenshot
+                </button>
+              )}
+
               <button
                 onClick={submit}
                 disabled={sending || !message.trim()}
@@ -180,6 +282,10 @@ export default function Feedback() {
                       </span>
                     </div>
                     <p className="text-sm text-white/90 whitespace-pre-wrap break-words">{f.message}</p>
+                    {f.image_url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={f.image_url} alt="Attached screenshot" className="mt-2 w-full max-h-48 object-contain rounded-lg border border-white/[0.06] bg-black/20" />
+                    )}
                   </div>
                 )
               })}
