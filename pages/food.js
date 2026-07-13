@@ -21,6 +21,12 @@ export default function Food() {
   const [dailyCalories, setDailyCalories] = useState(0)
   const [dailyGoal, setDailyGoal] = useState(2800)
   const [dailyMacros, setDailyMacros] = useState({ protein: 0, carbs: 0, fat: 0 })
+  // Per-user macro goals (null = not set → no target shown for that macro)
+  const [goals, setGoals] = useState({ cals: null, carbs: null, protein: null, fat: null })
+  const [showGoals, setShowGoals] = useState(false)
+  const [goalsForm, setGoalsForm] = useState({ cals: '', carbs: '', protein: '', fat: '' })
+  const [savingGoals, setSavingGoals] = useState(false)
+  const [copying, setCopying] = useState(false)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
   const [todayLogs, setTodayLogs] = useState([])
@@ -93,18 +99,27 @@ export default function Food() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Fetch user's calorie goal (column may not exist yet)
+      // Fetch user's calorie + macro goals (columns may not exist yet)
       try {
-        const { data: profile } = await supabase
+        let { data: profile, error: goalErr } = await supabase
           .from('profiles')
-          .select('daily_calorie_goal')
+          .select('daily_calorie_goal, daily_carb_goal, daily_protein_goal, daily_fat_goal')
           .eq('id', user.id)
           .single()
-        if (profile?.daily_calorie_goal) {
-          setDailyGoal(profile.daily_calorie_goal)
+        // Older DBs may not have the macro columns — fall back to calorie only.
+        if (goalErr) {
+          const fb = await supabase.from('profiles').select('daily_calorie_goal').eq('id', user.id).single()
+          profile = fb.data
         }
+        if (profile?.daily_calorie_goal) setDailyGoal(profile.daily_calorie_goal)
+        setGoals({
+          cals: profile?.daily_calorie_goal ?? null,
+          carbs: profile?.daily_carb_goal ?? null,
+          protein: profile?.daily_protein_goal ?? null,
+          fat: profile?.daily_fat_goal ?? null,
+        })
       } catch (e) {
-        // daily_calorie_goal column may not exist yet — use default
+        // goal columns may not exist yet — use defaults
       }
 
       // Fetch today's food logs
@@ -381,8 +396,8 @@ export default function Food() {
   }
 
   const addManualEntry = async () => {
-    if (!manualFood.name.trim() || !manualFood.cals) {
-      showToast('Please enter food name and calories')
+    if (!manualFood.name.trim()) {
+      showToast('Please enter a food name')
       return
     }
 
@@ -435,6 +450,105 @@ export default function Food() {
       showToast('Failed to save food. Please try again.')
     } finally {
       setIsLogging(false)
+    }
+  }
+
+  // Open the goals editor pre-filled with current values.
+  const openGoals = () => {
+    setGoalsForm({
+      cals: goals.cals != null ? String(goals.cals) : '',
+      carbs: goals.carbs != null ? String(goals.carbs) : '',
+      protein: goals.protein != null ? String(goals.protein) : '',
+      fat: goals.fat != null ? String(goals.fat) : '',
+    })
+    setShowGoals(true)
+  }
+
+  const saveGoals = async () => {
+    if (savingGoals) return
+    setSavingGoals(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setSavingGoals(false); return }
+
+      const toIntOrNull = (v) => (v === '' || v == null ? null : (parseInt(v, 10) || 0))
+      const next = {
+        cals: toIntOrNull(goalsForm.cals),
+        carbs: toIntOrNull(goalsForm.carbs),
+        protein: toIntOrNull(goalsForm.protein),
+        fat: toIntOrNull(goalsForm.fat),
+      }
+
+      const payload = {
+        id: user.id,
+        daily_calorie_goal: next.cals,
+        daily_carb_goal: next.carbs,
+        daily_protein_goal: next.protein,
+        daily_fat_goal: next.fat,
+      }
+
+      let { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
+      // Strip macro columns if the migration hasn't been applied yet.
+      if (error && error.message && /daily_(carb|protein|fat)_goal/.test(error.message)) {
+        const { error: e2 } = await supabase.from('profiles')
+          .upsert({ id: user.id, daily_calorie_goal: next.cals }, { onConflict: 'id' })
+        error = e2
+        if (!e2) showToast('Saved calorie goal (run migration 015 for macro goals)')
+      }
+      if (error) throw error
+
+      setGoals(next)
+      if (next.cals) setDailyGoal(next.cals)
+      setShowGoals(false)
+      showToast('Goals updated')
+    } catch (e) {
+      showToast('Failed to save goals')
+    } finally {
+      setSavingGoals(false)
+    }
+  }
+
+  // Copy every food entry from a given day (default: yesterday) onto today.
+  const copyDayToToday = async (fromDateKey) => {
+    if (copying) return
+    setCopying(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setCopying(false); return }
+
+      let sourceKey = fromDateKey
+      if (!sourceKey) {
+        const y = new Date(); y.setDate(y.getDate() - 1)
+        const tz = y.getTimezoneOffset() * 60000
+        sourceKey = new Date(y - tz).toISOString().slice(0, 10)
+      }
+      const start = new Date(sourceKey + 'T00:00:00')
+      const end = new Date(start); end.setDate(end.getDate() + 1)
+
+      const { data: src } = await supabase
+        .from('food_logs')
+        .select('item_name, calories, macros')
+        .eq('user_id', user.id)
+        .gte('eaten_at', start.toISOString())
+        .lt('eaten_at', end.toISOString())
+
+      if (!src || src.length === 0) { showToast('No food found for that day'); setCopying(false); return }
+
+      const rows = src.map((r) => ({
+        user_id: user.id,
+        item_name: r.item_name,
+        calories: r.calories,
+        macros: r.macros,
+      }))
+      const { error } = await supabase.from('food_logs').insert(rows)
+      if (error) throw error
+
+      await fetchDailyCalories()
+      showToast(`Copied ${rows.length} item${rows.length > 1 ? 's' : ''} to today`)
+    } catch (e) {
+      showToast('Failed to copy day')
+    } finally {
+      setCopying(false)
     }
   }
 
@@ -713,6 +827,14 @@ export default function Food() {
 
   const calorieProgress = Math.min((dailyCalories / dailyGoal) * 100, 100)
 
+  // Default denominators used only when the user hasn't set a goal for a macro.
+  const MACRO_DEFAULT = { protein: 150, carbs: 300, fat: 80 }
+  const macroRows = [
+    { key: 'protein', label: 'Protein', current: dailyMacros.protein, goal: goals.protein, bar: 'bg-blue-500' },
+    { key: 'carbs', label: 'Carbs', current: dailyMacros.carbs, goal: goals.carbs, bar: 'bg-yellow-500' },
+    { key: 'fat', label: 'Fat', current: dailyMacros.fat, goal: goals.fat, bar: 'bg-orange-500' },
+  ]
+
   // Group logs by meal type
   const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack']
   const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' }
@@ -763,14 +885,24 @@ export default function Food() {
       <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
         <div className="flex justify-between items-center max-w-lg mx-auto">
           <h1 className="text-xl font-black tracking-tighter italic">NUTRITION</h1>
-          <button
-            onClick={() => router.push('/calendar')}
-            className="flex items-center gap-1.5 text-[10px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
-            title="Calendar"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Calendar
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={openGoals}
+              className="flex items-center gap-1.5 text-[10px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
+              title="Goals"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+              Goals
+            </button>
+            <button
+              onClick={() => router.push('/calendar')}
+              className="flex items-center gap-1.5 text-[10px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
+              title="Calendar"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Calendar
+            </button>
+          </div>
         </div>
       </header>
 
@@ -813,29 +945,32 @@ export default function Food() {
 
             {/* Macros */}
             <div className="flex-1 space-y-2">
-              <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Today's Macros</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Today's Macros</h2>
+                <button onClick={openGoals} className="text-[9px] font-bold text-arc-accent uppercase tracking-wider hover:text-white transition-colors">Set goals</button>
+              </div>
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-arc-muted">Protein</span>
-                  <span className="text-sm font-bold">{dailyMacros.protein}g</span>
-                </div>
-                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((dailyMacros.protein / 150) * 100, 100)}%` }} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-arc-muted">Carbs</span>
-                  <span className="text-sm font-bold">{dailyMacros.carbs}g</span>
-                </div>
-                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-yellow-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((dailyMacros.carbs / 300) * 100, 100)}%` }} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-arc-muted">Fat</span>
-                  <span className="text-sm font-bold">{dailyMacros.fat}g</span>
-                </div>
-                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-orange-500 rounded-full transition-all duration-500" style={{ width: `${Math.min((dailyMacros.fat / 80) * 100, 100)}%` }} />
-                </div>
+                {macroRows.map((m) => {
+                  const denom = m.goal || MACRO_DEFAULT[m.key]
+                  const pct = denom > 0 ? Math.min((m.current / denom) * 100, 100) : 0
+                  const hit = m.goal != null && m.current >= m.goal
+                  return (
+                    <div key={m.key}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-arc-muted flex items-center gap-1">
+                          {m.label}
+                          {hit && <span className="text-emerald-400" title="Goal reached">✓</span>}
+                        </span>
+                        <span className={`text-sm font-bold ${hit ? 'text-emerald-400' : ''}`}>
+                          {m.current}{m.goal != null ? <span className="text-arc-muted font-normal"> / {m.goal}</span> : ''}g
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-500 ${hit ? 'bg-emerald-500' : m.bar}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </div>
@@ -926,6 +1061,20 @@ export default function Food() {
             <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">Manual</span>
           </button>
         </div>
+
+        {/* Copy yesterday — for people who eat the same thing daily */}
+        <button
+          onClick={() => copyDayToToday()}
+          disabled={copying}
+          className="mt-3 w-full bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold disabled:opacity-50"
+        >
+          {copying ? 'Copying…' : (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy yesterday's food
+            </>
+          )}
+        </button>
 
         {/* Voice Recording Indicator */}
         <AnimatePresence>
@@ -1319,6 +1468,76 @@ export default function Food() {
         )}
       </AnimatePresence>
 
+      {/* Goals Modal */}
+      <AnimatePresence>
+        {showGoals && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setShowGoals(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[90vh] overflow-y-auto"
+            >
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-5" />
+              <h2 className="text-xl font-black italic tracking-tighter text-center">DAILY GOALS</h2>
+              <p className="text-[11px] text-arc-muted text-center mt-1 mb-5">Set any of these. Leave blank to skip — e.g. track carbs only.</p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Calorie goal</label>
+                  <input
+                    type="number" inputMode="numeric" value={goalsForm.cals}
+                    onChange={(e) => setGoalsForm({ ...goalsForm, cals: e.target.value })}
+                    placeholder="e.g. 2000"
+                    className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { key: 'carbs', label: 'Carbs (g)', calPerG: 4 },
+                    { key: 'protein', label: 'Protein (g)', calPerG: 4 },
+                    { key: 'fat', label: 'Fat (g)', calPerG: 9 },
+                  ].map((m) => {
+                    const cals = parseInt(goalsForm.cals, 10)
+                    const grams = parseInt(goalsForm[m.key], 10)
+                    const pct = cals > 0 && grams > 0 ? Math.round((grams * m.calPerG / cals) * 100) : null
+                    return (
+                      <div key={m.key}>
+                        <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">{m.label}</label>
+                        <input
+                          type="number" inputMode="numeric" value={goalsForm[m.key]}
+                          onChange={(e) => setGoalsForm({ ...goalsForm, [m.key]: e.target.value })}
+                          placeholder="0"
+                          className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
+                        />
+                        {pct != null && <span className="block text-center text-[9px] text-arc-cyan mt-1">{pct}% of cals</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="text-[10px] text-arc-muted">Tip: for a 35/35/30 split at 2000 cals that's ~175g carbs, 150g protein, 78g fat.</p>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => setShowGoals(false)} className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl">Cancel</button>
+                <button
+                  onClick={saveGoals}
+                  disabled={savingGoals}
+                  className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50"
+                >
+                  {savingGoals ? 'Saving…' : 'Save Goals'}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Manual Entry Modal */}
       <AnimatePresence>
         {showManualEntry && (
@@ -1369,7 +1588,21 @@ export default function Food() {
                   </div>
                 </div>
 
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest block">Nutrition</label>
+                  <span className="text-[9px] text-arc-muted">All optional — e.g. log carbs only</span>
+                </div>
                 <div className="grid grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Carbs</label>
+                    <input
+                      type="number"
+                      value={manualFood.c}
+                      onChange={(e) => setManualFood({ ...manualFood, c: e.target.value })}
+                      placeholder="0"
+                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
+                    />
+                  </div>
                   <div>
                     <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Cals</label>
                     <input
@@ -1386,16 +1619,6 @@ export default function Food() {
                       type="number"
                       value={manualFood.p}
                       onChange={(e) => setManualFood({ ...manualFood, p: e.target.value })}
-                      placeholder="0"
-                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Carbs</label>
-                    <input
-                      type="number"
-                      value={manualFood.c}
-                      onChange={(e) => setManualFood({ ...manualFood, c: e.target.value })}
                       placeholder="0"
                       className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
                     />
@@ -1422,7 +1645,7 @@ export default function Food() {
                 </button>
                 <button
                   onClick={addManualEntry}
-                  disabled={isLogging || !manualFood.name.trim() || !manualFood.cals}
+                  disabled={isLogging || !manualFood.name.trim()}
                   className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isLogging ? (
