@@ -203,55 +203,57 @@ export default function Profile() {
 
     setIsSaving(true)
     try {
-      const updates = {
-        username: editUsername.trim(),
-      }
-
-      if (editAvatarUrl) {
-        updates.avatar_url = editAvatarUrl
-      }
-
+      // Build the full payload. Optional columns are stripped one-by-one if the
+      // DB doesn't have them yet, so a missing age/height column can never stop
+      // the name (or anything else) from saving.
+      const payload = { username: editUsername.trim() }
+      if (editAvatarUrl) payload.avatar_url = editAvatarUrl
       const parsedGoal = parseInt(editCalorieGoal, 10)
-      if (!isNaN(parsedGoal) && parsedGoal > 0) {
-        updates.daily_calorie_goal = parsedGoal
+      if (!isNaN(parsedGoal) && parsedGoal > 0) payload.daily_calorie_goal = parsedGoal
+      payload.age = editAge === '' ? null : (parseInt(editAge, 10) || null)
+      payload.weight = editWeight === '' ? null : (parseFloat(editWeight) || null)
+      payload.height = editHeight === '' ? null : (parseFloat(editHeight) || null)
+
+      const OPTIONAL = ['height', 'age', 'weight', 'daily_calorie_goal', 'avatar_url']
+      let attempt = { ...payload }
+      let res = await supabase.from('profiles').update(attempt).eq('id', userId).select('id')
+
+      // Drop any column the DB reports as unknown, then retry.
+      let guard = 0
+      while (res.error && guard < OPTIONAL.length + 1) {
+        const msg = res.error.message || ''
+        const missing = OPTIONAL.find((c) => attempt[c] !== undefined && msg.includes(c))
+        if (!missing) break
+        delete attempt[missing]
+        res = await supabase.from('profiles').update(attempt).eq('id', userId).select('id')
+        guard++
       }
 
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({ id: userId, ...updates }, { onConflict: 'id' })
-
-      if (error) {
-        console.error('[Arctivate] profile save failed:', error)
-        showToast(`Failed to update: ${error.message || 'try again'}`)
+      if (res.error) {
+        console.error('[Arctivate] profile save failed:', res.error)
+        showToast(`Save failed: ${res.error.message || 'try again'}`)
         return
       }
 
-      // Body metrics saved separately so a missing column (e.g. height on an
-      // un-migrated DB) never blocks the core profile save.
-      const bodyUpdates = {
-        age: editAge === '' ? null : (parseInt(editAge, 10) || null),
-        weight: editWeight === '' ? null : (parseFloat(editWeight) || null),
-        height: editHeight === '' ? null : (parseFloat(editHeight) || null),
-      }
-      let applied = { ...updates, ...bodyUpdates }
-      const { error: bodyErr } = await supabase.from('profiles').update(bodyUpdates).eq('id', userId)
-      if (bodyErr) {
-        // Retry without height (the column most likely to be missing).
-        const { height, ...noHeight } = bodyUpdates
-        const { error: bodyErr2 } = await supabase.from('profiles').update(noHeight).eq('id', userId)
-        if (bodyErr2) {
-          applied = updates // couldn't save metrics at all
-          showToast('Saved name — run migration 016 to save body metrics')
-        } else {
-          applied = { ...updates, ...noHeight }
-          showToast('Saved (height needs migration 016)')
+      // Update returned no rows → the profile row is missing or an RLS policy
+      // is blocking the write. Try an upsert, then surface a clear message.
+      if (!res.data || res.data.length === 0) {
+        const up = await supabase.from('profiles').upsert({ id: userId, ...attempt }, { onConflict: 'id' }).select('id')
+        if (up.error) {
+          console.error('[Arctivate] profile upsert failed:', up.error)
+          showToast(`Save failed: ${up.error.message}`)
+          return
         }
-      } else {
-        showToast('Profile updated!')
+        if (!up.data || up.data.length === 0) {
+          showToast("Couldn't save — check the profiles update RLS policy")
+          return
+        }
       }
 
-      setProfile(prev => ({ ...prev, ...applied }))
+      const dropped = Object.keys(payload).filter((k) => attempt[k] === undefined)
+      setProfile((prev) => ({ ...prev, ...attempt }))
       setShowEditModal(false)
+      showToast(dropped.length ? `Saved — run migration 016 for: ${dropped.join(', ')}` : 'Profile updated!')
     } catch (err) {
       showToast('Something went wrong')
     } finally {
