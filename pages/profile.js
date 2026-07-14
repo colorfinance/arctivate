@@ -80,6 +80,9 @@ export default function Profile() {
   const [editUsername, setEditUsername] = useState('')
   const [editCalorieGoal, setEditCalorieGoal] = useState('')
   const [editAvatarUrl, setEditAvatarUrl] = useState('')
+  const [editAge, setEditAge] = useState('')
+  const [editWeight, setEditWeight] = useState('')
+  const [editHeight, setEditHeight] = useState('')
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -107,12 +110,20 @@ export default function Profile() {
         return
       }
 
-      // Fetch profile
-      const { data: profileData } = await supabase
+      // Fetch profile (fall back if the newer body-metric columns aren't there)
+      let { data: profileData, error: profErr } = await supabase
         .from('profiles')
-        .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal')
+        .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal, age, weight, height')
         .eq('id', user.id)
         .single()
+      if (profErr) {
+        const fb = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal')
+          .eq('id', user.id)
+          .single()
+        profileData = fb.data
+      }
 
       if (profileData && profileData.completed_onboarding === false) {
         router.push('/onboarding')
@@ -215,9 +226,32 @@ export default function Profile() {
         return
       }
 
-      setProfile(prev => ({ ...prev, ...updates }))
+      // Body metrics saved separately so a missing column (e.g. height on an
+      // un-migrated DB) never blocks the core profile save.
+      const bodyUpdates = {
+        age: editAge === '' ? null : (parseInt(editAge, 10) || null),
+        weight: editWeight === '' ? null : (parseFloat(editWeight) || null),
+        height: editHeight === '' ? null : (parseFloat(editHeight) || null),
+      }
+      let applied = { ...updates, ...bodyUpdates }
+      const { error: bodyErr } = await supabase.from('profiles').update(bodyUpdates).eq('id', userId)
+      if (bodyErr) {
+        // Retry without height (the column most likely to be missing).
+        const { height, ...noHeight } = bodyUpdates
+        const { error: bodyErr2 } = await supabase.from('profiles').update(noHeight).eq('id', userId)
+        if (bodyErr2) {
+          applied = updates // couldn't save metrics at all
+          showToast('Saved name — run migration 016 to save body metrics')
+        } else {
+          applied = { ...updates, ...noHeight }
+          showToast('Saved (height needs migration 016)')
+        }
+      } else {
+        showToast('Profile updated!')
+      }
+
+      setProfile(prev => ({ ...prev, ...applied }))
       setShowEditModal(false)
-      showToast('Profile updated!')
     } catch (err) {
       showToast('Something went wrong')
     } finally {
@@ -311,6 +345,9 @@ export default function Profile() {
     setEditUsername(profile?.username || '')
     setEditCalorieGoal(String(profile?.daily_calorie_goal || 2800))
     setEditAvatarUrl(profile?.avatar_url || '')
+    setEditAge(profile?.age != null ? String(profile.age) : '')
+    setEditWeight(profile?.weight != null ? String(profile.weight) : '')
+    setEditHeight(profile?.height != null ? String(profile.height) : '')
     setShowEditModal(true)
   }
 
@@ -676,6 +713,34 @@ export default function Profile() {
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
                     autoFocus
                   />
+                </div>
+
+                {/* Body metrics */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Age</label>
+                    <input
+                      type="number" inputMode="numeric" value={editAge}
+                      onChange={(e) => setEditAge(e.target.value)} placeholder="—"
+                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Weight kg</label>
+                    <input
+                      type="number" inputMode="decimal" value={editWeight}
+                      onChange={(e) => setEditWeight(e.target.value)} placeholder="—"
+                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Height cm</label>
+                    <input
+                      type="number" inputMode="decimal" value={editHeight}
+                      onChange={(e) => setEditHeight(e.target.value)} placeholder="—"
+                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
+                    />
+                  </div>
                 </div>
 
                 <div>

@@ -132,6 +132,9 @@ export default function Train() {
   const [prescribed, setPrescribed] = useState([])
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
   const [activePrescribed, setActivePrescribed] = useState(null) // current dwe loaded into logger
+  const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
+  const [expandedId, setExpandedId] = useState(null) // which movement's inline form is open
+  const [loggingFull, setLoggingFull] = useState(false)
 
   // Success/Share Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false)
@@ -365,6 +368,125 @@ export default function Train() {
   }
 
   const showToast = (msg) => setToast(msg)
+
+  // Log a single prescribed movement (used by the inline row form and by
+  // "Log entire workout"). Returns { ok }.
+  const setPInput = (id, key, val) => setPInputs((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: val } }))
+
+  const toggleExpand = (dwe) => {
+    setExpandedId((prev) => (prev === dwe.id ? null : dwe.id))
+    setPInputs((prev) => prev[dwe.id] ? prev : {
+      ...prev,
+      [dwe.id]: {
+        value: '',
+        reps: dwe.target_reps != null ? String(dwe.target_reps) : '',
+        sets: dwe.target_sets != null ? String(dwe.target_sets) : '',
+        rpe: '',
+      },
+    })
+  }
+
+  async function logMovement(dwe, vals) {
+    const valNum = parseFloat(vals?.value)
+    if (isNaN(valNum) || valNum <= 0) return { ok: false }
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return { ok: false }
+
+      // Find or create the matching exercise.
+      let ex = exercises.find((e) => e.name.trim().toLowerCase() === dwe.name.trim().toLowerCase())
+      if (!ex) {
+        const insertData = { user_id: user.id, name: dwe.name, metric_type: dwe.metric_type || 'weight' }
+        let { data, error } = await supabase.from('exercises').insert(insertData).select().single()
+        if (error && error.message?.includes('user_id')) {
+          delete insertData.user_id
+          const retry = await supabase.from('exercises').insert(insertData).select().single()
+          data = retry.data; error = retry.error
+        }
+        if (error) return { ok: false }
+        ex = data
+        setExercises((prev) => [...prev, data])
+      }
+
+      const isTime = (ex.metric_type || dwe.metric_type) === 'time'
+      const { data: pbRow } = await supabase
+        .from('workout_logs').select('value')
+        .eq('user_id', user.id).eq('exercise_id', ex.id)
+        .order('value', { ascending: isTime }).limit(1).maybeSingle()
+      const pb = pbRow?.value || 0
+      const isPB = isTime ? (valNum < pb || pb === 0) : (valNum > pb)
+      const points = 50 + (isPB ? 100 : 0)
+
+      const payload = {
+        user_id: user.id,
+        exercise_id: ex.id,
+        value: valNum,
+        is_new_pb: isPB,
+        points_awarded: points,
+        daily_workout_id: todayWorkout?.id,
+        daily_workout_exercise_id: dwe.id,
+      }
+      const repsNum = vals.reps ? parseInt(vals.reps, 10) : null
+      const setsNum = vals.sets ? parseInt(vals.sets, 10) : null
+      const rpeNum = vals.rpe ? parseInt(vals.rpe, 10) : null
+      if (repsNum) payload.reps = repsNum
+      if (setsNum) payload.sets = setsNum
+      if (rpeNum) payload.rpe = rpeNum
+
+      let { error: logError, data: inserted } = await supabase.from('workout_logs').insert(payload).select('id').single()
+      for (const field of ['reps', 'sets', 'rpe', 'daily_workout_id', 'daily_workout_exercise_id']) {
+        if (logError && logError.message && payload[field] !== undefined && logError.message.includes(field)) {
+          delete payload[field]
+          const retry = await supabase.from('workout_logs').insert(payload).select('id').single()
+          logError = retry.error; inserted = retry.data
+        }
+      }
+      if (logError) { showToast('Failed to save set'); return { ok: false } }
+
+      await supabase.rpc('increment_points', { row_id: user.id, x: points })
+      if (isPB) triggerCelebration()
+
+      const now = new Date()
+      setLogs((prev) => [{
+        id: inserted?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        name: ex.name, val: valNum, reps: repsNum, sets: setsNum, rpe: rpeNum,
+        points, time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isPB, metricType: ex.metric_type, voiceMemoUrl: null,
+      }, ...prev])
+      setPoints((p) => p + points)
+      setCompletedPrescribed((prev) => new Set(prev).add(dwe.id))
+      setPInputs((prev) => { const n = { ...prev }; delete n[dwe.id]; return n })
+      setExpandedId((prev) => (prev === dwe.id ? null : prev))
+      return { ok: true, isPB }
+    } catch {
+      return { ok: false }
+    }
+  }
+
+  const logOneMovement = async (dwe) => {
+    const vals = pInputs[dwe.id]
+    if (!vals?.value) { showToast('Enter a weight first'); return }
+    const r = await logMovement(dwe, vals)
+    if (r.ok) showToast(r.isPB ? 'New PB! 🎉' : `Logged ${dwe.name}`)
+  }
+
+  const logFullWorkout = async () => {
+    if (loggingFull) return
+    setLoggingFull(true)
+    let count = 0
+    try {
+      for (const dwe of prescribed) {
+        if (completedPrescribed.has(dwe.id)) continue
+        const vals = pInputs[dwe.id]
+        if (!vals?.value || parseFloat(vals.value) <= 0) continue
+        const r = await logMovement(dwe, vals)
+        if (r.ok) count++
+      }
+      showToast(count === 0 ? 'Enter a weight on at least one movement' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
+    } finally {
+      setLoggingFull(false)
+    }
+  }
 
   const createExercise = async () => {
     if(!newExName) return
@@ -830,44 +952,99 @@ export default function Train() {
                             <div className="space-y-2">
                                 {prescribed.map((dwe) => {
                                     const done = completedPrescribed.has(dwe.id)
-                                    const isActive = activePrescribed?.id === dwe.id
-                                    const unit = dwe.metric_type === 'time' ? 'min' : dwe.metric_type === 'distance' ? 'km' : dwe.metric_type === 'reps' ? 'reps' : 'kg'
+                                    const open = expandedId === dwe.id
+                                    const unit = dwe.metric_type === 'time' ? 'MIN' : dwe.metric_type === 'distance' ? 'KM' : dwe.metric_type === 'reps' ? 'REPS' : 'KG'
+                                    const unitLower = unit.toLowerCase()
+                                    const vals = pInputs[dwe.id] || {}
                                     const scheme = [
                                         dwe.target_sets != null ? `${dwe.target_sets}×` : '',
                                         dwe.target_reps != null ? `${dwe.target_reps}` : '',
                                     ].join('')
                                     return (
-                                        <button
+                                        <div
                                             key={dwe.id}
-                                            onClick={() => startPrescribed(dwe)}
-                                            className={`w-full text-left flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                                                isActive
-                                                    ? 'border-arc-accent/50 bg-arc-accent/10 shadow-glow'
-                                                    : done
-                                                        ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
-                                                        : 'border-white/[0.05] bg-arc-surface hover:border-arc-accent/30'
+                                            className={`rounded-xl border transition-all overflow-hidden ${
+                                                open ? 'border-arc-accent/50 bg-arc-accent/[0.06] shadow-glow'
+                                                    : done ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+                                                        : 'border-white/[0.05] bg-arc-surface'
                                             }`}
                                         >
-                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
-                                                {done && (
-                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                                )}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
-                                                <div className="text-[10px] text-arc-muted font-mono">
-                                                    {scheme && <span>{scheme} </span>}
-                                                    {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unit} </span>}
-                                                    {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
+                                            {/* Row header */}
+                                            <button
+                                                onClick={() => !done && toggleExpand(dwe)}
+                                                className="w-full text-left flex items-center gap-3 p-3"
+                                            >
+                                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
+                                                    {done && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
                                                 </div>
-                                            </div>
-                                            {!done && (
-                                                <span className="text-[9px] font-bold text-arc-accent uppercase tracking-wider shrink-0">Log →</span>
-                                            )}
-                                        </button>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
+                                                    <div className="text-[10px] text-arc-muted font-mono">
+                                                        {scheme && <span>{scheme} </span>}
+                                                        {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unitLower} </span>}
+                                                        {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
+                                                    </div>
+                                                </div>
+                                                {!done && (
+                                                    <span className={`text-[9px] font-bold uppercase tracking-wider shrink-0 transition-colors ${open ? 'text-white' : 'text-arc-accent'}`}>
+                                                        {open ? 'Close' : 'Log →'}
+                                                    </span>
+                                                )}
+                                            </button>
+
+                                            {/* Inline log form */}
+                                            <AnimatePresence>
+                                                {open && !done && (
+                                                    <motion.div
+                                                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                                                        className="px-3 pb-3"
+                                                    >
+                                                        <div className="flex items-end gap-2">
+                                                            <div className="flex-1">
+                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block">{unit}</label>
+                                                                <input
+                                                                    type="number" inputMode="decimal" autoFocus
+                                                                    value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
+                                                                    placeholder="0" step={dwe.metric_type === 'time' ? '0.1' : '0.5'} min="0"
+                                                                    className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
+                                                                />
+                                                            </div>
+                                                            <div className="w-12">
+                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Reps</label>
+                                                                <input type="number" value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder="—" min="1"
+                                                                    className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                                                            </div>
+                                                            <div className="w-12">
+                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Sets</label>
+                                                                <input type="number" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder="—" min="1"
+                                                                    className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                                                            </div>
+                                                            <button
+                                                                onClick={() => logOneMovement(dwe)}
+                                                                disabled={!vals.value}
+                                                                className="bg-accent-gradient text-white font-black italic text-xs tracking-wider px-4 py-2.5 rounded-lg shadow-glow-accent disabled:opacity-40"
+                                                            >
+                                                                LOG
+                                                            </button>
+                                                        </div>
+                                                    </motion.div>
+                                                )}
+                                            </AnimatePresence>
+                                        </div>
                                     )
                                 })}
                             </div>
+
+                            {/* Log the whole session at once */}
+                            {completedPrescribed.size < prescribed.length && (
+                                <button
+                                    onClick={logFullWorkout}
+                                    disabled={loggingFull}
+                                    className="w-full bg-arc-surface border border-arc-accent/30 text-arc-accent font-black italic tracking-wider py-3 rounded-xl hover:bg-arc-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {loggingFull ? 'LOGGING…' : 'LOG ENTIRE WORKOUT'}
+                                </button>
+                            )}
                         </div>
                     </div>
                 </motion.section>
