@@ -192,6 +192,7 @@ export default function Coach() {
   const [workoutLogs, setWorkoutLogs] = useState([])
   const [wearableData, setWearableData] = useState(null)
   const [wearableHistory, setWearableHistory] = useState([])
+  const [habitsToday, setHabitsToday] = useState({ done: 0, total: 0 })
 
   // Chat
   const [messages, setMessages] = useState([])
@@ -209,6 +210,13 @@ export default function Coach() {
   // Computed
   const muscleRecovery = getMuscleRecovery(workoutLogs)
   const readinessScore = calculateReadiness(wearableData, workoutLogs)
+  const setsToday = workoutLogs.filter((w) => {
+    const d = new Date(w.created_at)
+    const n = new Date()
+    return d.toDateString() === n.toDateString()
+  }).length
+  const trainedToday = setsToday > 0
+  const firstName = (profile?.username || '').trim().split(' ')[0]
 
   // ─── Load Data ───────────────────────────────────
   useEffect(() => {
@@ -226,6 +234,7 @@ export default function Coach() {
         fetchWorkoutHistory(user.id),
         fetchWearableData(user.id),
         fetchChatHistory(user.id),
+        fetchHabitsToday(user.id),
       ])
       setIsLoading(false)
     }
@@ -259,6 +268,16 @@ export default function Coach() {
     }
   }
 
+  async function fetchHabitsToday(uid) {
+    try {
+      const now = new Date()
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const { data: habits } = await supabase.from('habits').select('id').eq('user_id', uid)
+      const { data: logs } = await supabase.from('habit_logs').select('habit_id').eq('user_id', uid).eq('date', todayStr)
+      setHabitsToday({ done: logs?.length || 0, total: habits?.length || 0 })
+    } catch {}
+  }
+
   async function fetchChatHistory(uid) {
     const { data } = await supabase
       .from('coach_messages')
@@ -286,13 +305,21 @@ export default function Coach() {
 
     return {
       profile: profile ? {
+        name: profile.username,
         fitnessLevel: profile.fitness_level,
         goal: profile.goal,
         weight: profile.weight,
+        height: profile.height,
         age: profile.age,
         streak: profile.current_streak,
         points: profile.total_points
       } : null,
+      today: {
+        trainedToday,
+        setsToday,
+        habitsDone: habitsToday.done,
+        habitsTotal: habitsToday.total,
+      },
       recentWorkouts,
       readinessScore,
       muscleRecovery,
@@ -427,6 +454,47 @@ export default function Coach() {
         {activeTab === 'chat' ? (
           /* ─── Chat Tab ─────────────────────────── */
           <div className="flex flex-col h-[calc(100vh-14rem)]">
+            {/* Personal daily briefing */}
+            <div className="px-4 pb-3">
+              <motion.div
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                className="bg-gradient-to-br from-arc-accent/10 to-transparent border border-arc-accent/20 rounded-2xl p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-black italic tracking-tight">
+                      {firstName ? `Hey ${firstName} 👋` : 'Hey 👋'}
+                    </h2>
+                    <p className="text-[12px] text-white/90 mt-1 leading-snug">
+                      {trainedToday
+                        ? `Great work — ${setsToday} set${setsToday > 1 ? 's' : ''} logged today. Keep the momentum going.`
+                        : "You haven't logged a workout yet today. Let's not break the chain — a few sets counts."}
+                    </p>
+                    <p className="text-[11px] text-arc-muted mt-1.5">
+                      {profile?.current_streak > 0 && <span className="text-arc-accent font-bold">🔥 {profile.current_streak}-day streak. </span>}
+                      {habitsToday.total > 0
+                        ? `Habits: ${habitsToday.done}/${habitsToday.total} done today.`
+                        : 'Set up a habit to build consistency.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  {!trainedToday && (
+                    <button onClick={() => router.push('/train')} className="flex-1 bg-arc-accent text-white text-[11px] font-bold py-2 rounded-lg">Log a workout</button>
+                  )}
+                  <button onClick={() => router.push('/habits')} className="flex-1 bg-arc-surface border border-white/10 text-white text-[11px] font-bold py-2 rounded-lg">
+                    {habitsToday.total > 0 && habitsToday.done < habitsToday.total ? 'Finish habits' : 'Habits'}
+                  </button>
+                  <button
+                    onClick={() => sendMessage(trainedToday ? 'Give me a quick motivational check-in based on my training today.' : "Motivate me to train today and suggest what to do.")}
+                    className="flex-1 bg-arc-surface border border-white/10 text-white text-[11px] font-bold py-2 rounded-lg"
+                  >
+                    Motivate me
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 space-y-4 pb-4">
               {messages.length === 0 && (
