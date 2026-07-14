@@ -115,6 +115,13 @@ export default function Train() {
   const [isLoading, setIsLoading] = useState(true)
   const [isLogging, setIsLogging] = useState(false)
 
+  // Log a whole session/class as one entry (e.g. "45min HIIT class")
+  const [showSession, setShowSession] = useState(false)
+  const [sessionName, setSessionName] = useState('')
+  const [sessionDuration, setSessionDuration] = useState('')
+  const [sessionNotes, setSessionNotes] = useState('')
+  const [savingSession, setSavingSession] = useState(false)
+
   // Private workout photos (add-photo trigger lives in the logger header)
   const photosRef = useRef(null)
   const [photosAvailable, setPhotosAvailable] = useState(false)
@@ -751,6 +758,74 @@ export default function Train() {
     }
   }
 
+  // Log a whole session / class as a single time-based entry.
+  const logSession = async () => {
+    if (savingSession) return
+    const name = sessionName.trim()
+    const mins = parseFloat(sessionDuration)
+    if (!name) { showToast('Name your session'); return }
+    if (isNaN(mins) || mins <= 0) { showToast('Enter a duration in minutes'); return }
+
+    setSavingSession(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setSavingSession(false); return }
+
+      // Find or create a time-based "exercise" named after the session.
+      let ex = exercises.find((e) => e.name.trim().toLowerCase() === name.toLowerCase())
+      if (!ex) {
+        const insertData = { user_id: user.id, name, metric_type: 'time' }
+        let { data, error } = await supabase.from('exercises').insert(insertData).select().single()
+        if (error && error.message?.includes('user_id')) {
+          delete insertData.user_id
+          const retry = await supabase.from('exercises').insert(insertData).select().single()
+          data = retry.data; error = retry.error
+        }
+        if (error) { showToast('Could not save session'); setSavingSession(false); return }
+        ex = data
+        setExercises((prev) => [...prev, data])
+      }
+
+      const points = 100
+      const payload = {
+        user_id: user.id,
+        exercise_id: ex.id,
+        value: mins,
+        is_new_pb: false,
+        points_awarded: points,
+      }
+      if (sessionNotes.trim()) payload.notes = sessionNotes.trim()
+
+      let { error: logError, data: inserted } = await supabase.from('workout_logs').insert(payload).select('id').single()
+      if (logError && logError.message && payload.notes !== undefined && logError.message.includes('notes')) {
+        delete payload.notes
+        const retry = await supabase.from('workout_logs').insert(payload).select('id').single()
+        logError = retry.error; inserted = retry.data
+      }
+      if (logError) { showToast('Failed to save session'); setSavingSession(false); return }
+
+      await supabase.rpc('increment_points', { row_id: user.id, x: points })
+      triggerCelebration()
+
+      const now = new Date()
+      setLogs((prev) => [{
+        id: inserted?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        name: ex.name, val: mins, reps: null, sets: null, rpe: null,
+        points, time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isPB: false, metricType: 'time', voiceMemoUrl: null,
+      }, ...prev])
+      setPoints((p) => p + points)
+
+      setSessionName(''); setSessionDuration(''); setSessionNotes('')
+      setShowSession(false)
+      showToast(`Logged ${name} · ${mins} min 🎉`)
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setSavingSession(false)
+    }
+  }
+
   // Voice Input Result Handler
   const handleVoiceResult = (parsed) => {
     if (parsed.matched && parsed.exercise) {
@@ -1068,6 +1143,10 @@ export default function Train() {
                         <div className="flex justify-between items-center">
                             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Movement</label>
                             <div className="flex gap-3">
+                                <button onClick={() => setShowSession(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                    Session
+                                </button>
                                 <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
                                     <VoiceMemoIcon /> Memo
                                 </button>
@@ -1171,6 +1250,15 @@ export default function Train() {
                               'LOG SET'
                             )}
                         </motion.button>
+
+                        {/* Or log a whole class/session in one go */}
+                        <button
+                            onClick={() => setShowSession(true)}
+                            className="w-full flex items-center justify-center gap-2 text-[11px] font-bold text-arc-muted hover:text-white transition-colors py-1"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            Or log a full class / session (e.g. 45min HIIT)
+                        </button>
                     </div>
                 </div>
             </motion.section>
@@ -1256,6 +1344,86 @@ export default function Train() {
             {/* Private workout photos */}
             <WorkoutPhotos ref={photosRef} onToast={showToast} onAvailabilityChange={setPhotosAvailable} />
         </main>
+
+        {/* Log Session / Class Modal */}
+        <AnimatePresence>
+            {showSession && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setShowSession(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-5 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-2" />
+                        <div className="text-center">
+                            <h2 className="text-xl font-black italic tracking-tighter">LOG A SESSION</h2>
+                            <p className="text-[11px] text-arc-muted mt-1">A whole class or session as one entry — e.g. a 45min HIIT class.</p>
+                        </div>
+
+                        {/* Type presets */}
+                        <div>
+                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Session</label>
+                            <div className="grid grid-cols-3 gap-2 mb-2">
+                                {['HIIT Class', 'Spin', 'CrossFit', 'Yoga', 'Bootcamp', 'Run'].map((s) => (
+                                    <button
+                                        key={s}
+                                        onClick={() => setSessionName(s)}
+                                        className={`py-2 rounded-xl text-[11px] font-bold transition-all border ${sessionName === s ? 'bg-accent-gradient text-white border-transparent' : 'bg-arc-surface text-arc-muted border-white/[0.06]'}`}
+                                    >
+                                        {s}
+                                    </button>
+                                ))}
+                            </div>
+                            <input
+                                type="text" value={sessionName} onChange={(e) => setSessionName(e.target.value)}
+                                placeholder="Or type a name…"
+                                className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                            />
+                        </div>
+
+                        {/* Duration */}
+                        <div>
+                            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Duration (minutes)</label>
+                            <div className="flex gap-2 mb-2">
+                                {[20, 30, 45, 60].map((m) => (
+                                    <button
+                                        key={m}
+                                        onClick={() => setSessionDuration(String(m))}
+                                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${parseFloat(sessionDuration) === m ? 'bg-arc-accent/20 border border-arc-accent/50 text-arc-accent' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                                    >
+                                        {m}m
+                                    </button>
+                                ))}
+                            </div>
+                            <input
+                                type="number" inputMode="numeric" value={sessionDuration} onChange={(e) => setSessionDuration(e.target.value)}
+                                placeholder="Minutes" min="1"
+                                className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-mono text-center text-xl font-black"
+                            />
+                        </div>
+
+                        <input
+                            type="text" value={sessionNotes} onChange={(e) => setSessionNotes(e.target.value)}
+                            placeholder="Notes (optional)"
+                            className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm placeholder-white/20"
+                        />
+
+                        <button
+                            onClick={logSession}
+                            disabled={savingSession || !sessionName.trim() || !sessionDuration}
+                            className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
+                        >
+                            {savingSession ? 'LOGGING…' : 'LOG SESSION'}
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
 
         {/* Edit Set Modal / Bottom Sheet */}
         <AnimatePresence>
