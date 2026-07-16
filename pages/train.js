@@ -134,14 +134,13 @@ export default function Train() {
   const [editRpe, setEditRpe] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
-  // Workout of the Day (admin-programmed)
-  const [todayWorkout, setTodayWorkout] = useState(null)
-  const [prescribed, setPrescribed] = useState([])
+  // Workout(s) of the Day (admin-programmed) — a day can have several
+  const [todayWorkouts, setTodayWorkouts] = useState([]) // [{ ...workout, exercises: [] }]
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
-  const [activePrescribed, setActivePrescribed] = useState(null) // current dwe loaded into logger
+  const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
   const [expandedId, setExpandedId] = useState(null) // which movement's inline form is open
-  const [loggingFull, setLoggingFull] = useState(false)
+  const [loggingFull, setLoggingFull] = useState(null) // workout id currently being bulk-logged
 
   // Success/Share Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false)
@@ -304,27 +303,30 @@ export default function Train() {
       const tz = new Date().getTimezoneOffset() * 60000
       const today = new Date(Date.now() - tz).toISOString().slice(0, 10)
 
-      const { data: workout, error } = await supabase
+      const { data: workouts, error } = await supabase
         .from('daily_workouts')
         .select('*')
         .eq('workout_date', today)
         .eq('is_published', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+        .order('created_at', { ascending: true })
 
       // Table may not exist yet (migration not applied) — fail silently.
-      if (error || !workout) return
+      if (error || !workouts || workouts.length === 0) return
 
-      setTodayWorkout(workout)
-
+      const ids = workouts.map((w) => w.id)
       const { data: exs } = await supabase
         .from('daily_workout_exercises')
         .select('*')
-        .eq('daily_workout_id', workout.id)
+        .in('daily_workout_id', ids)
         .order('position', { ascending: true })
 
-      if (exs) setPrescribed(exs)
+      const grouped = workouts.map((w) => ({
+        ...w,
+        exercises: (exs || []).filter((e) => e.daily_workout_id === w.id),
+      }))
+      setTodayWorkouts(grouped)
+      // Auto-open when there's just one; otherwise let the user tap to expand.
+      setExpandedWorkouts(new Set(grouped.length === 1 ? [grouped[0].id] : []))
 
       // Determine which prescribed movements are already done.
       try {
@@ -332,46 +334,21 @@ export default function Train() {
           .from('workout_logs')
           .select('daily_workout_exercise_id')
           .eq('user_id', userId)
-          .eq('daily_workout_id', workout.id)
+          .in('daily_workout_id', ids)
 
         if (doneLogs) {
-          setCompletedPrescribed(new Set(doneLogs.map(l => l.daily_workout_exercise_id).filter(Boolean)))
+          setCompletedPrescribed(new Set(doneLogs.map((l) => l.daily_workout_exercise_id).filter(Boolean)))
         }
       } catch {}
     } catch {}
   }
 
-  // Load a prescribed movement into the logger: select (or create) the matching
-  // exercise and pre-fill the prescribed sets/reps so the user just adds weight.
-  const startPrescribed = async (dwe) => {
-    try {
-      let match = exercises.find(e => e.name.trim().toLowerCase() === dwe.name.trim().toLowerCase())
-
-      if (!match) {
-        const { data: { user } } = await supabase.auth.getUser()
-        const insertData = { user_id: user?.id, name: dwe.name, metric_type: dwe.metric_type || 'weight' }
-        let { data, error } = await supabase.from('exercises').insert(insertData).select().single()
-        if (error && error.message?.includes('user_id')) {
-          delete insertData.user_id
-          const retry = await supabase.from('exercises').insert(insertData).select().single()
-          data = retry.data; error = retry.error
-        }
-        if (error) { showToast('Could not load movement'); return }
-        match = data
-        setExercises(prev => [...prev, data])
-      }
-
-      setSelectedExId(match.id)
-      setActivePrescribed(dwe)
-      setReps(dwe.target_reps != null ? String(dwe.target_reps) : '')
-      setSets(dwe.target_sets != null ? String(dwe.target_sets) : '')
-      setValue('')
-      setRpe('')
-      showToast(`Logging: ${dwe.name}`)
-      if (typeof window !== 'undefined') window.scrollTo({ top: 200, behavior: 'smooth' })
-    } catch {
-      showToast('Could not load movement')
-    }
+  const toggleWorkout = (id) => {
+    setExpandedWorkouts((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
   }
 
   const showToast = (msg) => setToast(msg)
@@ -430,7 +407,7 @@ export default function Train() {
         value: valNum,
         is_new_pb: isPB,
         points_awarded: points,
-        daily_workout_id: todayWorkout?.id,
+        daily_workout_id: dwe.daily_workout_id,
         daily_workout_exercise_id: dwe.id,
       }
       const repsNum = vals.reps ? parseInt(vals.reps, 10) : null
@@ -477,12 +454,12 @@ export default function Train() {
     if (r.ok) showToast(r.isPB ? 'New PB! 🎉' : `Logged ${dwe.name}`)
   }
 
-  const logFullWorkout = async () => {
+  const logFullWorkout = async (workout) => {
     if (loggingFull) return
-    setLoggingFull(true)
+    setLoggingFull(workout.id)
     let count = 0
     try {
-      for (const dwe of prescribed) {
+      for (const dwe of workout.exercises) {
         if (completedPrescribed.has(dwe.id)) continue
         const vals = pInputs[dwe.id]
         if (!vals?.value || parseFloat(vals.value) <= 0) continue
@@ -491,7 +468,7 @@ export default function Train() {
       }
       showToast(count === 0 ? 'Enter a weight on at least one movement' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
     } finally {
-      setLoggingFull(false)
+      setLoggingFull(null)
     }
   }
 
@@ -595,15 +572,6 @@ export default function Train() {
         if (!isNaN(parsed)) logPayload.rpe = parsed
       }
 
-      // Link this log to the programmed Workout of the Day if applicable.
-      const linkedPrescribed = activePrescribed && exercises.find(e => e.id === selectedExId)?.name?.trim().toLowerCase() === activePrescribed.name?.trim().toLowerCase()
-        ? activePrescribed
-        : null
-      if (linkedPrescribed && todayWorkout) {
-        logPayload.daily_workout_id = todayWorkout.id
-        logPayload.daily_workout_exercise_id = linkedPrescribed.id
-      }
-
       const optionalFields = ['rpe', 'reps', 'sets', 'daily_workout_id', 'daily_workout_exercise_id']
       let { error: logError, data: insertedLog } = await supabase
         .from('workout_logs')
@@ -681,16 +649,6 @@ export default function Train() {
         date: now.toISOString()
       })
       setShowSuccessModal(true)
-
-      // If this completed a Workout-of-the-Day movement, tick it off.
-      if (linkedPrescribed) {
-        setCompletedPrescribed(prev => {
-          const next = new Set(prev)
-          next.add(linkedPrescribed.id)
-          return next
-        })
-        setActivePrescribed(null)
-      }
 
       setValue('')
       setReps('')
@@ -998,132 +956,146 @@ export default function Train() {
                 </motion.div>
             </section>
 
-            {/* Today's Workout (admin-programmed) */}
-            {todayWorkout && prescribed.length > 0 && (
-                <motion.section
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}
-                    className="relative"
-                >
-                    <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-cyan/20 via-arc-accent/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
-                    <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
-                        <div className="h-[2px] bg-accent-gradient-r" />
-                        <div className="p-5 space-y-4">
-                            <div className="flex items-start justify-between gap-3">
-                                <div>
-                                    <span className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.2em]">Today's Workout</span>
-                                    <h2 className="text-lg font-black italic tracking-tight mt-0.5">{todayWorkout.title}</h2>
-                                    {todayWorkout.description && (
-                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug">{todayWorkout.description}</p>
+            {/* Today's Workout(s) — a day can have more than one */}
+            {todayWorkouts.map((workout, wIdx) => {
+                const wOpen = expandedWorkouts.has(workout.id)
+                const wDone = workout.exercises.filter((e) => completedPrescribed.has(e.id)).length
+                const allDone = workout.exercises.length > 0 && wDone === workout.exercises.length
+                return (
+                    <motion.section
+                        key={workout.id}
+                        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 + wIdx * 0.05 }}
+                        className="relative"
+                    >
+                        <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-cyan/20 via-arc-accent/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
+                        <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
+                            <div className="h-[2px] bg-accent-gradient-r" />
+
+                            {/* Workout header — tap to expand its exercises */}
+                            <button onClick={() => toggleWorkout(workout.id)} className="w-full text-left p-5 flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <span className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.2em]">
+                                        {todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout"}
+                                    </span>
+                                    <h2 className="text-lg font-black italic tracking-tight mt-0.5 truncate">{workout.title}</h2>
+                                    {workout.description && (
+                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug">{workout.description}</p>
                                     )}
                                 </div>
-                                <div className="shrink-0 text-right">
-                                    <span className="font-mono text-sm font-bold text-arc-accent">
-                                        {completedPrescribed.size}/{prescribed.length}
+                                <div className="shrink-0 text-right flex flex-col items-end">
+                                    <span className={`font-mono text-sm font-bold ${allDone ? 'text-emerald-400' : 'text-arc-accent'}`}>
+                                        {wDone}/{workout.exercises.length}
                                     </span>
-                                    <span className="block text-[8px] text-arc-muted uppercase tracking-wider">Done</span>
+                                    <span className="block text-[8px] text-arc-muted uppercase tracking-wider">{allDone ? 'Complete' : 'Done'}</span>
+                                    <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider mt-1">{wOpen ? 'Hide ▲' : 'Open ▾'}</span>
                                 </div>
-                            </div>
+                            </button>
 
-                            <div className="space-y-2">
-                                {prescribed.map((dwe) => {
-                                    const done = completedPrescribed.has(dwe.id)
-                                    const open = expandedId === dwe.id
-                                    const unit = dwe.metric_type === 'time' ? 'MIN' : dwe.metric_type === 'distance' ? 'KM' : dwe.metric_type === 'reps' ? 'REPS' : 'KG'
-                                    const unitLower = unit.toLowerCase()
-                                    const vals = pInputs[dwe.id] || {}
-                                    const scheme = [
-                                        dwe.target_sets != null ? `${dwe.target_sets}×` : '',
-                                        dwe.target_reps != null ? `${dwe.target_reps}` : '',
-                                    ].join('')
-                                    return (
-                                        <div
-                                            key={dwe.id}
-                                            className={`rounded-xl border transition-all overflow-hidden ${
-                                                open ? 'border-arc-accent/50 bg-arc-accent/[0.06] shadow-glow'
-                                                    : done ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
-                                                        : 'border-white/[0.05] bg-arc-surface'
-                                            }`}
-                                        >
-                                            {/* Row header */}
-                                            <button
-                                                onClick={() => !done && toggleExpand(dwe)}
-                                                className="w-full text-left flex items-center gap-3 p-3"
-                                            >
-                                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
-                                                    {done && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
-                                                    <div className="text-[10px] text-arc-muted font-mono">
-                                                        {scheme && <span>{scheme} </span>}
-                                                        {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unitLower} </span>}
-                                                        {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
-                                                    </div>
-                                                </div>
-                                                {!done && (
-                                                    <span className={`text-[9px] font-bold uppercase tracking-wider shrink-0 transition-colors ${open ? 'text-white' : 'text-arc-accent'}`}>
-                                                        {open ? 'Close' : 'Log →'}
-                                                    </span>
-                                                )}
-                                            </button>
-
-                                            {/* Inline log form */}
-                                            <AnimatePresence>
-                                                {open && !done && (
-                                                    <motion.div
-                                                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                                                        className="px-3 pb-3"
+                            <AnimatePresence initial={false}>
+                                {wOpen && (
+                                    <motion.div
+                                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                                        className="px-5 pb-5 space-y-4"
+                                    >
+                                        <div className="space-y-2">
+                                            {workout.exercises.map((dwe) => {
+                                                const done = completedPrescribed.has(dwe.id)
+                                                const open = expandedId === dwe.id
+                                                // First column is always the load unit (KG / MIN / KM) — never
+                                                // "Reps", so it doesn't collide with the Reps field.
+                                                const unit = dwe.metric_type === 'time' ? 'MIN' : dwe.metric_type === 'distance' ? 'KM' : 'KG'
+                                                const unitLower = unit.toLowerCase()
+                                                const vals = pInputs[dwe.id] || {}
+                                                const scheme = [
+                                                    dwe.target_sets != null ? `${dwe.target_sets}×` : '',
+                                                    dwe.target_reps != null ? `${dwe.target_reps}` : '',
+                                                ].join('')
+                                                return (
+                                                    <div
+                                                        key={dwe.id}
+                                                        className={`rounded-xl border transition-all overflow-hidden ${
+                                                            open ? 'border-arc-accent/50 bg-arc-accent/[0.06] shadow-glow'
+                                                                : done ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+                                                                    : 'border-white/[0.05] bg-arc-surface'
+                                                        }`}
                                                     >
-                                                        <div className="flex items-end gap-2">
-                                                            <div className="flex-1">
-                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block">{unit}</label>
-                                                                <input
-                                                                    type="number" inputMode="decimal" autoFocus
-                                                                    value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
-                                                                    placeholder="0" step={dwe.metric_type === 'time' ? '0.1' : '0.5'} min="0"
-                                                                    className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
-                                                                />
+                                                        <button onClick={() => !done && toggleExpand(dwe)} className="w-full text-left flex items-center gap-3 p-3">
+                                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
+                                                                {done && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
                                                             </div>
-                                                            <div className="w-12">
-                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Reps</label>
-                                                                <input type="number" value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder="—" min="1"
-                                                                    className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
+                                                                <div className="text-[10px] text-arc-muted font-mono">
+                                                                    {scheme && <span>{scheme} </span>}
+                                                                    {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unitLower} </span>}
+                                                                    {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
+                                                                </div>
                                                             </div>
-                                                            <div className="w-12">
-                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Sets</label>
-                                                                <input type="number" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder="—" min="1"
-                                                                    className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
-                                                            </div>
-                                                            <button
-                                                                onClick={() => logOneMovement(dwe)}
-                                                                disabled={!vals.value}
-                                                                className="bg-accent-gradient text-white font-black italic text-xs tracking-wider px-4 py-2.5 rounded-lg shadow-glow-accent disabled:opacity-40"
-                                                            >
-                                                                LOG
-                                                            </button>
-                                                        </div>
-                                                    </motion.div>
-                                                )}
-                                            </AnimatePresence>
-                                        </div>
-                                    )
-                                })}
-                            </div>
+                                                            {!done && (
+                                                                <span className={`text-[9px] font-bold uppercase tracking-wider shrink-0 transition-colors ${open ? 'text-white' : 'text-arc-accent'}`}>
+                                                                    {open ? 'Close' : 'Log →'}
+                                                                </span>
+                                                            )}
+                                                        </button>
 
-                            {/* Log the whole session at once */}
-                            {completedPrescribed.size < prescribed.length && (
-                                <button
-                                    onClick={logFullWorkout}
-                                    disabled={loggingFull}
-                                    className="w-full bg-arc-surface border border-arc-accent/30 text-arc-accent font-black italic tracking-wider py-3 rounded-xl hover:bg-arc-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                                >
-                                    {loggingFull ? 'LOGGING…' : 'LOG ENTIRE WORKOUT'}
-                                </button>
-                            )}
+                                                        <AnimatePresence>
+                                                            {open && !done && (
+                                                                <motion.div
+                                                                    initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                                                                    className="px-3 pb-3"
+                                                                >
+                                                                    <div className="flex items-end gap-2">
+                                                                        <div className="flex-1">
+                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block">{unit}</label>
+                                                                            <input
+                                                                                type="number" inputMode="decimal" autoFocus
+                                                                                value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
+                                                                                placeholder="0" step={dwe.metric_type === 'time' ? '0.1' : '0.5'} min="0"
+                                                                                className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
+                                                                            />
+                                                                        </div>
+                                                                        <div className="w-12">
+                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Reps</label>
+                                                                            <input type="number" value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder="—" min="1"
+                                                                                className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                                                                        </div>
+                                                                        <div className="w-12">
+                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Sets</label>
+                                                                            <input type="number" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder="—" min="1"
+                                                                                className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
+                                                                        </div>
+                                                                        <button
+                                                                            onClick={() => logOneMovement(dwe)}
+                                                                            disabled={!vals.value}
+                                                                            className="bg-accent-gradient text-white font-black italic text-xs tracking-wider px-4 py-2.5 rounded-lg shadow-glow-accent disabled:opacity-40"
+                                                                        >
+                                                                            LOG
+                                                                        </button>
+                                                                    </div>
+                                                                </motion.div>
+                                                            )}
+                                                        </AnimatePresence>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+
+                                        {!allDone && (
+                                            <button
+                                                onClick={() => logFullWorkout(workout)}
+                                                disabled={loggingFull === workout.id}
+                                                className="w-full bg-arc-surface border border-arc-accent/30 text-arc-accent font-black italic tracking-wider py-3 rounded-xl hover:bg-arc-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                            >
+                                                {loggingFull === workout.id ? 'LOGGING…' : 'LOG ENTIRE WORKOUT'}
+                                            </button>
+                                        )}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
-                    </div>
-                </motion.section>
-            )}
+                    </motion.section>
+                )
+            })}
 
             {/* Logger Input - Main Card */}
             <motion.section
@@ -1165,7 +1137,7 @@ export default function Train() {
                         <div className="relative">
                             <select
                                 value={selectedExId}
-                                onChange={(e) => { setSelectedExId(e.target.value); setActivePrescribed(null) }}
+                                onChange={(e) => setSelectedExId(e.target.value)}
                                 className="w-full bg-arc-surface border border-white/[0.06] text-white p-4 rounded-xl font-bold appearance-none outline-none focus:border-arc-accent/40 transition-colors"
                             >
                                 {exercises.map(ex => (

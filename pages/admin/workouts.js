@@ -97,7 +97,8 @@ export default function AdminWorkouts() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [toast, setToast] = useState(null)
 
-  const [workoutId, setWorkoutId] = useState(null) // existing row for the date
+  const [workoutId, setWorkoutId] = useState(null) // existing row being edited
+  const [dayWorkouts, setDayWorkouts] = useState([]) // all workouts on the selected date
   const [date, setDate] = useState(todayStr())
   const [weekStart, setWeekStart] = useState(mondayOf(todayStr()))
   const [weekStatus, setWeekStatus] = useState({}) // { 'YYYY-MM-DD': { title, published } }
@@ -160,39 +161,48 @@ export default function AdminWorkouts() {
   }
 
   async function loadForDate(d) {
-    const { data: existing } = await supabase
+    const { data: list } = await supabase
       .from('daily_workouts')
       .select('*')
       .eq('workout_date', d)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .order('created_at', { ascending: true })
 
-    if (existing) {
-      setWorkoutId(existing.id)
-      setTitle(existing.title || '')
-      setDescription(existing.description || '')
-      setSource(existing.source || 'manual')
-      const { data: exs } = await supabase
-        .from('daily_workout_exercises')
-        .select('*')
-        .eq('daily_workout_id', existing.id)
-        .order('position', { ascending: true })
-      setRows(exs && exs.length ? exs.map(e => ({
-        name: e.name || '',
-        metric_type: e.metric_type || 'weight',
-        target_sets: e.target_sets ?? '',
-        target_reps: e.target_reps ?? '',
-        target_value: e.target_value ?? '',
-        notes: e.notes || '',
-      })) : [emptyRow()])
+    setDayWorkouts(list || [])
+    if (list && list.length) {
+      loadWorkout(list[list.length - 1]) // edit the most recent by default
     } else {
-      setWorkoutId(null)
-      setTitle('')
-      setDescription('')
-      setSource('manual')
-      setRows([emptyRow()])
+      newWorkout()
     }
+  }
+
+  // Load a specific workout into the editor.
+  async function loadWorkout(w) {
+    setWorkoutId(w.id)
+    setTitle(w.title || '')
+    setDescription(w.description || '')
+    setSource(w.source || 'manual')
+    const { data: exs } = await supabase
+      .from('daily_workout_exercises')
+      .select('*')
+      .eq('daily_workout_id', w.id)
+      .order('position', { ascending: true })
+    setRows(exs && exs.length ? exs.map((e) => ({
+      name: e.name || '',
+      metric_type: e.metric_type || 'weight',
+      target_sets: e.target_sets ?? '',
+      target_reps: e.target_reps ?? '',
+      target_value: e.target_value ?? '',
+      notes: e.notes || '',
+    })) : [emptyRow()])
+  }
+
+  // Start a brand-new (additional) workout for the selected date.
+  function newWorkout() {
+    setWorkoutId(null)
+    setTitle('')
+    setDescription('')
+    setSource('manual')
+    setRows([emptyRow()])
   }
 
   // --- Photo → AI parse -----------------------------------------------------
@@ -303,6 +313,10 @@ export default function AdminWorkouts() {
 
       showToast(publish ? 'Workout published to all users 🎉' : 'Saved as draft')
       loadWeekStatus(weekStart)
+      // Refresh the day's workout list (without resetting the editor).
+      const { data: list } = await supabase
+        .from('daily_workouts').select('*').eq('workout_date', date).order('created_at', { ascending: true })
+      setDayWorkouts(list || [])
     } catch (err) {
       console.error('[Arctivate] save workout failed:', err)
       showToast(`Failed to save: ${err.message || 'unknown error'}`)
@@ -422,8 +436,34 @@ export default function AdminWorkouts() {
             <input type="date" value={date} onChange={(e) => e.target.value && selectDay(e.target.value)}
               className="w-full bg-arc-surface border border-white/[0.06] text-white p-3 rounded-xl outline-none focus:border-arc-accent/40" />
             {workoutId
-              ? <p className="text-[10px] text-arc-cyan mt-1.5">Editing the existing workout for this date.</p>
-              : <p className="text-[10px] text-arc-muted mt-1.5">No workout yet for this date — build one below.</p>}
+              ? <p className="text-[10px] text-arc-cyan mt-1.5">Editing an existing workout for this date.</p>
+              : <p className="text-[10px] text-arc-muted mt-1.5">New workout — will be added to this date.</p>}
+          </div>
+
+          {/* Workouts already on this date (a day can have several) */}
+          <div>
+            <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Workouts on this day</label>
+            <div className="flex flex-wrap gap-2">
+              {dayWorkouts.map((w) => (
+                <button
+                  key={w.id}
+                  onClick={() => loadWorkout(w)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                    workoutId === w.id ? 'bg-accent-gradient text-white border-transparent' : 'bg-arc-surface text-arc-muted border-white/[0.06] hover:text-white'
+                  }`}
+                >
+                  {w.title || 'Untitled'}{!w.is_published && <span className="text-amber-400"> · draft</span>}
+                </button>
+              ))}
+              <button
+                onClick={newWorkout}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  workoutId === null ? 'bg-arc-accent/15 border-arc-accent/50 text-arc-accent' : 'bg-arc-surface text-arc-accent border-white/[0.06] hover:bg-arc-accent/10'
+                }`}
+              >
+                + New workout
+              </button>
+            </div>
           </div>
           <div>
             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Title</label>
