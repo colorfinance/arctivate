@@ -8,7 +8,7 @@ import { supabase } from '../../lib/supabaseClient'
 
 const METRICS = [
   { value: 'weight', label: 'Weight (kg)' },
-  { value: 'reps', label: 'Reps' },
+  { value: 'reps', label: 'Bodyweight' },
   { value: 'time', label: 'Time (min)' },
   { value: 'distance', label: 'Distance (km)' },
 ]

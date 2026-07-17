@@ -464,11 +464,14 @@ export default function Train() {
       for (const dwe of workout.exercises) {
         if (completedPrescribed.has(dwe.id)) continue
         const vals = pInputs[dwe.id]
-        if (!vals?.value || parseFloat(vals.value) <= 0) continue
+        // Include weighted sets AND bodyweight sets (reps entered, no weight).
+        const hasWeight = vals?.value && parseFloat(vals.value) > 0
+        const hasReps = vals?.reps && parseInt(vals.reps, 10) > 0
+        if (!hasWeight && !hasReps) continue
         const r = await logMovement(dwe, vals)
         if (r.ok) count++
       }
-      showToast(count === 0 ? 'Enter a weight on at least one movement' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
+      showToast(count === 0 ? 'Enter a weight or reps on at least one movement' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
     } finally {
       setLoggingFull(null)
     }
@@ -1007,10 +1010,12 @@ export default function Train() {
                                             {workout.exercises.map((dwe) => {
                                                 const done = completedPrescribed.has(dwe.id)
                                                 const open = expandedId === dwe.id
+                                                // Bodyweight/reps movements don't take a load — log reps/sets only.
+                                                const isBw = dwe.metric_type === 'reps'
                                                 // First column is always the load unit (KG / MIN / KM) — never
                                                 // "Reps", so it doesn't collide with the Reps field.
                                                 const unit = dwe.metric_type === 'time' ? 'MIN' : dwe.metric_type === 'distance' ? 'KM' : 'KG'
-                                                const unitLower = unit.toLowerCase()
+                                                const unitLower = isBw ? '' : unit.toLowerCase()
                                                 const vals = pInputs[dwe.id] || {}
                                                 const scheme = [
                                                     dwe.target_sets != null ? `${dwe.target_sets}×` : '',
@@ -1051,23 +1056,25 @@ export default function Train() {
                                                                     className="px-3 pb-3"
                                                                 >
                                                                     <div className="flex items-end gap-2">
-                                                                        <div className="flex-1">
-                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block">{unit}</label>
-                                                                            <input
-                                                                                type="number" inputMode="decimal" autoFocus
-                                                                                value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
-                                                                                placeholder="0" step={dwe.metric_type === 'time' ? '0.1' : '0.5'} min="0"
-                                                                                className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
-                                                                            />
-                                                                        </div>
-                                                                        <div className="w-12">
+                                                                        {!isBw && (
+                                                                            <div className="flex-1">
+                                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block">{unit} <span className="text-arc-muted/60 normal-case">· optional</span></label>
+                                                                                <input
+                                                                                    type="number" inputMode="decimal" autoFocus
+                                                                                    value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
+                                                                                    placeholder="0" step={dwe.metric_type === 'time' ? '0.1' : '0.5'} min="0"
+                                                                                    className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
+                                                                                />
+                                                                            </div>
+                                                                        )}
+                                                                        <div className={isBw ? 'flex-1' : 'w-14'}>
                                                                             <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Reps</label>
-                                                                            <input type="number" value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder="—" min="1"
+                                                                            <input type="number" inputMode="numeric" autoFocus={isBw} value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder="—" min="1"
                                                                                 className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
                                                                         </div>
-                                                                        <div className="w-12">
+                                                                        <div className={isBw ? 'flex-1' : 'w-14'}>
                                                                             <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Sets</label>
-                                                                            <input type="number" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder="—" min="1"
+                                                                            <input type="number" inputMode="numeric" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder="—" min="1"
                                                                                 className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
                                                                         </div>
                                                                         <button
