@@ -63,6 +63,9 @@ export default function Food() {
   const [copying, setCopying] = useState(false)
   const [showFavourites, setShowFavourites] = useState(false)
   const [addingFav, setAddingFav] = useState(null)
+  const [myFavourites, setMyFavourites] = useState([])
+  const [favForm, setFavForm] = useState({ name: '', cals: '', p: '', c: '', f: '' })
+  const [showFavForm, setShowFavForm] = useState(false)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
   const [todayLogs, setTodayLogs] = useState([])
@@ -116,6 +119,7 @@ export default function Food() {
       }
       setPageLoading(false)
       fetchDailyCalories()
+      fetchMyFavourites(user.id)
     }
     init()
 
@@ -524,6 +528,84 @@ export default function Food() {
       setAddingFav(null)
     }
   }
+
+  async function fetchMyFavourites(uid) {
+    try {
+      const { data, error } = await supabase
+        .from('food_favourites')
+        .select('*')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: false })
+      if (error) return // table not created yet — hide the section
+      setMyFavourites(data || [])
+    } catch {}
+  }
+
+  // Add a custom favourite from the little form.
+  const addCustomFavourite = async () => {
+    const name = favForm.name.trim()
+    if (!name) { showToast('Enter a food name'); return }
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      const row = {
+        user_id: user.id,
+        name,
+        calories: parseInt(favForm.cals, 10) || 0,
+        macros: { p: parseInt(favForm.p, 10) || 0, c: parseInt(favForm.c, 10) || 0, f: parseInt(favForm.f, 10) || 0 },
+      }
+      const { data, error } = await supabase.from('food_favourites').insert(row).select().single()
+      if (error) throw error
+      setMyFavourites((prev) => [data, ...prev])
+      setFavForm({ name: '', cals: '', p: '', c: '', f: '' })
+      setShowFavForm(false)
+      showToast('Favourite saved')
+    } catch (e) {
+      showToast('Could not save favourite (run migration 017)')
+    }
+  }
+
+  // Save an already-logged food as a favourite (star button).
+  const saveLogAsFavourite = async (log) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      // Avoid obvious duplicates by name.
+      if (myFavourites.some((f) => f.name.toLowerCase() === (log.item_name || '').toLowerCase())) {
+        showToast('Already in favourites'); return
+      }
+      const row = {
+        user_id: user.id,
+        name: log.item_name || 'Food',
+        calories: log.calories || 0,
+        macros: { p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 },
+      }
+      const { data, error } = await supabase.from('food_favourites').insert(row).select().single()
+      if (error) throw error
+      setMyFavourites((prev) => [data, ...prev])
+      showToast('Saved to favourites ⭐')
+    } catch {
+      showToast('Could not save (run migration 017)')
+    }
+  }
+
+  const deleteFavourite = async (id) => {
+    try {
+      await supabase.from('food_favourites').delete().eq('id', id)
+      setMyFavourites((prev) => prev.filter((f) => f.id !== id))
+    } catch {
+      showToast('Could not remove favourite')
+    }
+  }
+
+  // Quick-add a saved (custom) favourite — reuses the café logger.
+  const logMyFavourite = (fav) => logFavourite({
+    name: fav.name,
+    cals: fav.calories || 0,
+    p: fav.macros?.p || 0,
+    c: fav.macros?.c || 0,
+    f: fav.macros?.f || 0,
+  })
 
   // Open the goals editor pre-filled with current values.
   const openGoals = () => {
@@ -1232,6 +1314,13 @@ export default function Food() {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-black text-arc-cyan">{log.calories} cal</span>
                             <button
+                              onClick={() => saveLogAsFavourite(log)}
+                              className="text-white/20 hover:text-yellow-400 transition-colors p-1"
+                              title="Save to favourites"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            </button>
+                            <button
                               onClick={() => openEdit(log)}
                               className="text-white/20 hover:text-arc-cyan transition-colors p-1"
                               title="Edit"
@@ -1569,7 +1658,69 @@ export default function Food() {
                 <p className="text-[11px] text-arc-muted mt-1">Tap to add to today. Calories are approximate.</p>
               </div>
 
+              {/* My favourites (user-created) */}
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">My Favourites</h3>
+                  <button onClick={() => setShowFavForm((v) => !v)} className="text-[10px] font-bold text-arc-accent uppercase tracking-wider hover:text-white transition-colors">
+                    {showFavForm ? 'Close' : '+ Add your own'}
+                  </button>
+                </div>
+
+                <AnimatePresence>
+                  {showFavForm && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden mb-3"
+                    >
+                      <div className="bg-arc-surface border border-white/10 rounded-xl p-3 space-y-2">
+                        <input
+                          type="text" value={favForm.name} onChange={(e) => setFavForm({ ...favForm, name: e.target.value })}
+                          placeholder="Food name"
+                          className="w-full bg-arc-bg border border-white/10 p-2.5 rounded-lg text-white outline-none focus:border-arc-accent text-sm font-bold"
+                        />
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { k: 'cals', ph: 'Cals' }, { k: 'p', ph: 'P' }, { k: 'c', ph: 'C' }, { k: 'f', ph: 'F' },
+                          ].map((fld) => (
+                            <input
+                              key={fld.k} type="number" inputMode="numeric" value={favForm[fld.k]}
+                              onChange={(e) => setFavForm({ ...favForm, [fld.k]: e.target.value })}
+                              placeholder={fld.ph}
+                              className="w-full bg-arc-bg border border-white/10 p-2 rounded-lg text-white outline-none focus:border-arc-accent text-center text-sm font-bold placeholder-white/30"
+                            />
+                          ))}
+                        </div>
+                        <button onClick={addCustomFavourite} className="w-full bg-arc-accent text-white font-bold py-2.5 rounded-lg text-sm">Save favourite</button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {myFavourites.length === 0 ? (
+                  <p className="text-[11px] text-arc-muted">No saved favourites yet. Add your own above, or tap ⭐ on a logged food.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {myFavourites.map((fav) => (
+                      <div key={fav.id} className="w-full flex items-center justify-between gap-2 bg-arc-surface border border-white/5 rounded-xl px-4 py-3">
+                        <button onClick={() => logMyFavourite(fav)} disabled={addingFav === fav.name} className="flex-1 flex items-center justify-between gap-3 min-w-0 text-left disabled:opacity-50">
+                          <div className="min-w-0">
+                            <span className="text-sm font-bold text-white truncate block">{fav.name}</span>
+                            <span className="text-[10px] text-arc-muted">P:{fav.macros?.p || 0}g C:{fav.macros?.c || 0}g F:{fav.macros?.f || 0}g</span>
+                          </div>
+                          <span className="text-sm font-black text-arc-cyan shrink-0">{fav.calories} cal</span>
+                        </button>
+                        <button onClick={() => deleteFavourite(fav.id)} aria-label="Remove favourite" className="text-white/20 hover:text-red-400 transition-colors p-1 shrink-0">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-5">
+                <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest -mb-2">Café menu</h3>
                 {FAVOURITES.map((section) => (
                   <div key={section.group}>
                     <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2">{section.group}</h3>
