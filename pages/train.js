@@ -371,8 +371,10 @@ export default function Train() {
   }
 
   async function logMovement(dwe, vals) {
-    const valNum = parseFloat(vals?.value)
-    if (isNaN(valNum) || valNum <= 0) return { ok: false }
+    // Weight optional: allow a bodyweight set when reps are entered.
+    const isBodyweight = !vals?.value
+    const valNum = isBodyweight ? 0 : parseFloat(vals.value)
+    if (isBodyweight ? !vals?.reps : (isNaN(valNum) || valNum <= 0)) return { ok: false }
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return { ok: false }
@@ -398,7 +400,7 @@ export default function Train() {
         .eq('user_id', user.id).eq('exercise_id', ex.id)
         .order('value', { ascending: isTime }).limit(1).maybeSingle()
       const pb = pbRow?.value || 0
-      const isPB = isTime ? (valNum < pb || pb === 0) : (valNum > pb)
+      const isPB = isBodyweight ? false : (isTime ? (valNum < pb || pb === 0) : (valNum > pb))
       const points = 50 + (isPB ? 100 : 0)
 
       const payload = {
@@ -449,7 +451,7 @@ export default function Train() {
 
   const logOneMovement = async (dwe) => {
     const vals = pInputs[dwe.id]
-    if (!vals?.value) { showToast('Enter a weight first'); return }
+    if (!vals?.value && !vals?.reps) { showToast('Enter a weight or reps'); return }
     const r = await logMovement(dwe, vals)
     if (r.ok) showToast(r.isPB ? 'New PB! 🎉' : `Logged ${dwe.name}`)
   }
@@ -507,12 +509,14 @@ export default function Train() {
   }
 
   const handleLog = async () => {
-    if (!value || isLogging) return
+    // Allow logging with just reps/sets (bodyweight) — weight is optional.
+    if ((!value && !reps) || isLogging) return
 
     setIsLogging(true)
-    const valNum = parseFloat(value)
+    const isBodyweight = !value
+    const valNum = isBodyweight ? 0 : parseFloat(value)
 
-    if (isNaN(valNum) || valNum <= 0) {
+    if (!isBodyweight && (isNaN(valNum) || valNum <= 0)) {
       showToast('Please enter a valid number')
       setIsLogging(false)
       return
@@ -533,11 +537,13 @@ export default function Train() {
         return
       }
 
-      // Check PB Logic
+      // Check PB Logic (weighted only — bodyweight sets don't set a weight PB)
       let isPB = false
       let pointsEarned = 50
 
-      if (ex.metric_type === 'time') {
+      if (isBodyweight) {
+        isPB = false
+      } else if (ex.metric_type === 'time') {
         if ((valNum < currentPB || currentPB === 0) && valNum > 0) isPB = true
       } else {
         if (valNum > currentPB) isPB = true
@@ -1066,7 +1072,7 @@ export default function Train() {
                                                                         </div>
                                                                         <button
                                                                             onClick={() => logOneMovement(dwe)}
-                                                                            disabled={!vals.value}
+                                                                            disabled={!vals.value && !vals.reps}
                                                                             className="bg-accent-gradient text-white font-black italic text-xs tracking-wider px-4 py-2.5 rounded-lg shadow-glow-accent disabled:opacity-40"
                                                                         >
                                                                             LOG
@@ -1173,6 +1179,7 @@ export default function Train() {
                              {/* Glow line under input on focus */}
                              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 group-focus-within:w-full h-[2px] bg-accent-gradient transition-all duration-300" />
                         </div>
+                        <p className="text-[10px] text-arc-muted text-center -mt-2">Leave {unitLabelLower} empty for a bodyweight set — just log reps.</p>
 
                         {/* Reps / Sets / RPE Row */}
                         <div className="grid grid-cols-3 gap-3">
@@ -1206,7 +1213,7 @@ export default function Train() {
                         <motion.button
                             whileTap={{ scale: 0.98 }}
                             onClick={handleLog}
-                            disabled={!value || isLogging}
+                            disabled={(!value && !reps) || isLogging}
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow-accent text-lg disabled:opacity-40 disabled:shadow-none transition-all flex items-center justify-center gap-2"
                         >
                             {isLogging ? (
@@ -1292,8 +1299,11 @@ export default function Train() {
                                         {log.time} • {(log.sets != null || log.reps != null) && (
                                             <span className="text-white/80">{log.sets != null ? `${log.sets}×` : ''}{log.reps != null ? log.reps : ''} · </span>
                                         )}
-                                        <span className="text-white/80">{log.val}</span>
-                                        <span className="text-arc-muted ml-0.5">{log.metricType === 'time' ? 'min' : 'kg'}</span>
+                                        {log.val ? (
+                                            <><span className="text-white/80">{log.val}</span><span className="text-arc-muted ml-0.5">{log.metricType === 'time' ? 'min' : 'kg'}</span></>
+                                        ) : (
+                                            <span className="text-white/80">Bodyweight</span>
+                                        )}
                                         {log.rpe != null && <span className="text-arc-muted ml-2">RPE {log.rpe}</span>}
                                     </div>
                                 </div>

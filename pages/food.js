@@ -12,6 +12,40 @@ const fireConfetti = async (opts) => {
 }
 import { useRouter } from 'next/router'
 
+// Café menu favourites — one-tap add. Calories/macros are approximate
+// estimates based on the listed ingredients.
+const FAVOURITES = [
+  { group: 'Bowls', items: [
+    { name: 'Yogurt & Granola Bowl', cals: 350, p: 20, c: 45, f: 10 },
+    { name: 'Açai Bowl', cals: 450, p: 8, c: 80, f: 12 },
+    { name: 'The Glow Up Bowl', cals: 480, p: 30, c: 65, f: 12 },
+    { name: 'Snickers Bowl', cals: 800, p: 35, c: 110, f: 28 },
+  ] },
+  { group: 'Smoothies', items: [
+    { name: 'The Ange', cals: 400, p: 25, c: 45, f: 10 },
+    { name: 'Ken-ergizer', cals: 350, p: 8, c: 68, f: 6 },
+    { name: 'Refuel', cals: 420, p: 12, c: 62, f: 14 },
+    { name: 'Oreo', cals: 450, p: 8, c: 80, f: 13 },
+    { name: 'Energise', cals: 250, p: 4, c: 58, f: 4 },
+    { name: 'Simply Açai', cals: 250, p: 5, c: 50, f: 6 },
+    { name: 'Berry Sweet', cals: 150, p: 2, c: 36, f: 1 },
+    { name: 'The Reload', cals: 350, p: 20, c: 58, f: 6 },
+    { name: 'Dirty Chai', cals: 250, p: 5, c: 48, f: 4 },
+    { name: 'Biscoff Blast', cals: 450, p: 28, c: 60, f: 14 },
+    { name: 'Green Goddess', cals: 200, p: 3, c: 46, f: 2 },
+    { name: 'Rocket Fuel', cals: 400, p: 22, c: 55, f: 9 },
+  ] },
+  { group: 'Juices', items: [
+    { name: 'Adapt Juice', cals: 180, p: 2, c: 44, f: 1 },
+    { name: 'Reset Juice', cals: 120, p: 2, c: 30, f: 0 },
+    { name: 'Conquer Juice', cals: 200, p: 2, c: 50, f: 1 },
+  ] },
+  { group: 'Slushies', items: [
+    { name: 'BCAA Slushie', cals: 30, p: 0, c: 5, f: 0 },
+    { name: 'Collagen Slushie', cals: 60, p: 10, c: 4, f: 0 },
+  ] },
+]
+
 export default function Food() {
   const router = useRouter()
   const [scanning, setScanning] = useState(false)
@@ -27,6 +61,8 @@ export default function Food() {
   const [goalsForm, setGoalsForm] = useState({ cals: '', carbs: '', protein: '', fat: '' })
   const [savingGoals, setSavingGoals] = useState(false)
   const [copying, setCopying] = useState(false)
+  const [showFavourites, setShowFavourites] = useState(false)
+  const [addingFav, setAddingFav] = useState(null)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
   const [todayLogs, setTodayLogs] = useState([])
@@ -450,6 +486,42 @@ export default function Food() {
       showToast('Failed to save food. Please try again.')
     } finally {
       setIsLogging(false)
+    }
+  }
+
+  // Quick-add a café favourite to today's log.
+  const logFavourite = async (fav) => {
+    if (addingFav) return
+    setAddingFav(fav.name)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setAddingFav(null); return }
+
+      const mealType = getDefaultMealType()
+      const { data: newLog, error } = await supabase
+        .from('food_logs')
+        .insert({
+          user_id: user.id,
+          item_name: fav.name,
+          calories: fav.cals,
+          macros: { p: fav.p, c: fav.c, f: fav.f, meal_type: mealType },
+        })
+        .select()
+        .single()
+      if (error) throw error
+
+      if (newLog) setTodayLogs((prev) => [newLog, ...prev])
+      setDailyCalories((prev) => prev + fav.cals)
+      setDailyMacros((prev) => ({
+        protein: prev.protein + (fav.p || 0),
+        carbs: prev.carbs + (fav.c || 0),
+        fat: prev.fat + (fav.f || 0),
+      }))
+      showToast(`Added ${fav.name} · ${fav.cals} cal`)
+    } catch {
+      showToast('Failed to add. Please try again.')
+    } finally {
+      setAddingFav(null)
     }
   }
 
@@ -1062,19 +1134,28 @@ export default function Food() {
           </button>
         </div>
 
-        {/* Copy yesterday — for people who eat the same thing daily */}
-        <button
-          onClick={() => copyDayToToday()}
-          disabled={copying}
-          className="mt-3 w-full bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold disabled:opacity-50"
-        >
-          {copying ? 'Copying…' : (
-            <>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              Copy yesterday's food
-            </>
-          )}
-        </button>
+        {/* Quick adds: café favourites + copy yesterday */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setShowFavourites(true)}
+            className="bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            Favourites
+          </button>
+          <button
+            onClick={() => copyDayToToday()}
+            disabled={copying}
+            className="bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold disabled:opacity-50"
+          >
+            {copying ? 'Copying…' : (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy yesterday
+              </>
+            )}
+          </button>
+        </div>
 
         {/* Voice Recording Indicator */}
         <AnimatePresence>
@@ -1465,6 +1546,66 @@ export default function Food() {
               </div>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Café Favourites Modal */}
+      <AnimatePresence>
+        {showFavourites && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setShowFavourites(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe max-h-[85vh] overflow-y-auto"
+            >
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+              <div className="text-center mb-4">
+                <h2 className="text-xl font-black italic tracking-tighter">FAVOURITES</h2>
+                <p className="text-[11px] text-arc-muted mt-1">Tap to add to today. Calories are approximate.</p>
+              </div>
+
+              <div className="space-y-5">
+                {FAVOURITES.map((section) => (
+                  <div key={section.group}>
+                    <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2">{section.group}</h3>
+                    <div className="space-y-2">
+                      {section.items.map((fav) => (
+                        <button
+                          key={fav.name}
+                          onClick={() => logFavourite(fav)}
+                          disabled={addingFav === fav.name}
+                          className="w-full flex items-center justify-between gap-3 bg-arc-surface border border-white/5 rounded-xl px-4 py-3 hover:border-arc-accent/30 transition-colors disabled:opacity-50 text-left"
+                        >
+                          <div className="min-w-0">
+                            <span className="text-sm font-bold text-white truncate block">{fav.name}</span>
+                            <span className="text-[10px] text-arc-muted">P:{fav.p}g C:{fav.c}g F:{fav.f}g</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-black text-arc-cyan">{fav.cals} cal</span>
+                            <span className="w-6 h-6 rounded-full bg-arc-accent/15 text-arc-accent flex items-center justify-center font-bold">
+                              {addingFav === fav.name ? '…' : '+'}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setShowFavourites(false)}
+                className="w-full mt-5 bg-arc-surface text-white font-bold py-4 rounded-xl"
+              >
+                Done
+              </button>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 
