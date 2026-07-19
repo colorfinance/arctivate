@@ -27,12 +27,12 @@ const getWeekStartStr = () => {
 // Preset challenge habits, seeded when a member starts (or restarts) the
 // challenge. Weekly ones reset each Monday; daily ones reset each day.
 const PRESET_HABITS = [
-  { title: '45 min of movement', frequency: 'daily', points_reward: 10 },
-  { title: '10,000+ steps', frequency: 'daily', points_reward: 10 },
-  { title: '3+ litres of water', frequency: 'daily', points_reward: 10 },
-  { title: '10+ min self-development', frequency: 'daily', points_reward: 10 },
-  { title: 'Track your food in the app', frequency: 'daily', points_reward: 10 },
-  { title: '4+ ARC workouts this week', frequency: 'weekly', points_reward: 20 },
+  { title: '45 minutes of movement every day', frequency: 'daily', points_reward: 10 },
+  { title: '10,000+ steps every day', frequency: 'daily', points_reward: 10 },
+  { title: '3+ litres of water every day', frequency: 'daily', points_reward: 10 },
+  { title: '10+ minutes of self-development every day', frequency: 'daily', points_reward: 10 },
+  { title: 'Track your food daily using the app', frequency: 'daily', points_reward: 10 },
+  { title: '4+ ARC workouts per week', frequency: 'weekly', points_reward: 20 },
   { title: 'Weekly progress photo', frequency: 'weekly', points_reward: 15 },
   { title: 'Weekly weigh-in', frequency: 'weekly', points_reward: 15 },
 ]
