@@ -56,6 +56,7 @@ export default function Habits() {
   const [challenges, setChallenges] = useState([])
   const [challengeLogs, setChallengeLogs] = useState(new Set()) // challenge_ids done today
   const [showWelcome, setShowWelcome] = useState(false)
+  const [showCongrats, setShowCongrats] = useState(false)
 
   // Points State
   const [totalPoints, setTotalPoints] = useState(0)
@@ -92,11 +93,18 @@ export default function Habits() {
             const diff = Math.floor((nowDay - startDay) / (1000 * 60 * 60 * 24)) + 1
             setChallengeDay(Math.max(1, diff))
 
-            // Show the welcome once per challenge start. Tying it to the start
-            // date means an admin reset (which bumps the date) re-shows it.
+            const goal = profile.challenge_days_goal || 30
             try {
-              const seen = localStorage.getItem('arc_challenge_welcomed')
-              if (seen !== profile.challenge_start_date) setShowWelcome(true)
+              if (diff >= goal) {
+                // Challenge complete — congratulate once per challenge start.
+                const ackd = localStorage.getItem('arc_challenge_completed_ack')
+                if (ackd !== profile.challenge_start_date) setShowCongrats(true)
+              } else {
+                // Otherwise show the welcome once per challenge start. Tying it
+                // to the start date means an admin reset re-shows it.
+                const seen = localStorage.getItem('arc_challenge_welcomed')
+                if (seen !== profile.challenge_start_date) setShowWelcome(true)
+              }
             } catch {}
           }
           setChallengeGoal(profile.challenge_days_goal || 30)
@@ -333,6 +341,25 @@ export default function Habits() {
       setDone(snapshot)
       showToast('Something went wrong')
     }
+  }
+
+  // Celebrate when the completion screen appears.
+  useEffect(() => {
+    if (!showCongrats) return
+    fireConfetti({ particleCount: 220, spread: 120, origin: { y: 0.5 }, colors: ['#00D4AA', '#06B6D4', '#FFD700', '#ffffff'] })
+    const t = setTimeout(() => fireConfetti({ particleCount: 120, spread: 90, origin: { y: 0.6 }, colors: ['#00D4AA', '#FFD700'] }), 600)
+    return () => clearTimeout(t)
+  }, [showCongrats])
+
+  const dismissCongrats = () => {
+    setShowCongrats(false)
+    try {
+      supabase.auth.getUser().then(({ data }) => {
+        if (!data?.user) return
+        supabase.from('profiles').select('challenge_start_date').eq('id', data.user.id).single()
+          .then(({ data: p }) => { if (p?.challenge_start_date) localStorage.setItem('arc_challenge_completed_ack', p.challenge_start_date) })
+      })
+    } catch {}
   }
 
   const dismissWelcome = () => {
@@ -961,6 +988,42 @@ export default function Habits() {
                 )}
             </section>
         </main>
+
+        {/* Challenge complete — congratulations */}
+        <AnimatePresence>
+            {showCongrats && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={dismissCongrats}
+                        className="fixed inset-0 bg-black/85 backdrop-blur-md z-[60]"
+                    />
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                        className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+                    >
+                        <div className="bg-arc-card border border-arc-accent/40 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5 relative overflow-hidden shadow-glow">
+                            <div className="absolute -top-10 -left-10 w-40 h-40 bg-arc-accent/15 blur-3xl rounded-full pointer-events-none" />
+                            <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-arc-cyan/15 blur-3xl rounded-full pointer-events-none" />
+                            <div className="text-5xl">🏆</div>
+                            <div>
+                                <div className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.2em] mb-2">Challenge Complete</div>
+                                <h2 className="text-2xl font-black italic tracking-tighter leading-tight">CONGRATULATIONS!</h2>
+                            </div>
+                            <p className="text-sm text-arc-muted leading-relaxed">
+                                You finished the {challengeGoal}-day Arctivate Challenge. {challengeGoal} days of showing up — that&apos;s the hard part, and you did it. Take a moment to be proud, then keep the momentum going. 🔥
+                            </p>
+                            <button
+                                onClick={dismissCongrats}
+                                className="w-full bg-arc-accent text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                            >
+                                LET&apos;S KEEP GOING
+                            </button>
+                        </div>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
 
         {/* Welcome to the Challenge */}
         <AnimatePresence>
