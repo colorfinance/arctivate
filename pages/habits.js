@@ -13,24 +13,44 @@ const fireConfetti = async (opts) => {
 import { useRouter } from 'next/router'
 
 // Helper for dates - use local date to avoid timezone issues
-const getTodayStr = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+const fmtLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const getTodayStr = () => fmtLocal(new Date())
+
+// Monday-based start of the current week (weekly habits reset each Monday).
+const getWeekStartStr = () => {
+  const d = new Date()
+  const offset = (d.getDay() + 6) % 7 // 0 = Monday
+  d.setDate(d.getDate() - offset)
+  return fmtLocal(d)
 }
+
+// Preset challenge habits, seeded when a member starts (or restarts) the
+// challenge. Weekly ones reset each Monday; daily ones reset each day.
+const PRESET_HABITS = [
+  { title: '45 min of movement', frequency: 'daily', points_reward: 10 },
+  { title: '10,000+ steps', frequency: 'daily', points_reward: 10 },
+  { title: '3+ litres of water', frequency: 'daily', points_reward: 10 },
+  { title: '10+ min self-development', frequency: 'daily', points_reward: 10 },
+  { title: 'Track your food in the app', frequency: 'daily', points_reward: 10 },
+  { title: '4+ ARC workouts this week', frequency: 'weekly', points_reward: 20 },
+  { title: 'Weekly progress photo', frequency: 'weekly', points_reward: 15 },
+  { title: 'Weekly weigh-in', frequency: 'weekly', points_reward: 15 },
+]
 
 export default function Habits() {
   const router = useRouter()
   const [habits, setHabits] = useState([])
-  const [logs, setLogs] = useState(new Set()) // Set of habit_ids completed today
+  const [logs, setLogs] = useState(new Set()) // Set of daily habit_ids completed today
+  const [weeklyDone, setWeeklyDone] = useState(new Set()) // weekly habit_ids completed this week
   const [loading, setLoading] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
   const [customHabit, setCustomHabit] = useState('')
 
   // Challenge State
   const [challengeDay, setChallengeDay] = useState(1)
-  const [challengeGoal, setChallengeGoal] = useState(75)
+  const [challengeGoal, setChallengeGoal] = useState(30)
   const [isEditingGoal, setIsEditingGoal] = useState(false)
-  const [newGoal, setNewGoal] = useState(75)
+  const [newGoal, setNewGoal] = useState(30)
 
   // Admin-published challenges (shown in the tick list) + today's completions
   const [challenges, setChallenges] = useState([])
@@ -79,7 +99,7 @@ export default function Habits() {
               if (seen !== profile.challenge_start_date) setShowWelcome(true)
             } catch {}
           }
-          setChallengeGoal(profile.challenge_days_goal || 75)
+          setChallengeGoal(profile.challenge_days_goal || 30)
           setTotalPoints(profile.total_points || 0)
       }
 
@@ -105,23 +125,57 @@ export default function Habits() {
       }
 
       // 2. Fetch Habits
-      const { data: habitsData } = await supabase
+      let { data: habitsData } = await supabase
         .from('habits')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: true })
+      habitsData = habitsData || []
 
-      // 3. Fetch Today's Logs
+      // Seed the challenge preset habits once per challenge start (also covers
+      // an admin reset, which bumps the start date so presets refresh).
+      if (profile?.challenge_start_date) {
+        try {
+          const seededFor = localStorage.getItem('arc_presets_seeded')
+          if (seededFor !== profile.challenge_start_date) {
+            const have = new Set(habitsData.map(h => h.title.toLowerCase()))
+            const toAdd = PRESET_HABITS
+              .filter(p => !have.has(p.title.toLowerCase()))
+              .map(p => ({ user_id: user.id, title: p.title, frequency: p.frequency, points_reward: p.points_reward, is_preset: true }))
+            if (toAdd.length) {
+              const { data: inserted, error: seedErr } = await supabase.from('habits').insert(toAdd).select()
+              if (inserted?.length) habitsData = [...habitsData, ...inserted]
+              // Only mark done on success, so it retries after migration 019 lands.
+              if (!seedErr) localStorage.setItem('arc_presets_seeded', profile.challenge_start_date)
+            } else {
+              localStorage.setItem('arc_presets_seeded', profile.challenge_start_date)
+            }
+          }
+        } catch {}
+      }
+
+      // 3. Fetch this week's logs (covers daily = today and weekly = any day
+      // since Monday).
       const today = getTodayStr()
+      const weekStart = getWeekStartStr()
       const { data: logsData } = await supabase
         .from('habit_logs')
-        .select('habit_id')
+        .select('habit_id, date')
         .eq('user_id', user.id)
-        .eq('date', today)
+        .gte('date', weekStart)
+
+      const freqById = new Map(habitsData.map(h => [h.id, h.frequency || 'daily']))
+      const todaySet = new Set()
+      const weekSet = new Set()
+      ;(logsData || []).forEach(l => {
+        if ((freqById.get(l.habit_id) || 'daily') === 'weekly') weekSet.add(l.habit_id)
+        else if (l.date === today) todaySet.add(l.habit_id)
+      })
 
       // Set State
-      setHabits(habitsData || [])
-      setLogs(new Set(logsData?.map(l => l.habit_id) || []))
+      setHabits(habitsData)
+      setLogs(todaySet)
+      setWeeklyDone(weekSet)
 
       // Fetch progress photos
       await fetchProgressPhotos(user.id)
@@ -194,8 +248,11 @@ export default function Habits() {
   }
 
   const toggleHabit = async (habitId) => {
-    // Capture snapshot for reliable rollback
-    const snapshot = new Set(logs)
+    const habit = habits.find(h => h.id === habitId)
+    const isWeekly = (habit?.frequency || 'daily') === 'weekly'
+    const doneSet = isWeekly ? weeklyDone : logs
+    const setDone = isWeekly ? setWeeklyDone : setLogs
+    const snapshot = new Set(doneSet)
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -205,33 +262,28 @@ export default function Habits() {
       }
 
       const today = getTodayStr()
-
-      // Optimistic Update
       const isCompleted = snapshot.has(habitId)
       const newLogs = new Set(snapshot)
 
       if (isCompleted) {
         newLogs.delete(habitId)
-        setLogs(newLogs)
+        setDone(newLogs)
 
-        // Remove from DB
-        const { error } = await supabase
-          .from('habit_logs')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('habit_id', habitId)
-          .eq('date', today)
+        // Weekly: clear any completion this week. Daily: clear today's.
+        let del = supabase.from('habit_logs').delete()
+          .eq('user_id', user.id).eq('habit_id', habitId)
+        del = isWeekly ? del.gte('date', getWeekStartStr()) : del.eq('date', today)
+        const { error } = await del
 
         if (error) {
-          // Revert to snapshot
-          setLogs(snapshot)
+          setDone(snapshot)
           showToast('Failed to update habit')
         } else {
           showToast('Habit unchecked')
         }
       } else {
         newLogs.add(habitId)
-        setLogs(newLogs)
+        setDone(newLogs)
 
         const logData = {
           user_id: user.id,
@@ -258,34 +310,27 @@ export default function Habits() {
           }
         }
 
-        const error = insertError
-
-        if (error) {
-          // Revert to snapshot
-          setLogs(snapshot)
+        if (insertError) {
+          setDone(snapshot)
           showToast('Failed to update habit')
           return
         }
 
-        showToast('Habit completed! +10 pts')
-
         // Award points for completing habit
-        const habit = habits.find(h => h.id === habitId)
-        if (habit) {
-          const pointsToAward = habit.points_reward || 10
-          await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
-          setTotalPoints(prev => prev + pointsToAward)
-        }
+        const pointsToAward = habit?.points_reward || 10
+        showToast(`Habit completed! +${pointsToAward} pts`)
+        await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
+        setTotalPoints(prev => prev + pointsToAward)
 
-        // Mini celebration if all done
-        if (newLogs.size === habits.length && habits.length > 0) {
+        // Mini celebration if everything (daily + weekly + challenges) is done
+        const allDone = (isWeekly ? logs.size : newLogs.size) + (isWeekly ? newLogs.size : weeklyDone.size) + challengeLogs.size
+        if (allDone === habits.length + challenges.length && habits.length > 0) {
           fireConfetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
-          showToast('All habits complete! Great job!')
+          showToast('All done! Great job!')
         }
       }
     } catch {
-      // Revert on any unexpected error
-      setLogs(snapshot)
+      setDone(snapshot)
       showToast('Something went wrong')
     }
   }
@@ -563,8 +608,10 @@ export default function Habits() {
     }
   }
 
-  // Calc progress (personal habits + admin challenges both count as tasks)
-  const completedCount = logs.size + challengeLogs.size
+  // Calc progress (daily habits + weekly habits + admin challenges as tasks)
+  const dailyHabits = habits.filter(h => (h.frequency || 'daily') !== 'weekly')
+  const weeklyHabits = habits.filter(h => (h.frequency || 'daily') === 'weekly')
+  const completedCount = logs.size + weeklyDone.size + challengeLogs.size
   const totalCount = habits.length + challenges.length
   const progressPercent = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100)
   const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
@@ -705,15 +752,51 @@ export default function Habits() {
                 </section>
             )}
 
-            {/* Habit List */}
+            {/* Weekly Habits */}
+            {weeklyHabits.length > 0 && (
+                <section className="space-y-3">
+                    <div className="flex items-center gap-2 px-1">
+                        <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">This Week</span>
+                        <span className="text-[9px] font-bold text-arc-cyan uppercase tracking-wider bg-arc-cyan/10 border border-arc-cyan/20 px-2 py-0.5 rounded-full">Resets Monday</span>
+                    </div>
+                    {weeklyHabits.map(habit => {
+                        const isDone = weeklyDone.has(habit.id)
+                        return (
+                            <motion.div
+                                key={habit.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                onClick={() => toggleHabit(habit.id)}
+                                className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 ${isDone ? 'bg-arc-cyan/10 border-arc-cyan/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
+                            >
+                                <div className="flex items-center gap-4 z-10">
+                                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-arc-cyan border-arc-cyan' : 'border-white/20 group-hover:border-white/40'}`}>
+                                        {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></motion.svg>}
+                                    </div>
+                                    <div>
+                                        <div className={`font-bold text-sm transition-colors ${isDone ? 'text-arc-cyan line-through decoration-2 opacity-70' : 'text-white'}`}>{habit.title}</div>
+                                        <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">{habit.points_reward || 10} PTS · Weekly</div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
+                                    className="z-10 text-white/20 hover:text-red-500 transition-colors p-2"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                </button>
+                            </motion.div>
+                        )
+                    })}
+                </section>
+            )}
+
+            {/* Daily Habits */}
             <section className="space-y-3 pb-12">
-                {habits.length > 0 && (
-                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1 block">Your habits</span>
-                )}
-                {habits.map(habit => {
+                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1 block">Daily Habits</span>
+                {dailyHabits.map(habit => {
                     const isDone = logs.has(habit.id)
                     return (
-                        <motion.div 
+                        <motion.div
                             key={habit.id}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -729,7 +812,7 @@ export default function Habits() {
                                     <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">{habit.points_reward || 10} PTS</div>
                                 </div>
                             </div>
-                            
+
                             <button
                                 onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
                                 className="z-10 text-white/20 hover:text-red-500 transition-colors p-2"
@@ -739,10 +822,15 @@ export default function Habits() {
                         </motion.div>
                     )
                 })}
-                
-                {habits.length === 0 && !loading && (
-                    <div className="text-center py-10 opacity-50 text-sm">No habits set. Add one!</div>
+
+                {dailyHabits.length === 0 && !loading && (
+                    <div className="text-center py-6 opacity-50 text-sm">No daily habits. Add one!</div>
                 )}
+
+                {/* Nudge: the challenge asks for at least one personal habit */}
+                <button onClick={() => setIsAdding(true)} className="w-full mt-1 border border-dashed border-white/10 rounded-xl py-3 text-xs font-bold text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors">
+                    + Add your own personal habit
+                </button>
             </section>
 
             {/* Progress Photo Section - 75 Hard Style */}
