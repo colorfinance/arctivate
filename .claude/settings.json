@@ -15,9 +15,9 @@
       {
         "hooks": [
           {
-            "type": "agent",
-            "prompt": "Run 'cd /home/user/arctivate && npm run build 2>&1' and 'cd /home/user/arctivate && npm run lint 2>&1'. If either command fails, respond with {\"ok\": false, \"reason\": \"<failure details>\"}. If both pass, respond with {\"ok\": true}.",
-            "timeout": 120
+            "type": "command",
+            "command": "cd /home/user/arctivate && { npm run build && npm run lint; } > /tmp/arc_verify.log 2>&1 || { echo 'Stop hook: build or lint failed' >&2; tail -40 /tmp/arc_verify.log >&2; exit 2; }",
+            "timeout": 180
           }
         ]
       }
