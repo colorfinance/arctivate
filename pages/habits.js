@@ -32,6 +32,11 @@ export default function Habits() {
   const [isEditingGoal, setIsEditingGoal] = useState(false)
   const [newGoal, setNewGoal] = useState(75)
 
+  // Admin-published challenges (shown in the tick list) + today's completions
+  const [challenges, setChallenges] = useState([])
+  const [challengeLogs, setChallengeLogs] = useState(new Set()) // challenge_ids done today
+  const [showWelcome, setShowWelcome] = useState(false)
+
   // Points State
   const [totalPoints, setTotalPoints] = useState(0)
 
@@ -66,9 +71,37 @@ export default function Habits() {
             const nowDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
             const diff = Math.floor((nowDay - startDay) / (1000 * 60 * 60 * 24)) + 1
             setChallengeDay(Math.max(1, diff))
+
+            // Show the welcome once per challenge start. Tying it to the start
+            // date means an admin reset (which bumps the date) re-shows it.
+            try {
+              const seen = localStorage.getItem('arc_challenge_welcomed')
+              if (seen !== profile.challenge_start_date) setShowWelcome(true)
+            } catch {}
           }
           setChallengeGoal(profile.challenge_days_goal || 75)
           setTotalPoints(profile.total_points || 0)
+      }
+
+      // Admin-published challenges + today's completions (defensive: the
+      // tables may not exist yet on older DBs).
+      const today0 = getTodayStr()
+      try {
+        const { data: chData } = await supabase
+          .from('challenges')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: true })
+        setChallenges(chData || [])
+
+        const { data: chLogs } = await supabase
+          .from('challenge_logs')
+          .select('challenge_id')
+          .eq('user_id', user.id)
+          .eq('date', today0)
+        setChallengeLogs(new Set(chLogs?.map(l => l.challenge_id) || []))
+      } catch {
+        setChallenges([])
       }
 
       // 2. Fetch Habits
@@ -253,6 +286,63 @@ export default function Habits() {
     } catch {
       // Revert on any unexpected error
       setLogs(snapshot)
+      showToast('Something went wrong')
+    }
+  }
+
+  const dismissWelcome = () => {
+    setShowWelcome(false)
+    try {
+      // Persist against the current start date so it won't re-show until reset.
+      supabase.auth.getUser().then(({ data }) => {
+        if (!data?.user) return
+        supabase.from('profiles').select('challenge_start_date').eq('id', data.user.id).single()
+          .then(({ data: p }) => { if (p?.challenge_start_date) localStorage.setItem('arc_challenge_welcomed', p.challenge_start_date) })
+      })
+    } catch {}
+  }
+
+  const toggleChallenge = async (challengeId) => {
+    const snapshot = new Set(challengeLogs)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      const today = getTodayStr()
+      const isDone = snapshot.has(challengeId)
+      const next = new Set(snapshot)
+
+      if (isDone) {
+        next.delete(challengeId)
+        setChallengeLogs(next)
+        const { error } = await supabase
+          .from('challenge_logs')
+          .delete()
+          .eq('user_id', user.id).eq('challenge_id', challengeId).eq('date', today)
+        if (error) { setChallengeLogs(snapshot); showToast('Failed to update') }
+        else showToast('Challenge unchecked')
+      } else {
+        next.add(challengeId)
+        setChallengeLogs(next)
+        const row = { user_id: user.id, challenge_id: challengeId, date: today, completed_at: new Date().toISOString() }
+        let insertError = null
+        const { error: directError } = await supabase.from('challenge_logs').insert(row)
+        if (directError) {
+          if (directError.code === '23505') {
+            const { error: upsertError } = await supabase.from('challenge_logs').upsert(row, { onConflict: 'user_id,challenge_id,date' })
+            insertError = upsertError
+          } else insertError = directError
+        }
+        if (insertError) { setChallengeLogs(snapshot); showToast('Failed to update'); return }
+
+        const ch = challenges.find(c => c.id === challengeId)
+        const pts = ch?.points_reward || 10
+        showToast(`Challenge done! +${pts} pts`)
+        await supabase.rpc('increment_points', { row_id: user.id, x: pts })
+        setTotalPoints(prev => prev + pts)
+        fireConfetti({ particleCount: 90, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+      }
+    } catch {
+      setChallengeLogs(snapshot)
       showToast('Something went wrong')
     }
   }
@@ -473,9 +563,9 @@ export default function Habits() {
     }
   }
 
-  // Calc progress
-  const completedCount = logs.size
-  const totalCount = habits.length
+  // Calc progress (personal habits + admin challenges both count as tasks)
+  const completedCount = logs.size + challengeLogs.size
+  const totalCount = habits.length + challenges.length
   const progressPercent = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100)
   const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
 
@@ -582,8 +672,44 @@ export default function Habits() {
                 </div>
             </section>
 
+            {/* Admin Challenges */}
+            {challenges.length > 0 && (
+                <section className="space-y-3">
+                    <div className="flex items-center gap-2 px-1">
+                        <span className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">Challenge</span>
+                        <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider bg-arc-accent/10 border border-arc-accent/20 px-2 py-0.5 rounded-full">From the coaches</span>
+                    </div>
+                    {challenges.map(ch => {
+                        const isDone = challengeLogs.has(ch.id)
+                        return (
+                            <motion.div
+                                key={ch.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                onClick={() => toggleChallenge(ch.id)}
+                                className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 ${isDone ? 'bg-arc-accent/10 border-arc-accent/40' : 'bg-arc-surface border-arc-accent/20 hover:border-arc-accent/40'}`}
+                            >
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-arc-accent/5 blur-2xl rounded-full pointer-events-none" />
+                                <div className="flex items-center gap-4 z-10">
+                                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-arc-accent border-arc-accent' : 'border-arc-accent/40 group-hover:border-arc-accent'}`}>
+                                        {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></motion.svg>}
+                                    </div>
+                                    <div>
+                                        <div className={`font-bold text-sm transition-colors ${isDone ? 'text-arc-accent line-through decoration-2 opacity-70' : 'text-white'}`}>{ch.title}</div>
+                                        <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">{ch.points_reward || 10} PTS · Challenge</div>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )
+                    })}
+                </section>
+            )}
+
             {/* Habit List */}
             <section className="space-y-3 pb-12">
+                {habits.length > 0 && (
+                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1 block">Your habits</span>
+                )}
                 {habits.map(habit => {
                     const isDone = logs.has(habit.id)
                     return (
@@ -747,6 +873,41 @@ export default function Habits() {
                 )}
             </section>
         </main>
+
+        {/* Welcome to the Challenge */}
+        <AnimatePresence>
+            {showWelcome && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={dismissWelcome}
+                        className="fixed inset-0 bg-black/85 backdrop-blur-md z-[60]"
+                    />
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                        className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+                    >
+                        <div className="bg-arc-card border border-arc-accent/30 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5 relative overflow-hidden shadow-glow">
+                            <div className="absolute -top-10 -right-10 w-40 h-40 bg-arc-accent/10 blur-3xl rounded-full pointer-events-none" />
+                            <div className="text-4xl">🔥</div>
+                            <div>
+                                <div className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.2em] mb-2">Day 1</div>
+                                <h2 className="text-2xl font-black italic tracking-tighter leading-tight">WELCOME TO THE<br/>ARCTIVATE CHALLENGE</h2>
+                            </div>
+                            <p className="text-sm text-arc-muted leading-relaxed">
+                                A fresh start. Tick off your daily habits and coach challenges, snap your progress photo, and lock in every day. Let&apos;s build the streak.
+                            </p>
+                            <button
+                                onClick={dismissWelcome}
+                                className="w-full bg-arc-accent text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                            >
+                                LET&apos;S GO
+                            </button>
+                        </div>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
 
         {/* Add Habit Sheet */}
         <AnimatePresence>

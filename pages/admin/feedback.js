@@ -112,6 +112,9 @@ export default function AdminFeedback() {
           <Link href="/admin/workouts" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
             Workouts
           </Link>
+          <Link href="/admin/challenges" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
+            Challenges
+          </Link>
           <Link href="/admin/admins" className="flex-1 text-center py-2.5 rounded-xl text-xs font-bold bg-arc-card border border-white/[0.06] text-arc-muted hover:text-white transition-colors">
             Admins
           </Link>
