@@ -330,11 +330,16 @@ export default function Habits() {
         await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
         setTotalPoints(prev => prev + pointsToAward)
 
-        // Mini celebration if everything (daily + weekly + challenges) is done
-        const allDone = (isWeekly ? logs.size : newLogs.size) + (isWeekly ? newLogs.size : weeklyDone.size) + challengeLogs.size
-        if (allDone === habits.length + challenges.length && habits.length > 0) {
-          fireConfetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
-          showToast('All done! Great job!')
+        // Celebrate the "close" moments: daily ring closing (green) and, if the
+        // weekly tasks are also done, the full gold finish.
+        const dTotal = habits.filter(h => (h.frequency || 'daily') !== 'weekly').length + challenges.length
+        const wTotal = habits.filter(h => (h.frequency || 'daily') === 'weekly').length
+        const dDone = (isWeekly ? logs.size : newLogs.size) + challengeLogs.size
+        const wDone = isWeekly ? newLogs.size : weeklyDone.size
+        if (dTotal > 0 && dDone >= dTotal) {
+          const goldFinish = wTotal > 0 && wDone >= wTotal
+          fireConfetti({ particleCount: goldFinish ? 160 : 100, spread: goldFinish ? 90 : 70, origin: { y: 0.6 }, colors: goldFinish ? ['#FFD700', '#00D4AA', '#ffffff'] : ['#00D4AA', '#06B6D4', '#ffffff'] })
+          showToast(goldFinish ? 'Daily + weekly complete! 🏆' : 'Daily tasks complete! 🔥')
         }
       }
     } catch {
@@ -408,10 +413,19 @@ export default function Habits() {
 
         const ch = challenges.find(c => c.id === challengeId)
         const pts = ch?.points_reward || 10
-        showToast(`Challenge done! +${pts} pts`)
         await supabase.rpc('increment_points', { row_id: user.id, x: pts })
         setTotalPoints(prev => prev + pts)
-        fireConfetti({ particleCount: 90, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+
+        // If this closed the daily ring, celebrate that; otherwise a small pop.
+        const dTotal = habits.filter(h => (h.frequency || 'daily') !== 'weekly').length + challenges.length
+        const dDone = logs.size + next.size
+        if (dTotal > 0 && dDone >= dTotal) {
+          fireConfetti({ particleCount: 120, spread: 80, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+          showToast('Daily tasks complete! 🔥')
+        } else {
+          showToast(`Challenge done! +${pts} pts`)
+          fireConfetti({ particleCount: 90, spread: 70, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+        }
       }
     } catch {
       setChallengeLogs(snapshot)
@@ -635,12 +649,21 @@ export default function Habits() {
     }
   }
 
-  // Calc progress (daily habits + weekly habits + admin challenges as tasks)
+  // Calc progress. The ring tracks DAILY tasks (daily habits + admin
+  // challenges, both reset each day) so members can "close" it every day by
+  // finishing their dailies — weekly tasks don't hold the ring open.
   const dailyHabits = habits.filter(h => (h.frequency || 'daily') !== 'weekly')
   const weeklyHabits = habits.filter(h => (h.frequency || 'daily') === 'weekly')
-  const completedCount = logs.size + weeklyDone.size + challengeLogs.size
-  const totalCount = habits.length + challenges.length
-  const progressPercent = totalCount === 0 ? 0 : Math.round((completedCount / totalCount) * 100)
+
+  const dailyTotal = dailyHabits.length + challenges.length
+  const dailyDoneCount = logs.size + challengeLogs.size
+  const weeklyTotal = weeklyHabits.length
+  const weeklyDoneCount = weeklyDone.size
+
+  const allDailyDone = dailyTotal > 0 && dailyDoneCount >= dailyTotal
+  const allWeeklyDone = weeklyTotal > 0 && weeklyDoneCount >= weeklyTotal
+  // Ring closes on daily completion; percent is daily progress.
+  const dailyPercent = dailyTotal === 0 ? 0 : Math.round((dailyDoneCount / dailyTotal) * 100)
   const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
 
   if (loading) {
@@ -713,36 +736,51 @@ export default function Habits() {
                  </div>
             </section>
 
-            {/* Daily Grind Circle */}
+            {/* Daily Grind Circle — closes when daily tasks are done, turns gold when weekly are too */}
             <section className="bg-glass-gradient border border-white/5 p-6 rounded-[2rem] flex items-center justify-between relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 blur-3xl rounded-full pointer-events-none" />
-                
+                <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl rounded-full pointer-events-none ${allDailyDone && allWeeklyDone ? 'bg-yellow-400/10' : allDailyDone ? 'bg-green-500/10' : 'bg-green-500/5'}`} />
+
                 <div>
                     <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Daily Grind</h2>
                     <div className="text-4xl font-black italic tracking-tighter">
-                        <span className={completedCount === totalCount && totalCount > 0 ? "text-green-500" : "text-white"}>
-                            {completedCount}
+                        <span className={allDailyDone ? (allWeeklyDone ? "text-yellow-400" : "text-green-500") : "text-white"}>
+                            {dailyDoneCount}
                         </span>
-                        <span className="text-white/20">/{totalCount}</span>
+                        <span className="text-white/20">/{dailyTotal}</span>
                     </div>
-                    <div className="text-[10px] text-arc-muted font-bold mt-1 uppercase">Tasks Complete</div>
+                    <div className="text-[10px] font-bold mt-1 uppercase">
+                        {allDailyDone
+                            ? <span className={allWeeklyDone ? 'text-yellow-400' : 'text-green-500'}>{allWeeklyDone ? 'All done — daily + weekly 🏆' : 'Daily done! 🔥'}</span>
+                            : <span className="text-arc-muted">Daily tasks</span>}
+                    </div>
+                    {weeklyTotal > 0 && (
+                        <div className="text-[10px] font-bold mt-1.5 uppercase tracking-wider">
+                            <span className={allWeeklyDone ? 'text-yellow-400' : 'text-arc-muted'}>Weekly {weeklyDoneCount}/{weeklyTotal}{allWeeklyDone ? ' ⭐' : ''}</span>
+                        </div>
+                    )}
                 </div>
 
                 {/* Ring Chart */}
                 <div className="relative w-20 h-20">
                     <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
                         <circle className="text-white/5 stroke-current" strokeWidth="8" cx="50" cy="50" r="40" fill="transparent"></circle>
-                        <motion.circle 
+                        <motion.circle
                             initial={{ pathLength: 0 }}
-                            animate={{ pathLength: progressPercent / 100 }}
+                            animate={{ pathLength: dailyPercent / 100 }}
                             transition={{ duration: 1, ease: "easeOut" }}
-                            className={`${completedCount === totalCount ? 'text-green-500' : 'text-arc-accent'} stroke-current drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]`}
-                            strokeWidth="8" 
-                            strokeLinecap="round" 
-                            cx="50" cy="50" r="40" 
+                            className={`${allDailyDone && allWeeklyDone ? 'text-yellow-400' : allDailyDone ? 'text-green-500' : 'text-arc-accent'} stroke-current drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]`}
+                            strokeWidth="8"
+                            strokeLinecap="round"
+                            cx="50" cy="50" r="40"
                             fill="transparent"
                         ></motion.circle>
                     </svg>
+                    {/* Centre check when the daily ring is closed */}
+                    {allDailyDone && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <svg className={`w-7 h-7 ${allWeeklyDone ? 'text-yellow-400' : 'text-green-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                    )}
                 </div>
             </section>
 
