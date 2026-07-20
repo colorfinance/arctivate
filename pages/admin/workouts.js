@@ -14,6 +14,9 @@ const METRICS = [
   { value: 'distance', label: 'Distance (km)' },
 ]
 
+// Short unit shown next to the Target field for each metric.
+const METRIC_UNIT = { weight: 'kg', time: 'min', distance: 'km', distance_m: 'm', reps: '' }
+
 const emptyRow = () => ({
   name: '',
   metric_type: 'weight',
@@ -511,8 +514,8 @@ export default function AdminWorkouts() {
                     className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono font-bold text-white py-2 rounded-xl outline-none focus:border-arc-accent/40 placeholder-white/10" />
                 </div>
                 <div>
-                  <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Target</label>
-                  <input type="number" min="0" step="0.5" value={row.target_value} onChange={(e) => updateRow(i, 'target_value', e.target.value)} placeholder="—"
+                  <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Target{METRIC_UNIT[row.metric_type] ? ` (${METRIC_UNIT[row.metric_type]})` : ''}</label>
+                  <input type="number" min="0" step={row.metric_type === 'distance_m' ? '1' : '0.5'} value={row.target_value} onChange={(e) => updateRow(i, 'target_value', e.target.value)} placeholder="—"
                     className="w-full bg-arc-surface border border-white/[0.05] text-center font-mono font-bold text-white py-2 rounded-xl outline-none focus:border-arc-accent/40 placeholder-white/10" />
                 </div>
               </div>

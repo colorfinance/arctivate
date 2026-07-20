@@ -24,7 +24,7 @@ function logUpstreamError(label, error) {
   });
 }
 
-const VALID_METRICS = ['weight', 'time', 'reps', 'distance'];
+const VALID_METRICS = ['weight', 'time', 'reps', 'distance', 'distance_m'];
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -102,9 +102,10 @@ Rules:
 - Do your best even if text is messy, angled, or low contrast. Make a sensible attempt at each line rather than giving up.
 - "title" is a short name for the session. If none is written, infer one from the movements (e.g. "Leg Day").
 - "description" captures the overall scheme/notes (rounds, time cap, etc.), or "" if none.
-- "metric_type" MUST be one of: "weight" (lifts in kg/lb), "time" (runs/holds/cardio in minutes), "reps" (bodyweight rep targets), "distance" (metres/km). Choose the best fit.
+- "metric_type" MUST be one of: "weight" (lifts in kg/lb), "time" (holds/cardio measured in minutes), "reps" (bodyweight rep targets OR calorie targets on ergs), "distance_m" (distance in METRES — rower/bike/ski-erg and short runs, e.g. "500m row", "400m run"), "distance" (distance in KILOMETRES, e.g. "5km run"). Choose the best fit.
+- For erg machines (row, bike, ski-erg): use "distance_m" when the target is in metres (e.g. 500m), "reps" when the target is calories (e.g. 20 cal), "time" when it's a duration.
 - "sets" and "reps" are whole numbers, or null if not specified.
-- "target" is the prescribed load/time/distance as a number, or null if not specified (e.g. squat at 100kg -> 100; 5km run -> 5).
+- "target" is the prescribed load/time/distance as a number, or null if not specified (e.g. squat at 100kg -> 100; 500m row -> 500; 5km run -> 5).
 - "notes" is any per-exercise note (tempo, rest, RPE), or "" if none.
 - Only return an empty "exercises" array if the image genuinely contains no workout at all.`;
 
