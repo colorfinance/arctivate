@@ -23,6 +23,7 @@ const fireConfetti = async (opts) => {
 }
 
 // Short unit label for a movement's metric type (kg / min / km / m).
+// distance_m = metres, used for erg-style cardio (rower / bike / ski, e.g. 500m).
 const unitShort = (mt) => (
   mt === 'time' ? 'min' : mt === 'distance' ? 'km' : mt === 'distance_m' ? 'm' : 'kg'
 )
