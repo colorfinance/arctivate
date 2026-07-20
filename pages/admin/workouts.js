@@ -10,6 +10,7 @@ const METRICS = [
   { value: 'weight', label: 'Weight (kg)' },
   { value: 'reps', label: 'Bodyweight' },
   { value: 'time', label: 'Time (min)' },
+  { value: 'distance_m', label: 'Distance (m)' },
   { value: 'distance', label: 'Distance (km)' },
 ]
 
