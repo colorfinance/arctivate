@@ -1043,28 +1043,37 @@ export default function Train() {
                 </motion.div>
             </section>
 
-            {/* Scan a workout → loads onto your account to log against */}
+            {/* Quick actions: scan a workout, or log a whole class/session */}
             <input
                 ref={scanInputRef} type="file" accept="image/*" capture="environment" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScanWorkout(f); e.target.value = '' }}
             />
-            <button
-                onClick={() => !scanning && scanInputRef.current?.click()}
-                disabled={scanning}
-                className="w-full bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2.5 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors disabled:opacity-60"
-            >
-                {scanning ? (
-                    <>
-                        <span className="w-4 h-4 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-                        <span className="text-sm font-bold">Reading your workout…</span>
-                    </>
-                ) : (
-                    <>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                        <span className="text-sm font-bold">Scan a workout</span>
-                    </>
-                )}
-            </button>
+            <section className="grid grid-cols-2 gap-3">
+                <button
+                    onClick={() => !scanning && scanInputRef.current?.click()}
+                    disabled={scanning}
+                    className="bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors disabled:opacity-60"
+                >
+                    {scanning ? (
+                        <>
+                            <span className="w-4 h-4 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+                            <span className="text-xs font-bold">Reading…</span>
+                        </>
+                    ) : (
+                        <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            <span className="text-xs font-bold">Scan a workout</span>
+                        </>
+                    )}
+                </button>
+                <button
+                    onClick={() => setShowSession(true)}
+                    className="bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors"
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <span className="text-xs font-bold">Log a session</span>
+                </button>
+            </section>
 
             {/* Today's Workout(s) — a day can have more than one */}
             {todayWorkouts.map((workout, wIdx) => {
@@ -1224,6 +1233,7 @@ export default function Train() {
                 initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.25 }}
                 className="relative"
             >
+                <h3 className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] px-1 mb-2">Log a set</h3>
                 {/* Outer glow */}
                 <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-accent/20 via-arc-cyan/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
 
@@ -1345,15 +1355,6 @@ export default function Train() {
                               'LOG SET'
                             )}
                         </motion.button>
-
-                        {/* Or log a whole class/session in one go */}
-                        <button
-                            onClick={() => setShowSession(true)}
-                            className="w-full flex items-center justify-center gap-2 text-[11px] font-bold text-arc-muted hover:text-white transition-colors py-1"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                            Or log a full class / session (e.g. 45min HIIT)
-                        </button>
                     </div>
                 </div>
             </motion.section>
