@@ -22,6 +22,15 @@ const fireConfetti = async (opts) => {
   } catch {}
 }
 
+// Short unit label for a movement's metric type (kg / min / km / m).
+const unitShort = (mt) => (
+  mt === 'time' ? 'min' : mt === 'distance' ? 'km' : mt === 'distance_m' ? 'm' : 'kg'
+)
+// Numeric input step appropriate to the unit.
+const unitStep = (mt) => (
+  mt === 'time' ? '0.1' : mt === 'distance' ? '0.1' : mt === 'distance_m' ? '1' : '0.5'
+)
+
 // Icons
 const MicIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -157,8 +166,8 @@ export default function Train() {
   // Get current exercise for unit display
   const currentExercise = exercises.find(e => e.id === selectedExId)
   const isTimeExercise = currentExercise?.metric_type === 'time'
-  const unitLabel = isTimeExercise ? 'MIN' : 'KG'
-  const unitLabelLower = isTimeExercise ? 'min' : 'kg'
+  const unitLabelLower = unitShort(currentExercise?.metric_type)
+  const unitLabel = unitLabelLower.toUpperCase()
 
   // Load Data
   useEffect(() => {
@@ -1012,9 +1021,9 @@ export default function Train() {
                                                 const open = expandedId === dwe.id
                                                 // Bodyweight/reps movements don't take a load — log reps/sets only.
                                                 const isBw = dwe.metric_type === 'reps'
-                                                // First column is always the load unit (KG / MIN / KM) — never
-                                                // "Reps", so it doesn't collide with the Reps field.
-                                                const unit = dwe.metric_type === 'time' ? 'MIN' : dwe.metric_type === 'distance' ? 'KM' : 'KG'
+                                                // First column is always the load unit (KG / MIN / KM / M) —
+                                                // never "Reps", so it doesn't collide with the Reps field.
+                                                const unit = unitShort(dwe.metric_type).toUpperCase()
                                                 const unitLower = isBw ? '' : unit.toLowerCase()
                                                 const vals = pInputs[dwe.id] || {}
                                                 const scheme = [
@@ -1062,7 +1071,7 @@ export default function Train() {
                                                                                 <input
                                                                                     type="number" inputMode="decimal" autoFocus
                                                                                     value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
-                                                                                    placeholder="0" step={dwe.metric_type === 'time' ? '0.1' : '0.5'} min="0"
+                                                                                    placeholder="0" step={unitStep(dwe.metric_type)} min="0"
                                                                                     className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
                                                                                 />
                                                                             </div>
@@ -1178,7 +1187,7 @@ export default function Train() {
                                 value={value}
                                 onChange={(e) => setValue(e.target.value)}
                                 placeholder="0.0"
-                                step={isTimeExercise ? '0.1' : '0.5'}
+                                step={unitStep(currentExercise?.metric_type)}
                                 min="0"
                                 className="w-full bg-transparent border-b-2 border-white/[0.08] text-center font-mono text-5xl font-black text-white py-4 outline-none focus:border-arc-accent/60 transition-colors placeholder-white/[0.04]"
                              />
@@ -1307,7 +1316,7 @@ export default function Train() {
                                             <span className="text-white/80">{log.sets != null ? `${log.sets}×` : ''}{log.reps != null ? log.reps : ''} · </span>
                                         )}
                                         {log.val ? (
-                                            <><span className="text-white/80">{log.val}</span><span className="text-arc-muted ml-0.5">{log.metricType === 'time' ? 'min' : 'kg'}</span></>
+                                            <><span className="text-white/80">{log.val}</span><span className="text-arc-muted ml-0.5">{unitShort(log.metricType)}</span></>
                                         ) : (
                                             <span className="text-white/80">Bodyweight</span>
                                         )}
@@ -1522,6 +1531,18 @@ export default function Train() {
                                         className={`p-4 rounded-xl font-bold text-sm transition-all ${newExType === 'time' ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
                                     >
                                         Time (Min)
+                                    </button>
+                                    <button
+                                        onClick={() => setNewExType('distance_m')}
+                                        className={`p-4 rounded-xl font-bold text-sm transition-all ${newExType === 'distance_m' ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                                    >
+                                        Distance (M)
+                                    </button>
+                                    <button
+                                        onClick={() => setNewExType('distance')}
+                                        className={`p-4 rounded-xl font-bold text-sm transition-all ${newExType === 'distance' ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                                    >
+                                        Distance (KM)
                                     </button>
                                 </div>
                             </div>
