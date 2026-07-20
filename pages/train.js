@@ -32,6 +32,28 @@ const unitStep = (mt) => (
   mt === 'time' ? '0.1' : mt === 'distance' ? '0.1' : mt === 'distance_m' ? '1' : '0.5'
 )
 
+// Resize a picked image file to a compressed data URL (keeps under the API limit).
+const resizeToDataUrl = (file, maxWidth = 1400) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const img = new Image()
+    img.onload = () => {
+      let { width, height } = img
+      if (width > maxWidth) { height = Math.round((height * maxWidth) / width); width = maxWidth }
+      const canvas = document.createElement('canvas')
+      canvas.width = width; canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return reject(new Error('no ctx'))
+      ctx.drawImage(img, 0, 0, width, height)
+      resolve(canvas.toDataURL('image/jpeg', 0.8))
+    }
+    img.onerror = () => reject(new Error('bad image'))
+    img.src = e.target.result
+  }
+  reader.onerror = () => reject(new Error('read failed'))
+  reader.readAsDataURL(file)
+})
+
 // Icons
 const MicIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -146,6 +168,9 @@ export default function Train() {
 
   // Workout(s) of the Day (admin-programmed) — a day can have several
   const [todayWorkouts, setTodayWorkouts] = useState([]) // [{ ...workout, exercises: [] }]
+  const [currentUserId, setCurrentUserId] = useState(null)
+  const [scanning, setScanning] = useState(false) // scanning a personal workout photo
+  const scanInputRef = useRef(null)
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
   const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
@@ -178,6 +203,7 @@ export default function Train() {
           router.push('/')
           return
         }
+        setCurrentUserId(user.id)
 
         // CHECK ONBOARDING STATUS
         const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
@@ -351,6 +377,48 @@ export default function Train() {
         }
       } catch {}
     } catch {}
+  }
+
+  // Scan a photo of a workout → parse it → load it onto the member's account
+  // as a personal workout they can log against.
+  async function handleScanWorkout(file) {
+    if (!file || scanning) return
+    setScanning(true)
+    try {
+      const dataUrl = await resizeToDataUrl(file)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { showToast('Please log in'); setScanning(false); return }
+
+      const res = await fetch('/api/scan-my-workout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ image: dataUrl }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { showToast(json.error || 'Could not read that workout'); setScanning(false); return }
+
+      const w = json.workout
+      if (w) {
+        setTodayWorkouts((prev) => [...prev, { ...w, exercises: w.exercises || [] }])
+        setExpandedWorkouts((prev) => new Set([...prev, w.id]))
+        showToast(`Loaded "${w.title}" — tap to log it 💪`)
+        fireConfetti({ particleCount: 80, spread: 60, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+      } else if (currentUserId) {
+        fetchTodayWorkout(currentUserId)
+      }
+    } catch {
+      showToast('Could not process that photo. Try a clearer shot.')
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  async function deletePersonalWorkout(id) {
+    const prev = todayWorkouts
+    setTodayWorkouts((p) => p.filter((w) => w.id !== id))
+    const { error } = await supabase.from('daily_workouts').delete().eq('id', id)
+    if (error) { setTodayWorkouts(prev); showToast('Could not remove workout') }
+    else showToast('Workout removed')
   }
 
   const toggleWorkout = (id) => {
@@ -975,6 +1043,29 @@ export default function Train() {
                 </motion.div>
             </section>
 
+            {/* Scan a workout → loads onto your account to log against */}
+            <input
+                ref={scanInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScanWorkout(f); e.target.value = '' }}
+            />
+            <button
+                onClick={() => !scanning && scanInputRef.current?.click()}
+                disabled={scanning}
+                className="w-full bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2.5 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors disabled:opacity-60"
+            >
+                {scanning ? (
+                    <>
+                        <span className="w-4 h-4 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm font-bold">Reading your workout…</span>
+                    </>
+                ) : (
+                    <>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        <span className="text-sm font-bold">Scan a workout</span>
+                    </>
+                )}
+            </button>
+
             {/* Today's Workout(s) — a day can have more than one */}
             {todayWorkouts.map((workout, wIdx) => {
                 const wOpen = expandedWorkouts.has(workout.id)
@@ -993,8 +1084,8 @@ export default function Train() {
                             {/* Workout header — tap to expand its exercises */}
                             <button onClick={() => toggleWorkout(workout.id)} className="w-full text-left p-5 flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                    <span className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.2em]">
-                                        {todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout"}
+                                    <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
+                                        {workout.owner_id ? 'Your workout · scanned' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout")}
                                     </span>
                                     <h2 className="text-lg font-black italic tracking-tight mt-0.5 truncate">{workout.title}</h2>
                                     {workout.description && (
@@ -1110,6 +1201,14 @@ export default function Train() {
                                                 className="w-full bg-arc-surface border border-arc-accent/30 text-arc-accent font-black italic tracking-wider py-3 rounded-xl hover:bg-arc-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                                             >
                                                 {loggingFull === workout.id ? 'LOGGING…' : 'LOG ENTIRE WORKOUT'}
+                                            </button>
+                                        )}
+                                        {workout.owner_id && (
+                                            <button
+                                                onClick={() => deletePersonalWorkout(workout.id)}
+                                                className="w-full text-[10px] font-bold text-arc-muted/70 hover:text-red-400 uppercase tracking-wider py-1 transition-colors"
+                                            >
+                                                Remove this workout
                                             </button>
                                         )}
                                     </motion.div>
