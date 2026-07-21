@@ -761,8 +761,12 @@ export default function Train() {
 
   const saveEditLog = async () => {
     if (!editingLog || savingEdit) return
-    const valNum = parseFloat(editVal)
-    if (isNaN(valNum) || valNum <= 0) { showToast('Please enter a valid number'); return }
+    // Weight optional: leave it empty to keep the set as bodyweight.
+    const isBw = !editVal
+    const valNum = isBw ? 0 : parseFloat(editVal)
+    if (isBw ? !editReps : (isNaN(valNum) || valNum <= 0)) {
+      showToast('Enter a weight, or reps for a bodyweight set'); return
+    }
 
     setSavingEdit(true)
     try {
@@ -798,6 +802,25 @@ export default function Train() {
       showToast('Set updated')
     } catch {
       showToast('Failed to update set')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  // Delete a logged set (from the edit sheet) — works for any day's entry.
+  const deleteLog = async () => {
+    if (!editingLog || savingEdit) return
+    setSavingEdit(true)
+    const id = editingLog.id
+    try {
+      const { error } = await supabase.from('workout_logs').delete().eq('id', id)
+      if (error) throw error
+      setLogs((prev) => prev.filter((l) => l.id !== id))
+      if (selectedExId) fetchPB(selectedExId)
+      closeEditLog()
+      showToast('Set deleted')
+    } catch {
+      showToast('Failed to delete set')
     } finally {
       setSavingEdit(false)
     }
@@ -1547,14 +1570,15 @@ export default function Train() {
                         {/* Value */}
                         <div>
                             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block text-center">
-                                {editingLog.metricType === 'time' ? 'Time (min)' : 'Weight (kg)'}
+                                {editingLog.metricType === 'time' ? 'Time (min)' : editingLog.metricType === 'distance' ? 'Distance (km)' : editingLog.metricType === 'distance_m' ? 'Distance (m)' : 'Weight (kg)'}
                             </label>
                             <input
                                 type="number" value={editVal} onChange={(e) => setEditVal(e.target.value)}
-                                step={editingLog.metricType === 'time' ? '0.1' : '0.5'} min="0"
-                                className="w-full bg-transparent border-b-2 border-white/[0.08] text-center font-mono text-4xl font-black text-white py-3 outline-none focus:border-arc-accent/60 transition-colors"
+                                placeholder="0" step={unitStep(editingLog.metricType)} min="0"
+                                className="w-full bg-transparent border-b-2 border-white/[0.08] text-center font-mono text-4xl font-black text-white py-3 outline-none focus:border-arc-accent/60 transition-colors placeholder-white/10"
                                 autoFocus
                             />
+                            <p className="text-[10px] text-arc-muted text-center mt-1.5">Leave empty for a bodyweight set — just enter reps.</p>
                         </div>
 
                         {/* Reps / Sets / RPE */}
@@ -1578,10 +1602,17 @@ export default function Train() {
 
                         <button
                             onClick={saveEditLog}
-                            disabled={savingEdit || !editVal}
+                            disabled={savingEdit || (!editVal && !editReps)}
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
                         >
                             {savingEdit ? 'SAVING…' : 'SAVE CHANGES'}
+                        </button>
+                        <button
+                            onClick={deleteLog}
+                            disabled={savingEdit}
+                            className="w-full text-[11px] font-bold text-arc-muted hover:text-red-400 uppercase tracking-wider py-1 transition-colors disabled:opacity-50"
+                        >
+                            Delete this set
                         </button>
                     </motion.div>
                 </>
