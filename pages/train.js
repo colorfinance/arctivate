@@ -171,6 +171,12 @@ export default function Train() {
   const [currentUserId, setCurrentUserId] = useState(null)
   const [scanning, setScanning] = useState(false) // scanning a personal workout photo
   const scanInputRef = useRef(null)
+  // Simplified Train: primary actions open focused sheets.
+  const [showLogger, setShowLogger] = useState(false)
+  const [loggerMode, setLoggerMode] = useState('workout') // 'workout' | 'pb'
+  const [showNotes, setShowNotes] = useState(false)
+  const [noteBody, setNoteBody] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
   const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
@@ -419,6 +425,41 @@ export default function Train() {
     const { error } = await supabase.from('daily_workouts').delete().eq('id', id)
     if (error) { setTodayWorkouts(prev); showToast('Could not remove workout') }
     else showToast('Workout removed')
+  }
+
+  const localToday = () => {
+    const tz = new Date().getTimezoneOffset() * 60000
+    return new Date(Date.now() - tz).toISOString().slice(0, 10)
+  }
+
+  // Notes: a quick free-text note for today's training.
+  const openNotes = async () => {
+    setShowNotes(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from('training_notes').select('body').eq('user_id', user.id).eq('date', localToday()).maybeSingle()
+      setNoteBody(data?.body || '')
+    } catch {}
+  }
+
+  const saveNote = async () => {
+    if (savingNote) return
+    setSavingNote(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setSavingNote(false); return }
+      const { error } = await supabase
+        .from('training_notes')
+        .upsert({ user_id: user.id, date: localToday(), body: noteBody.trim(), updated_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
+      if (error) throw error
+      showToast('Note saved')
+      setShowNotes(false)
+    } catch {
+      showToast('Could not save note (run migration 023)')
+    } finally {
+      setSavingNote(false)
+    }
   }
 
   const toggleWorkout = (id) => {
@@ -1028,75 +1069,45 @@ export default function Train() {
 
         <main className="pt-24 px-5 space-y-6 max-w-lg mx-auto">
 
-            {/* Stats Row - Three Cards */}
-            <section className="grid grid-cols-3 gap-3">
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group"
-                >
-                    <div className="absolute inset-0 bg-gradient-to-br from-arc-accent/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Streak</span>
-                    <span className="text-3xl font-black font-mono tracking-tighter">{streak}</span>
-                    <span className="text-[9px] text-emerald-400 font-bold tracking-wider mt-0.5">DAYS</span>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden"
-                >
-                    <div className="absolute top-0 right-0 w-12 h-12 bg-arc-accent/5 blur-2xl rounded-full" />
-                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Today</span>
-                    <div className="flex items-baseline gap-0.5 text-arc-accent">
-                        <span className="text-sm font-bold">+</span>
-                        <span className="text-3xl font-black font-mono tracking-tighter">{todayPoints}</span>
-                    </div>
-                    <span className="text-[9px] text-arc-muted font-bold tracking-wider mt-0.5">PTS</span>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden"
-                >
-                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Sets</span>
-                    <span className="text-3xl font-black font-mono tracking-tighter">{todaySets}</span>
-                    <span className="text-[9px] text-arc-cyan font-bold tracking-wider mt-0.5 flex items-center gap-0.5">
-                        {todayPBs > 0 && <><TrophyIcon /> {todayPBs} PB{todayPBs > 1 ? 's' : ''}</>}
-                        {todayPBs === 0 && 'LOGGED'}
-                    </span>
-                </motion.div>
+            {/* Slim stat line (Streak · Today's pts · Sets) */}
+            <section className="flex items-center justify-center gap-5 text-[11px] font-bold text-arc-muted">
+                <span><span className="text-emerald-400 font-black font-mono">{streak}</span> day streak</span>
+                <span className="text-white/10">·</span>
+                <span><span className="text-arc-accent font-black font-mono">+{todayPoints}</span> pts today</span>
+                <span className="text-white/10">·</span>
+                <span><span className="text-white font-black font-mono">{todaySets}</span> sets</span>
             </section>
 
-            {/* Quick actions: scan a workout, or log a whole class/session */}
+            {/* Primary actions — keep it simple */}
+            <section className="grid grid-cols-3 gap-3">
+                <button
+                    onClick={() => { setLoggerMode('workout'); setShowLogger(true) }}
+                    className="bg-arc-card border border-arc-accent/20 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-arc-accent/50 transition-colors"
+                >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-accent"><path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M6.5 17.5l-4 4M17.5 6.5l4-4"/></svg>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Log Workout</span>
+                </button>
+                <button
+                    onClick={() => { setLoggerMode('pb'); setShowLogger(true) }}
+                    className="bg-arc-card border border-arc-cyan/20 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-arc-cyan/50 transition-colors"
+                >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-cyan"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 0h1.5a2.5 2.5 0 0 1 0 5H18M6 4h12v6a6 6 0 0 1-12 0zM8 22h8M12 16v6"/></svg>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Log PB</span>
+                </button>
+                <button
+                    onClick={openNotes}
+                    className="bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
+                >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Notes</span>
+                </button>
+            </section>
+
+            {/* Hidden input used by "Scan a workout" inside the Log Workout sheet */}
             <input
                 ref={scanInputRef} type="file" accept="image/*" capture="environment" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScanWorkout(f); e.target.value = '' }}
             />
-            <section className="grid grid-cols-2 gap-3">
-                <button
-                    onClick={() => !scanning && scanInputRef.current?.click()}
-                    disabled={scanning}
-                    className="bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors disabled:opacity-60"
-                >
-                    {scanning ? (
-                        <>
-                            <span className="w-4 h-4 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-                            <span className="text-xs font-bold">Reading…</span>
-                        </>
-                    ) : (
-                        <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                            <span className="text-xs font-bold">Scan a workout</span>
-                        </>
-                    )}
-                </button>
-                <button
-                    onClick={() => setShowSession(true)}
-                    className="bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors"
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span className="text-xs font-bold">Log a session</span>
-                </button>
-            </section>
 
             {/* Today's Workout(s) — a day can have more than one */}
             {todayWorkouts.map((workout, wIdx) => {
@@ -1251,36 +1262,44 @@ export default function Train() {
                 )
             })}
 
-            {/* Logger Input - Main Card */}
-            <motion.section
-                initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.25 }}
-                className="relative"
-            >
-                <h3 className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] px-1 mb-2">Log a set</h3>
-                {/* Outer glow */}
-                <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-accent/20 via-arc-cyan/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
-
-                <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
-                    {/* Subtle top gradient line */}
+            {/* Log Workout / Log PB — focused bottom sheet */}
+            <AnimatePresence>
+              {showLogger && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setShowLogger(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] shadow-card overflow-hidden z-50 pb-safe max-h-[92vh] overflow-y-auto"
+                    >
                     <div className="h-[2px] bg-accent-gradient-r" />
 
                     <div className="p-6 space-y-5">
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                        <h2 className="text-center text-lg font-black italic tracking-tight">{loggerMode === 'pb' ? 'LOG A PB 🏆' : 'LOG A WORKOUT'}</h2>
 
                         {/* Exercise Selection Header */}
                         <div className="flex justify-between items-center">
                             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Movement</label>
                             <div className="flex gap-3">
-                                <button onClick={() => setShowSession(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                    Session
-                                </button>
-                                <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
-                                    <VoiceMemoIcon /> Memo
-                                </button>
-                                {photosAvailable && (
-                                    <button onClick={() => photosRef.current?.openPicker()} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
-                                        <ImageIcon /> Photo
-                                    </button>
+                                {loggerMode !== 'pb' && (
+                                    <>
+                                        <button onClick={() => !scanning && scanInputRef.current?.click()} disabled={scanning} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                            {scanning ? '…' : 'Scan'}
+                                        </button>
+                                        <button onClick={() => { setShowLogger(false); setShowSession(true) }} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                            Session
+                                        </button>
+                                        <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                            <VoiceMemoIcon /> Memo
+                                        </button>
+                                    </>
                                 )}
                                 <button onClick={() => setIsAdding(true)} className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
                                     + New
@@ -1328,9 +1347,14 @@ export default function Train() {
                              {/* Glow line under input on focus */}
                              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 group-focus-within:w-full h-[2px] bg-accent-gradient transition-all duration-300" />
                         </div>
-                        <p className="text-[10px] text-arc-muted text-center -mt-2">Leave {unitLabelLower} empty for a bodyweight set — just log reps.</p>
+                        <p className="text-[10px] text-arc-muted text-center -mt-2">
+                            {loggerMode === 'pb'
+                                ? <>Enter your new best {unitLabelLower}. Beat {currentPB || 0} to set a PB 🏆</>
+                                : <>Leave {unitLabelLower} empty for a bodyweight set — just log reps.</>}
+                        </p>
 
-                        {/* Reps / Sets / RPE Row */}
+                        {/* Reps / Sets / RPE Row — hidden in the simple PB flow */}
+                        {loggerMode !== 'pb' && (
                         <div className="grid grid-cols-3 gap-3">
                             <div>
                                 <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">Reps</label>
@@ -1357,12 +1381,13 @@ export default function Train() {
                                 />
                             </div>
                         </div>
+                        )}
 
                         {/* Log Button */}
                         <motion.button
                             whileTap={{ scale: 0.98 }}
-                            onClick={handleLog}
-                            disabled={(!value && !reps) || isLogging}
+                            onClick={async () => { await handleLog(); if (loggerMode === 'pb') setShowLogger(false) }}
+                            disabled={(loggerMode === 'pb' ? !value : (!value && !reps)) || isLogging}
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow-accent text-lg disabled:opacity-40 disabled:shadow-none transition-all flex items-center justify-center gap-2"
                         >
                             {isLogging ? (
@@ -1375,12 +1400,15 @@ export default function Train() {
                                 <span>LOGGING...</span>
                               </>
                             ) : (
-                              'LOG SET'
+                              loggerMode === 'pb' ? 'LOG PB' : 'LOG SET'
                             )}
                         </motion.button>
+                        <button onClick={() => setShowLogger(false)} className="w-full text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors">Done</button>
                     </div>
-                </div>
-            </motion.section>
+                    </motion.div>
+                </>
+              )}
+            </AnimatePresence>
 
             {/* Recent Activity Feed */}
             <section className="space-y-4">
@@ -1541,6 +1569,31 @@ export default function Train() {
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
                         >
                             {savingSession ? 'LOGGING…' : 'LOG SESSION'}
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Notes Sheet */}
+        <AnimatePresence>
+            {showNotes && (
+                <>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowNotes(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+                    <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 space-y-4 pb-safe">
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                        <div className="text-center">
+                            <h2 className="text-lg font-black italic tracking-tight">TODAY&apos;S NOTES</h2>
+                            <p className="text-[11px] text-arc-muted mt-0.5">How did training feel? Anything to remember.</p>
+                        </div>
+                        <textarea
+                            value={noteBody} onChange={(e) => setNoteBody(e.target.value)}
+                            placeholder="e.g. Felt strong on squats, shoulder a bit tight…"
+                            rows={5} autoFocus
+                            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
+                        />
+                        <button onClick={saveNote} disabled={savingNote} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
+                            {savingNote ? 'SAVING…' : 'SAVE NOTE'}
                         </button>
                     </motion.div>
                 </>
