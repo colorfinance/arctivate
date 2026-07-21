@@ -46,6 +46,35 @@ const FAVOURITES = [
   ] },
 ]
 
+// Units a pantry item can be defined/logged in.
+const FOOD_UNITS = ['g', 'ml', 'unit', 'serving']
+// How the unit reads in the "how much?" prompt (singular label).
+const unitLabel = (u, qty) => {
+  if (u === 'unit') return qty === 1 ? 'unit' : 'units'
+  if (u === 'serving') return qty === 1 ? 'serving' : 'servings'
+  return u // g / ml
+}
+// Normalise a café item or a saved pantry row into one shape for logging.
+const normalizeFav = (fav) => {
+  if (fav && (fav.macros || fav.calories != null || fav.base_unit)) {
+    // Saved pantry row (from food_favourites)
+    return {
+      id: fav.id || null,
+      name: fav.name,
+      brand: fav.brand || null,
+      base_qty: Number(fav.base_qty) > 0 ? Number(fav.base_qty) : 1,
+      base_unit: fav.base_unit || 'serving',
+      cals: fav.calories || 0,
+      p: fav.macros?.p || 0, c: fav.macros?.c || 0, f: fav.macros?.f || 0,
+    }
+  }
+  // Café menu item ({ name, cals, p, c, f }) — treated as per 1 serving.
+  return {
+    id: null, name: fav.name, brand: null, base_qty: 1, base_unit: 'serving',
+    cals: fav.cals || 0, p: fav.p || 0, c: fav.c || 0, f: fav.f || 0,
+  }
+}
+
 export default function Food() {
   const router = useRouter()
   const [scanning, setScanning] = useState(false)
@@ -64,8 +93,10 @@ export default function Food() {
   const [showFavourites, setShowFavourites] = useState(false)
   const [addingFav, setAddingFav] = useState(null)
   const [myFavourites, setMyFavourites] = useState([])
-  const [favForm, setFavForm] = useState({ name: '', cals: '', p: '', c: '', f: '' })
+  const [favForm, setFavForm] = useState({ name: '', brand: '', baseQty: '100', baseUnit: 'g', cals: '', p: '', c: '', f: '' })
   const [showFavForm, setShowFavForm] = useState(false)
+  // Quantity prompt when logging a pantry item: { item: normalized, qty: string }
+  const [qtyPrompt, setQtyPrompt] = useState(null)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
   const [todayLogs, setTodayLogs] = useState([])
@@ -494,40 +525,66 @@ export default function Food() {
   }
 
   // Quick-add a café favourite to today's log.
-  const logFavourite = async (fav) => {
-    if (addingFav) return
-    setAddingFav(fav.name)
+  // Tapping a pantry / café item opens the "how much?" prompt.
+  const openQtyPrompt = (fav) => {
+    const item = normalizeFav(fav)
+    setQtyPrompt({ item, qty: String(item.base_qty) })
+  }
+
+  // Scale the pantry item's per-base macros by the amount eaten and log it,
+  // recording the quantity so the meal is replicable later.
+  const logWithQuantity = async () => {
+    if (!qtyPrompt || addingFav) return
+    const { item } = qtyPrompt
+    const qty = parseFloat(qtyPrompt.qty)
+    if (isNaN(qty) || qty <= 0) { showToast('Enter how much you ate'); return }
+
+    setAddingFav(item.name)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { showToast('Please log in'); setAddingFav(null); return }
 
+      const factor = qty / (item.base_qty || 1)
+      const cals = Math.round(item.cals * factor)
+      const p = Math.round(item.p * factor)
+      const c = Math.round(item.c * factor)
+      const f = Math.round(item.f * factor)
       const mealType = getDefaultMealType()
+      const displayName = item.brand ? `${item.name} (${item.brand})` : item.name
+
       const { data: newLog, error } = await supabase
         .from('food_logs')
         .insert({
           user_id: user.id,
-          item_name: fav.name,
-          calories: fav.cals,
-          macros: { p: fav.p, c: fav.c, f: fav.f, meal_type: mealType },
+          item_name: displayName,
+          calories: cals,
+          macros: { p, c, f, meal_type: mealType },
+          quantity: qty,
+          unit: item.base_unit,
+          favourite_id: item.id || null,
         })
         .select()
         .single()
       if (error) throw error
 
       if (newLog) setTodayLogs((prev) => [newLog, ...prev])
-      setDailyCalories((prev) => prev + fav.cals)
+      setDailyCalories((prev) => prev + cals)
       setDailyMacros((prev) => ({
-        protein: prev.protein + (fav.p || 0),
-        carbs: prev.carbs + (fav.c || 0),
-        fat: prev.fat + (fav.f || 0),
+        protein: prev.protein + p,
+        carbs: prev.carbs + c,
+        fat: prev.fat + f,
       }))
-      showToast(`Added ${fav.name} · ${fav.cals} cal`)
+      showToast(`Added ${qty}${item.base_unit === 'g' || item.base_unit === 'ml' ? item.base_unit : ' ' + unitLabel(item.base_unit, qty)} ${item.name} · ${cals} cal`)
+      setQtyPrompt(null)
     } catch {
       showToast('Failed to add. Please try again.')
     } finally {
       setAddingFav(null)
     }
   }
+
+  // Café items and saved pantry items both open the quantity prompt.
+  const logFavourite = (fav) => openQtyPrompt(fav)
 
   async function fetchMyFavourites(uid) {
     try {
@@ -541,27 +598,32 @@ export default function Food() {
     } catch {}
   }
 
-  // Add a custom favourite from the little form.
+  // Add a pantry item: macros are entered PER the reference amount + unit.
   const addCustomFavourite = async () => {
     const name = favForm.name.trim()
     if (!name) { showToast('Enter a food name'); return }
+    const baseQty = parseFloat(favForm.baseQty)
+    if (isNaN(baseQty) || baseQty <= 0) { showToast('Enter the reference amount'); return }
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { showToast('Please log in'); return }
       const row = {
         user_id: user.id,
         name,
+        brand: favForm.brand.trim() || null,
+        base_qty: baseQty,
+        base_unit: favForm.baseUnit || 'g',
         calories: parseInt(favForm.cals, 10) || 0,
         macros: { p: parseInt(favForm.p, 10) || 0, c: parseInt(favForm.c, 10) || 0, f: parseInt(favForm.f, 10) || 0 },
       }
       const { data, error } = await supabase.from('food_favourites').insert(row).select().single()
       if (error) throw error
       setMyFavourites((prev) => [data, ...prev])
-      setFavForm({ name: '', cals: '', p: '', c: '', f: '' })
+      setFavForm({ name: '', brand: '', baseQty: '100', baseUnit: 'g', cals: '', p: '', c: '', f: '' })
       setShowFavForm(false)
-      showToast('Favourite saved')
+      showToast('Saved to pantry')
     } catch (e) {
-      showToast('Could not save favourite (run migration 017)')
+      showToast('Could not save (run migration 022)')
     }
   }
 
@@ -577,13 +639,17 @@ export default function Food() {
       const row = {
         user_id: user.id,
         name: log.item_name || 'Food',
+        // Use the amount that was logged as this item's reference amount, so
+        // re-logging scales correctly (falls back to 1 serving).
+        base_qty: Number(log.quantity) > 0 ? Number(log.quantity) : 1,
+        base_unit: log.unit || 'serving',
         calories: log.calories || 0,
         macros: { p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 },
       }
       const { data, error } = await supabase.from('food_favourites').insert(row).select().single()
       if (error) throw error
       setMyFavourites((prev) => [data, ...prev])
-      showToast('Saved to favourites ⭐')
+      showToast('Saved to pantry ⭐')
     } catch {
       showToast('Could not save (run migration 017)')
     }
@@ -598,14 +664,8 @@ export default function Food() {
     }
   }
 
-  // Quick-add a saved (custom) favourite — reuses the café logger.
-  const logMyFavourite = (fav) => logFavourite({
-    name: fav.name,
-    cals: fav.calories || 0,
-    p: fav.macros?.p || 0,
-    c: fav.macros?.c || 0,
-    f: fav.macros?.f || 0,
-  })
+  // Quick-add a saved pantry item — opens the quantity prompt.
+  const logMyFavourite = (fav) => openQtyPrompt(fav)
 
   // Open the goals editor pre-filled with current values.
   const openGoals = () => {
@@ -1308,6 +1368,9 @@ export default function Food() {
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-bold text-white truncate block">{log.item_name}</span>
                             <span className="text-[10px] text-arc-muted">
+                              {log.quantity != null && (
+                                <span className="text-arc-cyan/80">{log.quantity}{log.unit === 'g' || log.unit === 'ml' ? log.unit : ' ' + unitLabel(log.unit, log.quantity)} · </span>
+                              )}
                               P:{log.macros?.p || 0}g  C:{log.macros?.c || 0}g  F:{log.macros?.f || 0}g
                             </span>
                           </div>
@@ -1638,6 +1701,56 @@ export default function Food() {
         )}
       </AnimatePresence>
 
+      {/* Quantity prompt — "how much did you eat?" scales the macros */}
+      <AnimatePresence>
+        {qtyPrompt && (() => {
+          const it = qtyPrompt.item
+          const q = parseFloat(qtyPrompt.qty)
+          const factor = !isNaN(q) && q > 0 ? q / (it.base_qty || 1) : 0
+          const uLong = it.base_unit === 'g' || it.base_unit === 'ml' ? it.base_unit : ' ' + unitLabel(it.base_unit, q || 0)
+          return (
+            <>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setQtyPrompt(null)} className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60]" />
+              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-[60] pb-safe space-y-4">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <div className="text-center">
+                  <h2 className="text-lg font-black italic tracking-tight">{it.name}{it.brand ? <span className="text-arc-muted font-normal"> · {it.brand}</span> : null}</h2>
+                  <p className="text-[11px] text-arc-muted mt-0.5">{it.cals} cal · P:{it.p} C:{it.c} F:{it.f} per {it.base_qty}{uLong}</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1.5 block text-center">How much did you eat?</label>
+                  <div className="flex items-center justify-center gap-2">
+                    <input
+                      type="number" inputMode="decimal" autoFocus value={qtyPrompt.qty}
+                      onChange={(e) => setQtyPrompt({ ...qtyPrompt, qty: e.target.value })}
+                      className="w-32 bg-transparent border-b-2 border-white/[0.08] text-center font-mono text-4xl font-black text-white py-2 outline-none focus:border-arc-accent/60"
+                    />
+                    <span className="text-lg font-bold text-arc-muted">{it.base_unit === 'g' || it.base_unit === 'ml' ? it.base_unit : unitLabel(it.base_unit, q || 0)}</span>
+                  </div>
+                </div>
+                {/* Live scaled macros */}
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  {[
+                    { l: 'Cals', v: Math.round(it.cals * factor), col: 'text-arc-cyan' },
+                    { l: 'P', v: Math.round(it.p * factor), col: 'text-white' },
+                    { l: 'C', v: Math.round(it.c * factor), col: 'text-white' },
+                    { l: 'F', v: Math.round(it.f * factor), col: 'text-white' },
+                  ].map((m) => (
+                    <div key={m.l} className="bg-arc-surface border border-white/5 rounded-xl py-2">
+                      <div className={`text-lg font-black font-mono ${m.col}`}>{m.v}</div>
+                      <div className="text-[9px] font-bold text-arc-muted uppercase tracking-wider">{m.l}</div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={logWithQuantity} disabled={addingFav != null} className="w-full bg-arc-accent text-white font-black italic py-4 rounded-xl shadow-glow disabled:opacity-50">
+                  {addingFav != null ? 'ADDING…' : 'ADD TO TODAY'}
+                </button>
+              </motion.div>
+            </>
+          )
+        })()}
+      </AnimatePresence>
+
       {/* Café Favourites Modal */}
       <AnimatePresence>
         {showFavourites && (
@@ -1654,16 +1767,16 @@ export default function Food() {
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
               <div className="text-center mb-4">
-                <h2 className="text-xl font-black italic tracking-tighter">FAVOURITES</h2>
-                <p className="text-[11px] text-arc-muted mt-1">Tap to add to today. Calories are approximate.</p>
+                <h2 className="text-xl font-black italic tracking-tighter">PANTRY</h2>
+                <p className="text-[11px] text-arc-muted mt-1">Tap a food, enter how much you ate — the app scales the macros.</p>
               </div>
 
               {/* My favourites (user-created) */}
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">My Favourites</h3>
+                  <h3 className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">My Pantry</h3>
                   <button onClick={() => setShowFavForm((v) => !v)} className="text-[10px] font-bold text-arc-accent uppercase tracking-wider hover:text-white transition-colors">
-                    {showFavForm ? 'Close' : '+ Add your own'}
+                    {showFavForm ? 'Close' : '+ Add food'}
                   </button>
                 </div>
 
@@ -1674,11 +1787,31 @@ export default function Food() {
                       className="overflow-hidden mb-3"
                     >
                       <div className="bg-arc-surface border border-white/10 rounded-xl p-3 space-y-2">
-                        <input
-                          type="text" value={favForm.name} onChange={(e) => setFavForm({ ...favForm, name: e.target.value })}
-                          placeholder="Food name"
-                          className="w-full bg-arc-bg border border-white/10 p-2.5 rounded-lg text-white outline-none focus:border-arc-accent text-sm font-bold"
-                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text" value={favForm.name} onChange={(e) => setFavForm({ ...favForm, name: e.target.value })}
+                            placeholder="Food (e.g. Chicken breast)"
+                            className="w-full bg-arc-bg border border-white/10 p-2.5 rounded-lg text-white outline-none focus:border-arc-accent text-sm font-bold"
+                          />
+                          <input
+                            type="text" value={favForm.brand} onChange={(e) => setFavForm({ ...favForm, brand: e.target.value })}
+                            placeholder="Brand (optional)"
+                            className="w-full bg-arc-bg border border-white/10 p-2.5 rounded-lg text-white outline-none focus:border-arc-accent text-sm font-bold placeholder-white/30"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-arc-muted uppercase tracking-wider shrink-0">Macros per</span>
+                          <input
+                            type="number" inputMode="decimal" value={favForm.baseQty} onChange={(e) => setFavForm({ ...favForm, baseQty: e.target.value })}
+                            className="w-16 bg-arc-bg border border-white/10 p-2 rounded-lg text-white outline-none focus:border-arc-accent text-center text-sm font-bold"
+                          />
+                          <select
+                            value={favForm.baseUnit} onChange={(e) => setFavForm({ ...favForm, baseUnit: e.target.value })}
+                            className="flex-1 bg-arc-bg border border-white/10 p-2 rounded-lg text-white outline-none focus:border-arc-accent text-sm font-bold"
+                          >
+                            {FOOD_UNITS.map((u) => <option key={u} value={u}>{u === 'unit' ? 'unit (e.g. 1 wrap)' : u === 'serving' ? 'serving' : u}</option>)}
+                          </select>
+                        </div>
                         <div className="grid grid-cols-4 gap-2">
                           {[
                             { k: 'cals', ph: 'Cals' }, { k: 'p', ph: 'P' }, { k: 'c', ph: 'C' }, { k: 'f', ph: 'F' },
@@ -1691,26 +1824,27 @@ export default function Food() {
                             />
                           ))}
                         </div>
-                        <button onClick={addCustomFavourite} className="w-full bg-arc-accent text-white font-bold py-2.5 rounded-lg text-sm">Save favourite</button>
+                        <p className="text-[10px] text-arc-muted">Enter the macros for that amount — when you log it, tell the app how much you ate and it scales them.</p>
+                        <button onClick={addCustomFavourite} className="w-full bg-arc-accent text-white font-bold py-2.5 rounded-lg text-sm">Save to pantry</button>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
 
                 {myFavourites.length === 0 ? (
-                  <p className="text-[11px] text-arc-muted">No saved favourites yet. Add your own above, or tap ⭐ on a logged food.</p>
+                  <p className="text-[11px] text-arc-muted">Your pantry is empty. Add a food above (with its macros per 100 g, per wrap, etc.), or tap ⭐ on a logged food.</p>
                 ) : (
                   <div className="space-y-2">
                     {myFavourites.map((fav) => (
                       <div key={fav.id} className="w-full flex items-center justify-between gap-2 bg-arc-surface border border-white/5 rounded-xl px-4 py-3">
                         <button onClick={() => logMyFavourite(fav)} disabled={addingFav === fav.name} className="flex-1 flex items-center justify-between gap-3 min-w-0 text-left disabled:opacity-50">
                           <div className="min-w-0">
-                            <span className="text-sm font-bold text-white truncate block">{fav.name}</span>
-                            <span className="text-[10px] text-arc-muted">P:{fav.macros?.p || 0}g C:{fav.macros?.c || 0}g F:{fav.macros?.f || 0}g</span>
+                            <span className="text-sm font-bold text-white truncate block">{fav.name}{fav.brand ? <span className="text-arc-muted font-normal"> · {fav.brand}</span> : null}</span>
+                            <span className="text-[10px] text-arc-muted">{fav.calories} cal · P:{fav.macros?.p || 0} C:{fav.macros?.c || 0} F:{fav.macros?.f || 0} <span className="text-arc-muted/60">/ {Number(fav.base_qty) || 1}{fav.base_unit === 'g' || fav.base_unit === 'ml' ? fav.base_unit : ' ' + unitLabel(fav.base_unit, Number(fav.base_qty) || 1)}</span></span>
                           </div>
-                          <span className="text-sm font-black text-arc-cyan shrink-0">{fav.calories} cal</span>
+                          <span className="w-6 h-6 rounded-full bg-arc-accent/15 text-arc-accent flex items-center justify-center font-bold shrink-0">+</span>
                         </button>
-                        <button onClick={() => deleteFavourite(fav.id)} aria-label="Remove favourite" className="text-white/20 hover:text-red-400 transition-colors p-1 shrink-0">
+                        <button onClick={() => deleteFavourite(fav.id)} aria-label="Remove from pantry" className="text-white/20 hover:text-red-400 transition-colors p-1 shrink-0">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                         </button>
                       </div>
