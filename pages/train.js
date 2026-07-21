@@ -478,14 +478,11 @@ export default function Train() {
 
   const toggleExpand = (dwe) => {
     setExpandedId((prev) => (prev === dwe.id ? null : dwe.id))
+    // Don't pre-fill reps/sets — the prescribed target shows as a placeholder.
+    // This keeps "Log entire workout" from logging movements you never filled in.
     setPInputs((prev) => prev[dwe.id] ? prev : {
       ...prev,
-      [dwe.id]: {
-        value: '',
-        reps: dwe.target_reps != null ? String(dwe.target_reps) : '',
-        sets: dwe.target_sets != null ? String(dwe.target_sets) : '',
-        rpe: '',
-      },
+      [dwe.id]: { value: '', reps: '', sets: '', rpe: '' },
     })
   }
 
@@ -531,8 +528,9 @@ export default function Train() {
         daily_workout_id: dwe.daily_workout_id,
         daily_workout_exercise_id: dwe.id,
       }
-      const repsNum = vals.reps ? parseInt(vals.reps, 10) : null
-      const setsNum = vals.sets ? parseInt(vals.sets, 10) : null
+      // Fall back to the prescribed target when the field is left blank.
+      const repsNum = vals.reps ? parseInt(vals.reps, 10) : (dwe.target_reps != null ? Number(dwe.target_reps) : null)
+      const setsNum = vals.sets ? parseInt(vals.sets, 10) : (dwe.target_sets != null ? Number(dwe.target_sets) : null)
       const rpeNum = vals.rpe ? parseInt(vals.rpe, 10) : null
       if (repsNum) payload.reps = repsNum
       if (setsNum) payload.sets = setsNum
@@ -1213,12 +1211,12 @@ export default function Train() {
                                                                         )}
                                                                         <div className={isBw ? 'flex-1' : 'w-14'}>
                                                                             <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Reps</label>
-                                                                            <input type="number" inputMode="numeric" autoFocus={isBw} value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder="—" min="1"
+                                                                            <input type="number" inputMode="numeric" autoFocus={isBw} value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder={dwe.target_reps != null ? String(dwe.target_reps) : '—'} min="1"
                                                                                 className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
                                                                         </div>
                                                                         <div className={isBw ? 'flex-1' : 'w-14'}>
                                                                             <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Sets</label>
-                                                                            <input type="number" inputMode="numeric" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder="—" min="1"
+                                                                            <input type="number" inputMode="numeric" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder={dwe.target_sets != null ? String(dwe.target_sets) : '—'} min="1"
                                                                                 className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
                                                                         </div>
                                                                         <button
