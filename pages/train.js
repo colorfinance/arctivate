@@ -487,10 +487,11 @@ export default function Train() {
   }
 
   async function logMovement(dwe, vals) {
-    // Weight optional: allow a bodyweight set when reps are entered.
+    // Weight optional: a movement with no prescribed load logs as a completed
+    // (bodyweight) set so "Log entire workout" can mark everything done.
     const isBodyweight = !vals?.value
     const valNum = isBodyweight ? 0 : parseFloat(vals.value)
-    if (isBodyweight ? !vals?.reps : (isNaN(valNum) || valNum <= 0)) return { ok: false }
+    if (!isBodyweight && (isNaN(valNum) || valNum <= 0)) return { ok: false }
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return { ok: false }
@@ -580,15 +581,16 @@ export default function Train() {
     try {
       for (const dwe of workout.exercises) {
         if (completedPrescribed.has(dwe.id)) continue
-        const vals = pInputs[dwe.id]
-        // Include weighted sets AND bodyweight sets (reps entered, no weight).
-        const hasWeight = vals?.value && parseFloat(vals.value) > 0
-        const hasReps = vals?.reps && parseInt(vals.reps, 10) > 0
-        if (!hasWeight && !hasReps) continue
+        // Log each movement at its prescribed target (weight/reps/sets).
+        const vals = {
+          value: dwe.target_value != null ? String(dwe.target_value) : '',
+          reps: dwe.target_reps != null ? String(dwe.target_reps) : '',
+          sets: dwe.target_sets != null ? String(dwe.target_sets) : '',
+        }
         const r = await logMovement(dwe, vals)
         if (r.ok) count++
       }
-      showToast(count === 0 ? 'Enter a weight or reps on at least one movement' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
+      showToast(count === 0 ? 'Workout already logged ✅' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
     } finally {
       setLoggingFull(null)
     }
@@ -1151,14 +1153,7 @@ export default function Train() {
                                         <div className="space-y-2">
                                             {workout.exercises.map((dwe) => {
                                                 const done = completedPrescribed.has(dwe.id)
-                                                const open = expandedId === dwe.id
-                                                // Bodyweight/reps movements don't take a load — log reps/sets only.
-                                                const isBw = dwe.metric_type === 'reps'
-                                                // First column is always the load unit (KG / MIN / KM / M) —
-                                                // never "Reps", so it doesn't collide with the Reps field.
-                                                const unit = unitShort(dwe.metric_type).toUpperCase()
-                                                const unitLower = isBw ? '' : unit.toLowerCase()
-                                                const vals = pInputs[dwe.id] || {}
+                                                const unitLower = dwe.metric_type === 'reps' ? '' : unitShort(dwe.metric_type)
                                                 const scheme = [
                                                     dwe.target_sets != null ? `${dwe.target_sets}×` : '',
                                                     dwe.target_reps != null ? `${dwe.target_reps}` : '',
@@ -1166,70 +1161,19 @@ export default function Train() {
                                                 return (
                                                     <div
                                                         key={dwe.id}
-                                                        className={`rounded-xl border transition-all overflow-hidden ${
-                                                            open ? 'border-arc-accent/50 bg-arc-accent/[0.06] shadow-glow'
-                                                                : done ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
-                                                                    : 'border-white/[0.05] bg-arc-surface'
-                                                        }`}
+                                                        className={`rounded-xl border p-3 flex items-center gap-3 ${done ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-white/[0.05] bg-arc-surface'}`}
                                                     >
-                                                        <button onClick={() => !done && toggleExpand(dwe)} className="w-full text-left flex items-center gap-3 p-3">
-                                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
-                                                                {done && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                                                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
+                                                            {done && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
+                                                            <div className="text-[10px] text-arc-muted font-mono">
+                                                                {scheme && <span>{scheme} </span>}
+                                                                {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unitLower} </span>}
+                                                                {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
                                                             </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
-                                                                <div className="text-[10px] text-arc-muted font-mono">
-                                                                    {scheme && <span>{scheme} </span>}
-                                                                    {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unitLower} </span>}
-                                                                    {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
-                                                                </div>
-                                                            </div>
-                                                            {!done && (
-                                                                <span className={`text-[9px] font-bold uppercase tracking-wider shrink-0 transition-colors ${open ? 'text-white' : 'text-arc-accent'}`}>
-                                                                    {open ? 'Close' : 'Log →'}
-                                                                </span>
-                                                            )}
-                                                        </button>
-
-                                                        <AnimatePresence>
-                                                            {open && !done && (
-                                                                <motion.div
-                                                                    initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                                                                    className="px-3 pb-3"
-                                                                >
-                                                                    <div className="flex items-end gap-2">
-                                                                        {!isBw && (
-                                                                            <div className="flex-1">
-                                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block">{unit} <span className="text-arc-muted/60 normal-case">· optional</span></label>
-                                                                                <input
-                                                                                    type="number" inputMode="decimal" autoFocus
-                                                                                    value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
-                                                                                    placeholder="0" step={unitStep(dwe.metric_type)} min="0"
-                                                                                    className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
-                                                                                />
-                                                                            </div>
-                                                                        )}
-                                                                        <div className={isBw ? 'flex-1' : 'w-14'}>
-                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Reps</label>
-                                                                            <input type="number" inputMode="numeric" autoFocus={isBw} value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder={dwe.target_reps != null ? String(dwe.target_reps) : '—'} min="1"
-                                                                                className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
-                                                                        </div>
-                                                                        <div className={isBw ? 'flex-1' : 'w-14'}>
-                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Sets</label>
-                                                                            <input type="number" inputMode="numeric" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder={dwe.target_sets != null ? String(dwe.target_sets) : '—'} min="1"
-                                                                                className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
-                                                                        </div>
-                                                                        <button
-                                                                            onClick={() => logOneMovement(dwe)}
-                                                                            disabled={!vals.value && !vals.reps}
-                                                                            className="bg-accent-gradient text-white font-black italic text-xs tracking-wider px-4 py-2.5 rounded-lg shadow-glow-accent disabled:opacity-40"
-                                                                        >
-                                                                            LOG
-                                                                        </button>
-                                                                    </div>
-                                                                </motion.div>
-                                                            )}
-                                                        </AnimatePresence>
+                                                        </div>
                                                     </div>
                                                 )
                                             })}
@@ -1259,6 +1203,25 @@ export default function Train() {
                     </motion.section>
                 )
             })}
+
+            {/* Add your own workout — snap a photo of it and it loads here */}
+            <button
+                onClick={() => !scanning && scanInputRef.current?.click()}
+                disabled={scanning}
+                className="w-full bg-arc-card border border-dashed border-white/15 rounded-2xl py-4 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/40 transition-colors disabled:opacity-60"
+            >
+                {scanning ? (
+                    <>
+                        <span className="w-4 h-4 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm font-bold">Reading your workout…</span>
+                    </>
+                ) : (
+                    <>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span className="text-sm font-bold">Add a workout {todayWorkouts.length > 0 ? '' : '(snap a photo)'}</span>
+                    </>
+                )}
+            </button>
 
             {/* Log Workout / Log PB — focused bottom sheet */}
             <AnimatePresence>
