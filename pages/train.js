@@ -177,6 +177,10 @@ export default function Train() {
   const [showNotes, setShowNotes] = useState(false)
   const [noteBody, setNoteBody] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  const [completedWorkouts, setCompletedWorkouts] = useState(() => new Set()) // daily_workout ids ticked today
+  const [showAddWorkout, setShowAddWorkout] = useState(false)
+  const [newWorkout, setNewWorkout] = useState({ name: '', details: '' })
+  const [savingWorkout, setSavingWorkout] = useState(false)
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
   const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
@@ -382,6 +386,19 @@ export default function Train() {
           setCompletedPrescribed(new Set(doneLogs.map((l) => l.daily_workout_exercise_id).filter(Boolean)))
         }
       } catch {}
+
+      // Which whole workouts are ticked off today (defensive if table missing).
+      try {
+        const tz2 = new Date().getTimezoneOffset() * 60000
+        const today2 = new Date(Date.now() - tz2).toISOString().slice(0, 10)
+        const { data: comps } = await supabase
+          .from('workout_completions')
+          .select('daily_workout_id')
+          .eq('user_id', userId)
+          .eq('date', today2)
+          .in('daily_workout_id', ids)
+        if (comps) setCompletedWorkouts(new Set(comps.map((c) => c.daily_workout_id)))
+      } catch {}
     } catch {}
   }
 
@@ -441,6 +458,70 @@ export default function Train() {
       const { data } = await supabase.from('training_notes').select('body').eq('user_id', user.id).eq('date', localToday()).maybeSingle()
       setNoteBody(data?.body || '')
     } catch {}
+  }
+
+  // Tick a whole workout off (coach's or your own). Awards points.
+  const toggleWorkoutComplete = async (workout) => {
+    const snapshot = new Set(completedWorkouts)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      const isDone = snapshot.has(workout.id)
+      const next = new Set(snapshot)
+
+      if (isDone) {
+        next.delete(workout.id)
+        setCompletedWorkouts(next)
+        const { error } = await supabase.from('workout_completions')
+          .delete().eq('user_id', user.id).eq('daily_workout_id', workout.id).eq('date', localToday())
+        if (error) { setCompletedWorkouts(snapshot); showToast('Could not update'); return }
+        await supabase.rpc('increment_points', { row_id: user.id, x: -50 })
+        setPoints((p) => Math.max(0, p - 50))
+      } else {
+        next.add(workout.id)
+        setCompletedWorkouts(next)
+        const row = { user_id: user.id, daily_workout_id: workout.id, date: localToday(), completed_at: new Date().toISOString() }
+        let { error } = await supabase.from('workout_completions').insert(row)
+        if (error && error.code === '23505') error = null // already there
+        if (error) { setCompletedWorkouts(snapshot); showToast('Could not update (run migration 024)'); return }
+        await supabase.rpc('increment_points', { row_id: user.id, x: 50 })
+        setPoints((p) => p + 50)
+        triggerCelebration()
+        showToast(`${workout.title} done! +50 pts 🎉`)
+      }
+    } catch {
+      setCompletedWorkouts(snapshot); showToast('Something went wrong')
+    }
+  }
+
+  // Add your own workout by typing it in.
+  const addTypedWorkout = async () => {
+    const name = newWorkout.name.trim()
+    if (!name) { showToast('Name your workout'); return }
+    if (savingWorkout) return
+    setSavingWorkout(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setSavingWorkout(false); return }
+      const { data, error } = await supabase.from('daily_workouts').insert({
+        title: name,
+        description: newWorkout.details.trim() || null,
+        workout_date: localToday(),
+        source: 'manual',
+        is_published: true,
+        owner_id: user.id,
+        created_by: user.id,
+      }).select().single()
+      if (error) throw error
+      setTodayWorkouts((prev) => [...prev, { ...data, exercises: [] }])
+      setNewWorkout({ name: '', details: '' })
+      setShowAddWorkout(false)
+      showToast('Workout added — tick it off when done 💪')
+    } catch {
+      showToast('Could not add workout')
+    } finally {
+      setSavingWorkout(false)
+    }
   }
 
   const saveNote = async () => {
@@ -1109,11 +1190,9 @@ export default function Train() {
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScanWorkout(f); e.target.value = '' }}
             />
 
-            {/* Today's Workout(s) — a day can have more than one */}
+            {/* Today's Workout(s) — tick to complete; details shown as text */}
             {todayWorkouts.map((workout, wIdx) => {
-                const wOpen = expandedWorkouts.has(workout.id)
-                const wDone = workout.exercises.filter((e) => completedPrescribed.has(e.id)).length
-                const allDone = workout.exercises.length > 0 && wDone === workout.exercises.length
+                const done = completedWorkouts.has(workout.id)
                 return (
                     <motion.section
                         key={workout.id}
@@ -1121,92 +1200,41 @@ export default function Train() {
                         className="relative"
                     >
                         <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-cyan/20 via-arc-accent/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
-                        <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
+                        <div className={`relative border rounded-[2rem] shadow-card overflow-hidden transition-colors ${done ? 'bg-emerald-500/[0.06] border-emerald-500/30' : 'bg-arc-card border-white/[0.06]'}`}>
                             <div className="h-[2px] bg-accent-gradient-r" />
-
-                            {/* Workout header — tap to expand its exercises */}
-                            <button onClick={() => toggleWorkout(workout.id)} className="w-full text-left p-5 flex items-start justify-between gap-3">
-                                <div className="min-w-0">
+                            <div className="p-5 flex items-center gap-4">
+                                <button
+                                    onClick={() => toggleWorkoutComplete(workout)}
+                                    aria-label={done ? 'Mark not done' : 'Mark done'}
+                                    className={`w-12 h-12 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/25 hover:border-arc-accent'}`}
+                                >
+                                    {done
+                                        ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                        : <span className="text-[8px] font-black uppercase tracking-wider text-arc-muted">Tick</span>}
+                                </button>
+                                <div className="flex-1 min-w-0">
                                     <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
-                                        {workout.owner_id ? 'Your workout · scanned' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout")}
+                                        {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout")}
                                     </span>
-                                    <h2 className="text-lg font-black italic tracking-tight mt-0.5 truncate">{workout.title}</h2>
+                                    <h2 className={`text-xl font-black italic tracking-tight mt-0.5 ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{workout.title}</h2>
                                     {workout.description && (
-                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug">{workout.description}</p>
+                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug whitespace-pre-line">{workout.description}</p>
                                     )}
                                 </div>
-                                <div className="shrink-0 text-right flex flex-col items-end">
-                                    <span className={`font-mono text-sm font-bold ${allDone ? 'text-emerald-400' : 'text-arc-accent'}`}>
-                                        {wDone}/{workout.exercises.length}
-                                    </span>
-                                    <span className="block text-[8px] text-arc-muted uppercase tracking-wider">{allDone ? 'Complete' : 'Done'}</span>
-                                    <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider mt-1">{wOpen ? 'Hide ▲' : 'Open ▾'}</span>
-                                </div>
-                            </button>
-
-                            <AnimatePresence initial={false}>
-                                {wOpen && (
-                                    <motion.div
-                                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                                        className="px-5 pb-5 space-y-4"
-                                    >
-                                        <div className="space-y-2">
-                                            {workout.exercises.map((dwe) => {
-                                                const done = completedPrescribed.has(dwe.id)
-                                                const unitLower = dwe.metric_type === 'reps' ? '' : unitShort(dwe.metric_type)
-                                                const scheme = [
-                                                    dwe.target_sets != null ? `${dwe.target_sets}×` : '',
-                                                    dwe.target_reps != null ? `${dwe.target_reps}` : '',
-                                                ].join('')
-                                                return (
-                                                    <div
-                                                        key={dwe.id}
-                                                        className={`rounded-xl border p-3 flex items-center gap-3 ${done ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-white/[0.05] bg-arc-surface'}`}
-                                                    >
-                                                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
-                                                            {done && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
-                                                            <div className="text-[10px] text-arc-muted font-mono">
-                                                                {scheme && <span>{scheme} </span>}
-                                                                {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unitLower} </span>}
-                                                                {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )
-                                            })}
-                                        </div>
-
-                                        {!allDone && (
-                                            <button
-                                                onClick={() => logFullWorkout(workout)}
-                                                disabled={loggingFull === workout.id}
-                                                className="w-full bg-arc-surface border border-arc-accent/30 text-arc-accent font-black italic tracking-wider py-3 rounded-xl hover:bg-arc-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                                            >
-                                                {loggingFull === workout.id ? 'LOGGING…' : 'LOG ENTIRE WORKOUT'}
-                                            </button>
-                                        )}
-                                        {workout.owner_id && (
-                                            <button
-                                                onClick={() => deletePersonalWorkout(workout.id)}
-                                                className="w-full text-[10px] font-bold text-arc-muted/70 hover:text-red-400 uppercase tracking-wider py-1 transition-colors"
-                                            >
-                                                Remove this workout
-                                            </button>
-                                        )}
-                                    </motion.div>
+                                {workout.owner_id && (
+                                    <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="text-white/20 hover:text-red-400 transition-colors p-1 shrink-0 self-start">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                    </button>
                                 )}
-                            </AnimatePresence>
+                            </div>
                         </div>
                     </motion.section>
                 )
             })}
 
-            {/* Add your own workout — snap a photo of it and it loads here */}
+            {/* Add your own workout — type it in (or scan a photo) */}
             <button
-                onClick={() => !scanning && scanInputRef.current?.click()}
+                onClick={() => setShowAddWorkout(true)}
                 disabled={scanning}
                 className="w-full bg-arc-card border border-dashed border-white/15 rounded-2xl py-4 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/40 transition-colors disabled:opacity-60"
             >
@@ -1218,7 +1246,7 @@ export default function Train() {
                 ) : (
                     <>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        <span className="text-sm font-bold">Add a workout {todayWorkouts.length > 0 ? '' : '(snap a photo)'}</span>
+                        <span className="text-sm font-bold">Add a workout</span>
                     </>
                 )}
             </button>
@@ -1530,6 +1558,40 @@ export default function Train() {
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
                         >
                             {savingSession ? 'LOGGING…' : 'LOG SESSION'}
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Add a workout — type it in, or scan a photo */}
+        <AnimatePresence>
+            {showAddWorkout && (
+                <>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddWorkout(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+                    <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 space-y-4 pb-safe max-h-[90vh] overflow-y-auto">
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                        <h2 className="text-center text-lg font-black italic tracking-tight">ADD A WORKOUT</h2>
+                        <input
+                            type="text" value={newWorkout.name} onChange={(e) => setNewWorkout({ ...newWorkout, name: e.target.value })}
+                            placeholder="Name (e.g. YGIG, Strength, Leg Day)" autoFocus
+                            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                        />
+                        <textarea
+                            value={newWorkout.details} onChange={(e) => setNewWorkout({ ...newWorkout, details: e.target.value })}
+                            placeholder="Type the workout (optional) — e.g.&#10;5 rounds:&#10;10 push ups&#10;15 air squats&#10;200m run"
+                            rows={5}
+                            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
+                        />
+                        <button onClick={addTypedWorkout} disabled={savingWorkout} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
+                            {savingWorkout ? 'ADDING…' : 'ADD WORKOUT'}
+                        </button>
+                        <button
+                            onClick={() => { setShowAddWorkout(false); if (!scanning) scanInputRef.current?.click() }}
+                            className="w-full flex items-center justify-center gap-2 text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            Or scan a photo instead
                         </button>
                     </motion.div>
                 </>
