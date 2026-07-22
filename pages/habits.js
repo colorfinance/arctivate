@@ -115,10 +115,13 @@ export default function Habits() {
       // tables may not exist yet on older DBs).
       const today0 = getTodayStr()
       try {
+        // Coach challenges only stay up for 24 hours after they're posted.
+        const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
         const { data: chData } = await supabase
           .from('challenges')
           .select('*')
           .eq('is_active', true)
+          .gte('created_at', cutoff24h)
           .order('created_at', { ascending: true })
         setChallenges(chData || [])
 
