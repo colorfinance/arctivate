@@ -248,7 +248,7 @@ export default function Train() {
 
       if (data) {
         setPoints(data.total_points || 0)
-        setStreak(data.current_streak || 0)
+        // Streak is computed from actual workout history in fetchWorkoutHistory.
       }
     } catch {}
   }
@@ -339,6 +339,24 @@ export default function Train() {
         })
         setLogs(history)
       }
+
+      // Compute the current day-streak from distinct workout dates.
+      try {
+        const { data: dateRows } = await supabase
+          .from('workout_logs')
+          .select('created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(500)
+        const dayStr = (dt) => { const t = dt.getTimezoneOffset() * 60000; return new Date(dt - t).toISOString().slice(0, 10) }
+        const days = new Set((dateRows || []).map((r) => dayStr(new Date(r.created_at))))
+        let s = 0
+        const cur = new Date()
+        // Today not logged yet shouldn't break the streak — start from yesterday.
+        if (!days.has(dayStr(cur))) cur.setDate(cur.getDate() - 1)
+        while (days.has(dayStr(cur))) { s++; cur.setDate(cur.getDate() - 1) }
+        setStreak(s)
+      } catch {}
     } catch {}
   }
 
