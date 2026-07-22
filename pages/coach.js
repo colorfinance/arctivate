@@ -193,6 +193,9 @@ export default function Coach() {
   const [wearableData, setWearableData] = useState(null)
   const [wearableHistory, setWearableHistory] = useState([])
   const [habitsToday, setHabitsToday] = useState({ done: 0, total: 0 })
+  const [checklist, setChecklist] = useState([]) // [{ title, frequency, done }]
+  const [foodToday, setFoodToday] = useState({ count: 0, calories: 0 })
+  const proactiveDone = useRef(false)
 
   // Chat
   const [messages, setMessages] = useState([])
@@ -235,6 +238,7 @@ export default function Coach() {
         fetchWearableData(user.id),
         fetchChatHistory(user.id),
         fetchHabitsToday(user.id),
+        fetchFoodToday(user.id),
       ])
       setIsLoading(false)
     }
@@ -244,6 +248,33 @@ export default function Coach() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Proactive opening: when the coach is opened with no chat yet, it checks in
+  // — greets, recaps what they've done, and reminds them what's still to tick.
+  useEffect(() => {
+    if (isLoading || proactiveDone.current) return
+    proactiveDone.current = true
+    if (messages.length > 0) return
+    ;(async () => {
+      try {
+        setIsSending(true)
+        const res = await fetch('/api/coach/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: "(You are checking in — the user just opened the app; they didn't type anything.) Greet me by name, quickly recap what I've done today and this week, and specifically remind me which checklist items I still need to tick off today (name them). Encourage me warmly and give me one clear next action. Keep it under 110 words.",
+            context: buildContext(),
+          }),
+        })
+        const data = await res.json()
+        if (res.ok && data.reply) {
+          setMessages([{ role: 'assistant', content: data.reply }])
+          if (userId) { try { await supabase.from('coach_messages').insert({ user_id: userId, role: 'assistant', content: data.reply }) } catch {} }
+        }
+      } catch {} finally { setIsSending(false) }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading])
 
   async function fetchWorkoutHistory(uid) {
     const { data } = await supabase
@@ -271,10 +302,32 @@ export default function Coach() {
   async function fetchHabitsToday(uid) {
     try {
       const now = new Date()
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-      const { data: habits } = await supabase.from('habits').select('id').eq('user_id', uid)
-      const { data: logs } = await supabase.from('habit_logs').select('habit_id').eq('user_id', uid).eq('date', todayStr)
-      setHabitsToday({ done: logs?.length || 0, total: habits?.length || 0 })
+      const pad = (n) => String(n).padStart(2, '0')
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      // Monday-based start of this week (for weekly habits).
+      const wk = new Date(now); wk.setDate(wk.getDate() - ((wk.getDay() + 6) % 7))
+      const weekStr = `${wk.getFullYear()}-${pad(wk.getMonth() + 1)}-${pad(wk.getDate())}`
+
+      const { data: habits } = await supabase.from('habits').select('id, title, frequency').eq('user_id', uid).order('created_at', { ascending: true })
+      const { data: logs } = await supabase.from('habit_logs').select('habit_id, date').eq('user_id', uid).gte('date', weekStr)
+
+      const list = (habits || []).map((h) => {
+        const isWeekly = (h.frequency || 'daily') === 'weekly'
+        const done = (logs || []).some((l) => l.habit_id === h.id && (isWeekly ? true : l.date === todayStr))
+        return { title: h.title, frequency: h.frequency || 'daily', done }
+      })
+      setChecklist(list)
+      setHabitsToday({ done: list.filter((h) => h.done).length, total: list.length })
+    } catch {}
+  }
+
+  async function fetchFoodToday(uid) {
+    try {
+      const now = new Date()
+      const pad = (n) => String(n).padStart(2, '0')
+      const start = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T00:00:00`
+      const { data } = await supabase.from('food_logs').select('calories, created_at').eq('user_id', uid).gte('created_at', start)
+      if (data) setFoodToday({ count: data.length, calories: data.reduce((a, r) => a + (r.calories || 0), 0) })
     } catch {}
   }
 
@@ -303,7 +356,33 @@ export default function Coach() {
       muscleGroup: w.exercises?.muscle_group
     }))
 
+    // Challenge day (from the 30-day challenge start date).
+    let challengeDay = null
+    if (profile?.challenge_start_date) {
+      const start = new Date(profile.challenge_start_date)
+      const s = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+      const n = new Date()
+      const nn = Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())
+      challengeDay = Math.max(1, Math.floor((nn - s) / 86400000) + 1)
+    }
+    const now = new Date()
+    const lastWorkout = workoutLogs[0]?.created_at || null
+    const daysSinceWorkout = lastWorkout ? Math.floor((now - new Date(lastWorkout)) / 86400000) : null
+
     return {
+      today: {
+        date: now.toISOString().slice(0, 10),
+        dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+        trainedToday,
+        setsToday,
+        habitsDone: habitsToday.done,
+        habitsTotal: habitsToday.total,
+        // The actual checklist so the coach can nudge by name.
+        checklist: checklist.map((h) => ({ item: h.title, done: h.done, cadence: h.frequency })),
+        habitsRemaining: checklist.filter((h) => !h.done).map((h) => h.title),
+        foodLogged: foodToday.count,
+        caloriesToday: foodToday.calories,
+      },
       profile: profile ? {
         name: profile.username,
         fitnessLevel: profile.fitness_level,
@@ -312,13 +391,14 @@ export default function Coach() {
         height: profile.height,
         age: profile.age,
         streak: profile.current_streak,
-        points: profile.total_points
+        points: profile.total_points,
+        challengeDay,
+        challengeGoalDays: profile.challenge_days_goal || 30,
       } : null,
-      today: {
-        trainedToday,
-        setsToday,
-        habitsDone: habitsToday.done,
-        habitsTotal: habitsToday.total,
+      activity: {
+        lastWorkoutDate: lastWorkout,
+        daysSinceLastWorkout: daysSinceWorkout,
+        workoutsLast7Days: workoutLogs.filter((w) => (now - new Date(w.created_at)) < 7 * 86400000).length,
       },
       recentWorkouts,
       readinessScore,
