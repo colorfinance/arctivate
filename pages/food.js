@@ -1109,7 +1109,7 @@ export default function Food() {
               Goals
             </button>
             <button
-              onClick={() => router.push('/calendar')}
+              onClick={() => router.push('/calendar?from=food')}
               className="flex items-center gap-1.5 text-[10px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
               title="Calendar"
             >

@@ -131,8 +131,8 @@ export default function CalendarPage() {
             <h1 className="text-xl font-black italic tracking-tighter text-gradient-accent">ARCTIVATE</h1>
             <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Calendar</span>
           </div>
-          <button onClick={() => router.push('/train')} className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
-            ← Train
+          <button onClick={() => router.push(router.query.from === 'food' ? '/food' : '/train')} className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
+            ← {router.query.from === 'food' ? 'Food' : 'Train'}
           </button>
         </div>
       </header>
