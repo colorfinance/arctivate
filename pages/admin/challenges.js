@@ -148,7 +148,7 @@ export default function AdminChallenges() {
         <section className="bg-arc-card border border-white/[0.06] rounded-[2rem] p-6 space-y-4">
           <div>
             <h2 className="text-sm font-black italic tracking-tight">ADD A CHALLENGE</h2>
-            <p className="text-[11px] text-arc-muted mt-1">Appears in every member&apos;s Protocol list to tick off today.</p>
+            <p className="text-[11px] text-arc-muted mt-1">Appears in every member&apos;s Protocol list to tick off — stays up for 24 hours, then drops off automatically.</p>
           </div>
           <input
             type="text" value={title} onChange={(e) => setTitle(e.target.value)}

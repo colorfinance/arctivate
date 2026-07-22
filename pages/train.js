@@ -171,6 +171,16 @@ export default function Train() {
   const [currentUserId, setCurrentUserId] = useState(null)
   const [scanning, setScanning] = useState(false) // scanning a personal workout photo
   const scanInputRef = useRef(null)
+  // Simplified Train: primary actions open focused sheets.
+  const [showLogger, setShowLogger] = useState(false)
+  const [loggerMode, setLoggerMode] = useState('workout') // 'workout' | 'pb'
+  const [showNotes, setShowNotes] = useState(false)
+  const [noteBody, setNoteBody] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
+  const [completedWorkouts, setCompletedWorkouts] = useState(() => new Set()) // daily_workout ids ticked today
+  const [showAddWorkout, setShowAddWorkout] = useState(false)
+  const [newWorkout, setNewWorkout] = useState({ name: '', details: '' })
+  const [savingWorkout, setSavingWorkout] = useState(false)
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
   const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
@@ -376,6 +386,19 @@ export default function Train() {
           setCompletedPrescribed(new Set(doneLogs.map((l) => l.daily_workout_exercise_id).filter(Boolean)))
         }
       } catch {}
+
+      // Which whole workouts are ticked off today (defensive if table missing).
+      try {
+        const tz2 = new Date().getTimezoneOffset() * 60000
+        const today2 = new Date(Date.now() - tz2).toISOString().slice(0, 10)
+        const { data: comps } = await supabase
+          .from('workout_completions')
+          .select('daily_workout_id')
+          .eq('user_id', userId)
+          .eq('date', today2)
+          .in('daily_workout_id', ids)
+        if (comps) setCompletedWorkouts(new Set(comps.map((c) => c.daily_workout_id)))
+      } catch {}
     } catch {}
   }
 
@@ -421,6 +444,105 @@ export default function Train() {
     else showToast('Workout removed')
   }
 
+  const localToday = () => {
+    const tz = new Date().getTimezoneOffset() * 60000
+    return new Date(Date.now() - tz).toISOString().slice(0, 10)
+  }
+
+  // Notes: a quick free-text note for today's training.
+  const openNotes = async () => {
+    setShowNotes(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from('training_notes').select('body').eq('user_id', user.id).eq('date', localToday()).maybeSingle()
+      setNoteBody(data?.body || '')
+    } catch {}
+  }
+
+  // Tick a whole workout off (coach's or your own). Awards points.
+  const toggleWorkoutComplete = async (workout) => {
+    const snapshot = new Set(completedWorkouts)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      const isDone = snapshot.has(workout.id)
+      const next = new Set(snapshot)
+
+      if (isDone) {
+        next.delete(workout.id)
+        setCompletedWorkouts(next)
+        const { error } = await supabase.from('workout_completions')
+          .delete().eq('user_id', user.id).eq('daily_workout_id', workout.id).eq('date', localToday())
+        if (error) { setCompletedWorkouts(snapshot); showToast('Could not update'); return }
+        await supabase.rpc('increment_points', { row_id: user.id, x: -50 })
+        setPoints((p) => Math.max(0, p - 50))
+      } else {
+        next.add(workout.id)
+        setCompletedWorkouts(next)
+        const row = { user_id: user.id, daily_workout_id: workout.id, date: localToday(), completed_at: new Date().toISOString() }
+        let { error } = await supabase.from('workout_completions').insert(row)
+        if (error && error.code === '23505') error = null // already there
+        if (error) { setCompletedWorkouts(snapshot); showToast('Could not update (run migration 024)'); return }
+        await supabase.rpc('increment_points', { row_id: user.id, x: 50 })
+        setPoints((p) => p + 50)
+        triggerCelebration()
+        showToast(`${workout.title} done! +50 pts 🎉`)
+      }
+    } catch {
+      setCompletedWorkouts(snapshot); showToast('Something went wrong')
+    }
+  }
+
+  // Add your own workout by typing it in.
+  const addTypedWorkout = async () => {
+    const name = newWorkout.name.trim()
+    if (!name) { showToast('Name your workout'); return }
+    if (savingWorkout) return
+    setSavingWorkout(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setSavingWorkout(false); return }
+      const { data, error } = await supabase.from('daily_workouts').insert({
+        title: name,
+        description: newWorkout.details.trim() || null,
+        workout_date: localToday(),
+        source: 'manual',
+        is_published: true,
+        owner_id: user.id,
+        created_by: user.id,
+      }).select().single()
+      if (error) throw error
+      setTodayWorkouts((prev) => [...prev, { ...data, exercises: [] }])
+      setNewWorkout({ name: '', details: '' })
+      setShowAddWorkout(false)
+      showToast('Workout added — tick it off when done 💪')
+    } catch {
+      showToast('Could not add workout')
+    } finally {
+      setSavingWorkout(false)
+    }
+  }
+
+  const saveNote = async () => {
+    if (savingNote) return
+    setSavingNote(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); setSavingNote(false); return }
+      const { error } = await supabase
+        .from('training_notes')
+        .upsert({ user_id: user.id, date: localToday(), body: noteBody.trim(), updated_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
+      if (error) throw error
+      showToast('Note saved')
+      setShowNotes(false)
+    } catch {
+      showToast('Could not save note (run migration 023)')
+    } finally {
+      setSavingNote(false)
+    }
+  }
+
   const toggleWorkout = (id) => {
     setExpandedWorkouts((prev) => {
       const next = new Set(prev)
@@ -437,22 +559,20 @@ export default function Train() {
 
   const toggleExpand = (dwe) => {
     setExpandedId((prev) => (prev === dwe.id ? null : dwe.id))
+    // Don't pre-fill reps/sets — the prescribed target shows as a placeholder.
+    // This keeps "Log entire workout" from logging movements you never filled in.
     setPInputs((prev) => prev[dwe.id] ? prev : {
       ...prev,
-      [dwe.id]: {
-        value: '',
-        reps: dwe.target_reps != null ? String(dwe.target_reps) : '',
-        sets: dwe.target_sets != null ? String(dwe.target_sets) : '',
-        rpe: '',
-      },
+      [dwe.id]: { value: '', reps: '', sets: '', rpe: '' },
     })
   }
 
   async function logMovement(dwe, vals) {
-    // Weight optional: allow a bodyweight set when reps are entered.
+    // Weight optional: a movement with no prescribed load logs as a completed
+    // (bodyweight) set so "Log entire workout" can mark everything done.
     const isBodyweight = !vals?.value
     const valNum = isBodyweight ? 0 : parseFloat(vals.value)
-    if (isBodyweight ? !vals?.reps : (isNaN(valNum) || valNum <= 0)) return { ok: false }
+    if (!isBodyweight && (isNaN(valNum) || valNum <= 0)) return { ok: false }
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return { ok: false }
@@ -490,8 +610,9 @@ export default function Train() {
         daily_workout_id: dwe.daily_workout_id,
         daily_workout_exercise_id: dwe.id,
       }
-      const repsNum = vals.reps ? parseInt(vals.reps, 10) : null
-      const setsNum = vals.sets ? parseInt(vals.sets, 10) : null
+      // Fall back to the prescribed target when the field is left blank.
+      const repsNum = vals.reps ? parseInt(vals.reps, 10) : (dwe.target_reps != null ? Number(dwe.target_reps) : null)
+      const setsNum = vals.sets ? parseInt(vals.sets, 10) : (dwe.target_sets != null ? Number(dwe.target_sets) : null)
       const rpeNum = vals.rpe ? parseInt(vals.rpe, 10) : null
       if (repsNum) payload.reps = repsNum
       if (setsNum) payload.sets = setsNum
@@ -541,15 +662,16 @@ export default function Train() {
     try {
       for (const dwe of workout.exercises) {
         if (completedPrescribed.has(dwe.id)) continue
-        const vals = pInputs[dwe.id]
-        // Include weighted sets AND bodyweight sets (reps entered, no weight).
-        const hasWeight = vals?.value && parseFloat(vals.value) > 0
-        const hasReps = vals?.reps && parseInt(vals.reps, 10) > 0
-        if (!hasWeight && !hasReps) continue
+        // Log each movement at its prescribed target (weight/reps/sets).
+        const vals = {
+          value: dwe.target_value != null ? String(dwe.target_value) : '',
+          reps: dwe.target_reps != null ? String(dwe.target_reps) : '',
+          sets: dwe.target_sets != null ? String(dwe.target_sets) : '',
+        }
         const r = await logMovement(dwe, vals)
         if (r.ok) count++
       }
-      showToast(count === 0 ? 'Enter a weight or reps on at least one movement' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
+      showToast(count === 0 ? 'Workout already logged ✅' : `Logged ${count} movement${count > 1 ? 's' : ''} 🎉`)
     } finally {
       setLoggingFull(null)
     }
@@ -1028,81 +1150,49 @@ export default function Train() {
 
         <main className="pt-24 px-5 space-y-6 max-w-lg mx-auto">
 
-            {/* Stats Row - Three Cards */}
-            <section className="grid grid-cols-3 gap-3">
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden group"
-                >
-                    <div className="absolute inset-0 bg-gradient-to-br from-arc-accent/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Streak</span>
-                    <span className="text-3xl font-black font-mono tracking-tighter">{streak}</span>
-                    <span className="text-[9px] text-emerald-400 font-bold tracking-wider mt-0.5">DAYS</span>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden"
-                >
-                    <div className="absolute top-0 right-0 w-12 h-12 bg-arc-accent/5 blur-2xl rounded-full" />
-                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Today</span>
-                    <div className="flex items-baseline gap-0.5 text-arc-accent">
-                        <span className="text-sm font-bold">+</span>
-                        <span className="text-3xl font-black font-mono tracking-tighter">{todayPoints}</span>
-                    </div>
-                    <span className="text-[9px] text-arc-muted font-bold tracking-wider mt-0.5">PTS</span>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-                    className="bg-arc-card border border-white/[0.04] p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden"
-                >
-                    <span className="text-arc-muted text-[9px] font-bold uppercase tracking-[0.15em] mb-1">Sets</span>
-                    <span className="text-3xl font-black font-mono tracking-tighter">{todaySets}</span>
-                    <span className="text-[9px] text-arc-cyan font-bold tracking-wider mt-0.5 flex items-center gap-0.5">
-                        {todayPBs > 0 && <><TrophyIcon /> {todayPBs} PB{todayPBs > 1 ? 's' : ''}</>}
-                        {todayPBs === 0 && 'LOGGED'}
-                    </span>
-                </motion.div>
+            {/* Slim stat line (Streak · Today's pts · Sets) */}
+            <section className="flex items-center justify-center gap-5 text-[11px] font-bold text-arc-muted">
+                <span><span className="text-emerald-400 font-black font-mono">{streak}</span> day streak</span>
+                <span className="text-white/10">·</span>
+                <span><span className="text-arc-accent font-black font-mono">+{todayPoints}</span> pts today</span>
+                <span className="text-white/10">·</span>
+                <span><span className="text-white font-black font-mono">{todaySets}</span> sets</span>
             </section>
 
-            {/* Quick actions: scan a workout, or log a whole class/session */}
+            {/* Primary actions — keep it simple */}
+            <section className="grid grid-cols-3 gap-3">
+                <button
+                    onClick={() => { setLoggerMode('workout'); setShowLogger(true) }}
+                    className="bg-arc-card border border-arc-accent/20 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-arc-accent/50 transition-colors"
+                >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-accent"><path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M6.5 17.5l-4 4M17.5 6.5l4-4"/></svg>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Log Workout</span>
+                </button>
+                <button
+                    onClick={() => { setLoggerMode('pb'); setShowLogger(true) }}
+                    className="bg-arc-card border border-arc-cyan/20 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-arc-cyan/50 transition-colors"
+                >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-cyan"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 0h1.5a2.5 2.5 0 0 1 0 5H18M6 4h12v6a6 6 0 0 1-12 0zM8 22h8M12 16v6"/></svg>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Log PB</span>
+                </button>
+                <button
+                    onClick={openNotes}
+                    className="bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
+                >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Notes</span>
+                </button>
+            </section>
+
+            {/* Hidden input used by "Scan a workout" inside the Log Workout sheet */}
             <input
                 ref={scanInputRef} type="file" accept="image/*" capture="environment" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScanWorkout(f); e.target.value = '' }}
             />
-            <section className="grid grid-cols-2 gap-3">
-                <button
-                    onClick={() => !scanning && scanInputRef.current?.click()}
-                    disabled={scanning}
-                    className="bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors disabled:opacity-60"
-                >
-                    {scanning ? (
-                        <>
-                            <span className="w-4 h-4 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-                            <span className="text-xs font-bold">Reading…</span>
-                        </>
-                    ) : (
-                        <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                            <span className="text-xs font-bold">Scan a workout</span>
-                        </>
-                    )}
-                </button>
-                <button
-                    onClick={() => setShowSession(true)}
-                    className="bg-arc-card border border-white/[0.06] rounded-2xl py-3.5 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors"
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span className="text-xs font-bold">Log a session</span>
-                </button>
-            </section>
 
-            {/* Today's Workout(s) — a day can have more than one */}
+            {/* Today's Workout(s) — tick to complete; details shown as text */}
             {todayWorkouts.map((workout, wIdx) => {
-                const wOpen = expandedWorkouts.has(workout.id)
-                const wDone = workout.exercises.filter((e) => completedPrescribed.has(e.id)).length
-                const allDone = workout.exercises.length > 0 && wDone === workout.exercises.length
+                const done = completedWorkouts.has(workout.id)
                 return (
                     <motion.section
                         key={workout.id}
@@ -1110,177 +1200,95 @@ export default function Train() {
                         className="relative"
                     >
                         <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-cyan/20 via-arc-accent/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
-                        <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
+                        <div className={`relative border rounded-[2rem] shadow-card overflow-hidden transition-colors ${done ? 'bg-emerald-500/[0.06] border-emerald-500/30' : 'bg-arc-card border-white/[0.06]'}`}>
                             <div className="h-[2px] bg-accent-gradient-r" />
-
-                            {/* Workout header — tap to expand its exercises */}
-                            <button onClick={() => toggleWorkout(workout.id)} className="w-full text-left p-5 flex items-start justify-between gap-3">
-                                <div className="min-w-0">
+                            <div className="p-5 flex items-center gap-4">
+                                <button
+                                    onClick={() => toggleWorkoutComplete(workout)}
+                                    aria-label={done ? 'Mark not done' : 'Mark done'}
+                                    className={`w-12 h-12 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/25 hover:border-arc-accent'}`}
+                                >
+                                    {done
+                                        ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                        : <span className="text-[8px] font-black uppercase tracking-wider text-arc-muted">Tick</span>}
+                                </button>
+                                <div className="flex-1 min-w-0">
                                     <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
-                                        {workout.owner_id ? 'Your workout · scanned' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout")}
+                                        {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout")}
                                     </span>
-                                    <h2 className="text-lg font-black italic tracking-tight mt-0.5 truncate">{workout.title}</h2>
+                                    <h2 className={`text-xl font-black italic tracking-tight mt-0.5 ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{workout.title}</h2>
                                     {workout.description && (
-                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug">{workout.description}</p>
+                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug whitespace-pre-line">{workout.description}</p>
                                     )}
                                 </div>
-                                <div className="shrink-0 text-right flex flex-col items-end">
-                                    <span className={`font-mono text-sm font-bold ${allDone ? 'text-emerald-400' : 'text-arc-accent'}`}>
-                                        {wDone}/{workout.exercises.length}
-                                    </span>
-                                    <span className="block text-[8px] text-arc-muted uppercase tracking-wider">{allDone ? 'Complete' : 'Done'}</span>
-                                    <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider mt-1">{wOpen ? 'Hide ▲' : 'Open ▾'}</span>
-                                </div>
-                            </button>
-
-                            <AnimatePresence initial={false}>
-                                {wOpen && (
-                                    <motion.div
-                                        initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                                        className="px-5 pb-5 space-y-4"
-                                    >
-                                        <div className="space-y-2">
-                                            {workout.exercises.map((dwe) => {
-                                                const done = completedPrescribed.has(dwe.id)
-                                                const open = expandedId === dwe.id
-                                                // Bodyweight/reps movements don't take a load — log reps/sets only.
-                                                const isBw = dwe.metric_type === 'reps'
-                                                // First column is always the load unit (KG / MIN / KM / M) —
-                                                // never "Reps", so it doesn't collide with the Reps field.
-                                                const unit = unitShort(dwe.metric_type).toUpperCase()
-                                                const unitLower = isBw ? '' : unit.toLowerCase()
-                                                const vals = pInputs[dwe.id] || {}
-                                                const scheme = [
-                                                    dwe.target_sets != null ? `${dwe.target_sets}×` : '',
-                                                    dwe.target_reps != null ? `${dwe.target_reps}` : '',
-                                                ].join('')
-                                                return (
-                                                    <div
-                                                        key={dwe.id}
-                                                        className={`rounded-xl border transition-all overflow-hidden ${
-                                                            open ? 'border-arc-accent/50 bg-arc-accent/[0.06] shadow-glow'
-                                                                : done ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
-                                                                    : 'border-white/[0.05] bg-arc-surface'
-                                                        }`}
-                                                    >
-                                                        <button onClick={() => !done && toggleExpand(dwe)} className="w-full text-left flex items-center gap-3 p-3">
-                                                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
-                                                                {done && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className={`text-sm font-bold truncate ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{dwe.name}</div>
-                                                                <div className="text-[10px] text-arc-muted font-mono">
-                                                                    {scheme && <span>{scheme} </span>}
-                                                                    {dwe.target_value != null && <span className="text-arc-cyan">@ {dwe.target_value}{unitLower} </span>}
-                                                                    {dwe.notes && <span className="text-arc-muted/80">· {dwe.notes}</span>}
-                                                                </div>
-                                                            </div>
-                                                            {!done && (
-                                                                <span className={`text-[9px] font-bold uppercase tracking-wider shrink-0 transition-colors ${open ? 'text-white' : 'text-arc-accent'}`}>
-                                                                    {open ? 'Close' : 'Log →'}
-                                                                </span>
-                                                            )}
-                                                        </button>
-
-                                                        <AnimatePresence>
-                                                            {open && !done && (
-                                                                <motion.div
-                                                                    initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                                                                    className="px-3 pb-3"
-                                                                >
-                                                                    <div className="flex items-end gap-2">
-                                                                        {!isBw && (
-                                                                            <div className="flex-1">
-                                                                                <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block">{unit} <span className="text-arc-muted/60 normal-case">· optional</span></label>
-                                                                                <input
-                                                                                    type="number" inputMode="decimal" autoFocus
-                                                                                    value={vals.value || ''} onChange={(e) => setPInput(dwe.id, 'value', e.target.value)}
-                                                                                    placeholder="0" step={unitStep(dwe.metric_type)} min="0"
-                                                                                    className="w-full bg-arc-bg border border-white/[0.08] text-center font-mono text-xl font-black text-white py-2 rounded-lg outline-none focus:border-arc-accent/60"
-                                                                                />
-                                                                            </div>
-                                                                        )}
-                                                                        <div className={isBw ? 'flex-1' : 'w-14'}>
-                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Reps</label>
-                                                                            <input type="number" inputMode="numeric" autoFocus={isBw} value={vals.reps || ''} onChange={(e) => setPInput(dwe.id, 'reps', e.target.value)} placeholder="—" min="1"
-                                                                                className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
-                                                                        </div>
-                                                                        <div className={isBw ? 'flex-1' : 'w-14'}>
-                                                                            <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1 block text-center">Sets</label>
-                                                                            <input type="number" inputMode="numeric" value={vals.sets || ''} onChange={(e) => setPInput(dwe.id, 'sets', e.target.value)} placeholder="—" min="1"
-                                                                                className="w-full bg-arc-bg border border-white/[0.06] text-center font-mono font-bold text-white py-2 rounded-lg outline-none focus:border-arc-accent/40 placeholder-white/10" />
-                                                                        </div>
-                                                                        <button
-                                                                            onClick={() => logOneMovement(dwe)}
-                                                                            disabled={!vals.value && !vals.reps}
-                                                                            className="bg-accent-gradient text-white font-black italic text-xs tracking-wider px-4 py-2.5 rounded-lg shadow-glow-accent disabled:opacity-40"
-                                                                        >
-                                                                            LOG
-                                                                        </button>
-                                                                    </div>
-                                                                </motion.div>
-                                                            )}
-                                                        </AnimatePresence>
-                                                    </div>
-                                                )
-                                            })}
-                                        </div>
-
-                                        {!allDone && (
-                                            <button
-                                                onClick={() => logFullWorkout(workout)}
-                                                disabled={loggingFull === workout.id}
-                                                className="w-full bg-arc-surface border border-arc-accent/30 text-arc-accent font-black italic tracking-wider py-3 rounded-xl hover:bg-arc-accent/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                                            >
-                                                {loggingFull === workout.id ? 'LOGGING…' : 'LOG ENTIRE WORKOUT'}
-                                            </button>
-                                        )}
-                                        {workout.owner_id && (
-                                            <button
-                                                onClick={() => deletePersonalWorkout(workout.id)}
-                                                className="w-full text-[10px] font-bold text-arc-muted/70 hover:text-red-400 uppercase tracking-wider py-1 transition-colors"
-                                            >
-                                                Remove this workout
-                                            </button>
-                                        )}
-                                    </motion.div>
+                                {workout.owner_id && (
+                                    <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="text-white/20 hover:text-red-400 transition-colors p-1 shrink-0 self-start">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                    </button>
                                 )}
-                            </AnimatePresence>
+                            </div>
                         </div>
                     </motion.section>
                 )
             })}
 
-            {/* Logger Input - Main Card */}
-            <motion.section
-                initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.25 }}
-                className="relative"
+            {/* Add your own workout — type it in (or scan a photo) */}
+            <button
+                onClick={() => setShowAddWorkout(true)}
+                disabled={scanning}
+                className="w-full bg-arc-card border border-dashed border-white/15 rounded-2xl py-4 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/40 transition-colors disabled:opacity-60"
             >
-                <h3 className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] px-1 mb-2">Log a set</h3>
-                {/* Outer glow */}
-                <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-accent/20 via-arc-cyan/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
+                {scanning ? (
+                    <>
+                        <span className="w-4 h-4 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm font-bold">Reading your workout…</span>
+                    </>
+                ) : (
+                    <>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span className="text-sm font-bold">Add a workout</span>
+                    </>
+                )}
+            </button>
 
-                <div className="relative bg-arc-card border border-white/[0.06] rounded-[2rem] shadow-card overflow-hidden">
-                    {/* Subtle top gradient line */}
+            {/* Log Workout / Log PB — focused bottom sheet */}
+            <AnimatePresence>
+              {showLogger && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setShowLogger(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] shadow-card overflow-hidden z-50 pb-safe max-h-[92vh] overflow-y-auto"
+                    >
                     <div className="h-[2px] bg-accent-gradient-r" />
 
                     <div className="p-6 space-y-5">
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                        <h2 className="text-center text-lg font-black italic tracking-tight">{loggerMode === 'pb' ? 'LOG A PB 🏆' : 'LOG A WORKOUT'}</h2>
 
                         {/* Exercise Selection Header */}
                         <div className="flex justify-between items-center">
                             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Movement</label>
                             <div className="flex gap-3">
-                                <button onClick={() => setShowSession(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                    Session
-                                </button>
-                                <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
-                                    <VoiceMemoIcon /> Memo
-                                </button>
-                                {photosAvailable && (
-                                    <button onClick={() => photosRef.current?.openPicker()} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
-                                        <ImageIcon /> Photo
-                                    </button>
+                                {loggerMode !== 'pb' && (
+                                    <>
+                                        <button onClick={() => !scanning && scanInputRef.current?.click()} disabled={scanning} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                            {scanning ? '…' : 'Scan'}
+                                        </button>
+                                        <button onClick={() => { setShowLogger(false); setShowSession(true) }} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                            Session
+                                        </button>
+                                        <button onClick={() => setShowVoiceMemo(true)} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                            <VoiceMemoIcon /> Memo
+                                        </button>
+                                    </>
                                 )}
                                 <button onClick={() => setIsAdding(true)} className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
                                     + New
@@ -1328,9 +1336,14 @@ export default function Train() {
                              {/* Glow line under input on focus */}
                              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 group-focus-within:w-full h-[2px] bg-accent-gradient transition-all duration-300" />
                         </div>
-                        <p className="text-[10px] text-arc-muted text-center -mt-2">Leave {unitLabelLower} empty for a bodyweight set — just log reps.</p>
+                        <p className="text-[10px] text-arc-muted text-center -mt-2">
+                            {loggerMode === 'pb'
+                                ? <>Enter your new best {unitLabelLower}. Beat {currentPB || 0} to set a PB 🏆</>
+                                : <>Leave {unitLabelLower} empty for a bodyweight set — just log reps.</>}
+                        </p>
 
-                        {/* Reps / Sets / RPE Row */}
+                        {/* Reps / Sets / RPE Row — hidden in the simple PB flow */}
+                        {loggerMode !== 'pb' && (
                         <div className="grid grid-cols-3 gap-3">
                             <div>
                                 <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-1.5 block text-center">Reps</label>
@@ -1357,12 +1370,13 @@ export default function Train() {
                                 />
                             </div>
                         </div>
+                        )}
 
                         {/* Log Button */}
                         <motion.button
                             whileTap={{ scale: 0.98 }}
-                            onClick={handleLog}
-                            disabled={(!value && !reps) || isLogging}
+                            onClick={async () => { await handleLog(); if (loggerMode === 'pb') setShowLogger(false) }}
+                            disabled={(loggerMode === 'pb' ? !value : (!value && !reps)) || isLogging}
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow-accent text-lg disabled:opacity-40 disabled:shadow-none transition-all flex items-center justify-center gap-2"
                         >
                             {isLogging ? (
@@ -1375,12 +1389,15 @@ export default function Train() {
                                 <span>LOGGING...</span>
                               </>
                             ) : (
-                              'LOG SET'
+                              loggerMode === 'pb' ? 'LOG PB' : 'LOG SET'
                             )}
                         </motion.button>
+                        <button onClick={() => setShowLogger(false)} className="w-full text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors">Done</button>
                     </div>
-                </div>
-            </motion.section>
+                    </motion.div>
+                </>
+              )}
+            </AnimatePresence>
 
             {/* Recent Activity Feed */}
             <section className="space-y-4">
@@ -1541,6 +1558,65 @@ export default function Train() {
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
                         >
                             {savingSession ? 'LOGGING…' : 'LOG SESSION'}
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Add a workout — type it in, or scan a photo */}
+        <AnimatePresence>
+            {showAddWorkout && (
+                <>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddWorkout(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+                    <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 space-y-4 pb-safe max-h-[90vh] overflow-y-auto">
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                        <h2 className="text-center text-lg font-black italic tracking-tight">ADD A WORKOUT</h2>
+                        <input
+                            type="text" value={newWorkout.name} onChange={(e) => setNewWorkout({ ...newWorkout, name: e.target.value })}
+                            placeholder="Name (e.g. YGIG, Strength, Leg Day)" autoFocus
+                            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                        />
+                        <textarea
+                            value={newWorkout.details} onChange={(e) => setNewWorkout({ ...newWorkout, details: e.target.value })}
+                            placeholder="Type the workout (optional) — e.g.&#10;5 rounds:&#10;10 push ups&#10;15 air squats&#10;200m run"
+                            rows={5}
+                            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
+                        />
+                        <button onClick={addTypedWorkout} disabled={savingWorkout} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
+                            {savingWorkout ? 'ADDING…' : 'ADD WORKOUT'}
+                        </button>
+                        <button
+                            onClick={() => { setShowAddWorkout(false); if (!scanning) scanInputRef.current?.click() }}
+                            className="w-full flex items-center justify-center gap-2 text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            Or scan a photo instead
+                        </button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Notes Sheet */}
+        <AnimatePresence>
+            {showNotes && (
+                <>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowNotes(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+                    <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 space-y-4 pb-safe">
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                        <div className="text-center">
+                            <h2 className="text-lg font-black italic tracking-tight">TODAY&apos;S NOTES</h2>
+                            <p className="text-[11px] text-arc-muted mt-0.5">How did training feel? Anything to remember.</p>
+                        </div>
+                        <textarea
+                            value={noteBody} onChange={(e) => setNoteBody(e.target.value)}
+                            placeholder="e.g. Felt strong on squats, shoulder a bit tight…"
+                            rows={5} autoFocus
+                            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
+                        />
+                        <button onClick={saveNote} disabled={savingNote} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
+                            {savingNote ? 'SAVING…' : 'SAVE NOTE'}
                         </button>
                     </motion.div>
                 </>
