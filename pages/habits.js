@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { ensureReminderPermission, syncHabitReminders } from '../lib/reminders'
 // Lazy-load confetti to keep initial bundle small
 const fireConfetti = async (opts) => {
   try {
@@ -188,6 +189,9 @@ export default function Habits() {
       setLogs(todaySet)
       setWeeklyDone(weekSet)
 
+      // (Re)schedule any habit reminders (real alarms on the native app).
+      syncHabitReminders(habitsData)
+
       // Fetch progress photos
       await fetchProgressPhotos(user.id)
     } catch {
@@ -200,6 +204,11 @@ export default function Habits() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [toast, setToast] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+
+  // Habit reminder alarms
+  const [reminderEditId, setReminderEditId] = useState(null)
+  const [reminderInput, setReminderInput] = useState('07:00')
+  const [savingReminder, setSavingReminder] = useState(false)
 
   // Progress Photo State
   const [progressPhoto, setProgressPhoto] = useState(null) // today's photo URL
@@ -471,6 +480,46 @@ export default function Habits() {
       showToast('Something went wrong')
     } finally {
       setIsUpdating(false)
+    }
+  }
+
+  // Pretty-print "07:00" -> "7:00 AM".
+  const fmtReminder = (t) => {
+    if (!t) return ''
+    const [h, m] = t.slice(0, 5).split(':')
+    const hr = parseInt(h, 10)
+    const ampm = hr >= 12 ? 'PM' : 'AM'
+    const h12 = ((hr + 11) % 12) + 1
+    return `${h12}:${m} ${ampm}`
+  }
+
+  const openReminder = (habit) => {
+    setReminderInput(habit.reminder_time ? habit.reminder_time.slice(0, 5) : '07:00')
+    setReminderEditId(habit.id)
+  }
+
+  const saveReminder = async (clear = false) => {
+    if (savingReminder || !reminderEditId) return
+    setSavingReminder(true)
+    const value = clear ? null : (reminderInput || null)
+    try {
+      if (value) {
+        const granted = await ensureReminderPermission()
+        if (!granted) showToast('Saved — allow notifications to get alerts')
+      }
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      const { error } = await supabase.from('habits').update({ reminder_time: value }).eq('id', reminderEditId)
+      if (error) { showToast('Could not save reminder'); return }
+      const next = habits.map(h => h.id === reminderEditId ? { ...h, reminder_time: value } : h)
+      setHabits(next)
+      setReminderEditId(null)
+      showToast(clear ? 'Reminder removed' : `Reminder set for ${fmtReminder(reminderInput)}`)
+      syncHabitReminders(next)
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setSavingReminder(false)
     }
   }
 
@@ -846,12 +895,22 @@ export default function Habits() {
                                         <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">{habit.points_reward || 10} PTS · Weekly</div>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
-                                    className="z-10 text-white/20 hover:text-red-500 transition-colors p-2"
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                </button>
+                                <div className="flex items-center gap-1 z-10">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
+                                        className={`transition-colors p-2 flex items-center gap-1 ${habit.reminder_time ? 'text-arc-accent' : 'text-white/20 hover:text-arc-accent'}`}
+                                        title="Set reminder"
+                                    >
+                                        {habit.reminder_time && <span className="text-[9px] font-bold tracking-wide">{fmtReminder(habit.reminder_time)}</span>}
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
+                                        className="text-white/20 hover:text-red-500 transition-colors p-2"
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
                             </motion.div>
                         )
                     })}
@@ -1184,6 +1243,62 @@ export default function Habits() {
                         
                         <p className="text-center text-xs text-arc-muted">
                             "Lock In" resets your counter to Day 1.
+                        </p>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Reminder Sheet */}
+        <AnimatePresence>
+            {reminderEditId && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setReminderEditId(null)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <div className="text-center">
+                            <h2 className="text-xl font-black italic tracking-tighter">SET A REMINDER</h2>
+                            <p className="text-xs text-arc-muted mt-1">A daily alarm to nudge you to do this.</p>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Remind me at</label>
+                            <input
+                                type="time"
+                                value={reminderInput}
+                                onChange={(e) => setReminderInput(e.target.value)}
+                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl [color-scheme:dark]"
+                            />
+                        </div>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => saveReminder(false)}
+                                disabled={savingReminder}
+                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                            >
+                                {savingReminder ? 'SAVING…' : 'SET REMINDER'}
+                            </button>
+                            {habits.find(h => h.id === reminderEditId)?.reminder_time && (
+                                <button
+                                    onClick={() => saveReminder(true)}
+                                    disabled={savingReminder}
+                                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                                >
+                                    Remove reminder
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-center text-[11px] text-arc-muted/70 leading-relaxed">
+                            Reminders ring on the installed app. In a web browser they only fire while the app is open.
                         </p>
                     </motion.div>
                 </>
