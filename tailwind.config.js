@@ -8,17 +8,23 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Driven by CSS variables (see globals.css) so the whole app can flip
+        // between dark (default) and light via a `.light` class on <html>.
+        // white/black are overridden too, so literal text-white / bg-black/…
+        // utilities across the app respond to the theme automatically.
+        white: 'rgb(var(--c-white) / <alpha-value>)',
+        black: 'rgb(var(--c-black) / <alpha-value>)',
         arc: {
-          bg: '#030808',          // Deep dark with subtle teal undertone
-          card: '#0A1414',        // Dark card with teal tint
-          surface: '#132020',     // Surface with depth
-          accent: '#00D4AA',      // Vibrant teal - primary accent
+          bg: 'rgb(var(--c-bg) / <alpha-value>)',
+          card: 'rgb(var(--c-card) / <alpha-value>)',
+          surface: 'rgb(var(--c-surface) / <alpha-value>)',
+          accent: 'rgb(var(--c-accent) / <alpha-value>)',
           'accent-glow': '#00D4AA40',
-          cyan: '#06B6D4',        // Cyan for secondary accents
+          cyan: 'rgb(var(--c-cyan) / <alpha-value>)',
           'cyan-glow': '#06B6D440',
-          teal: '#14B8A6',        // Teal for tertiary
-          muted: '#5E7D7D',       // Teal-tinted muted
-          white: '#E8F0EF'        // Warm off-white
+          teal: 'rgb(var(--c-teal) / <alpha-value>)',
+          muted: 'rgb(var(--c-muted) / <alpha-value>)',
+          white: 'rgb(var(--c-fg) / <alpha-value>)',
         }
       },
       fontFamily: {
@@ -27,7 +33,7 @@ module.exports = {
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'glass-gradient': 'linear-gradient(180deg, rgba(19, 32, 32, 0.7) 0%, rgba(10, 20, 20, 0.4) 100%)',
+        'glass-gradient': 'linear-gradient(180deg, rgb(var(--c-surface) / 0.7) 0%, rgb(var(--c-card) / 0.4) 100%)',
         'accent-gradient': 'linear-gradient(135deg, #00D4AA 0%, #06B6D4 100%)',
         'accent-gradient-r': 'linear-gradient(to right, #00D4AA, #06B6D4)',
         'card-gradient': 'linear-gradient(180deg, rgba(0, 212, 170, 0.05) 0%, rgba(6, 182, 212, 0.02) 100%)',

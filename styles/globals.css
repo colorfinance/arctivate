@@ -4,13 +4,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* --- Theme tokens (space-separated RGB channels for Tailwind alpha) ---------
+   Dark is the default. Adding `.light` to <html> swaps to the light palette.
+   white/black are intentionally inverted in light mode so the app's many
+   literal text-white / bg-black/… utilities read correctly. */
+:root {
+  --c-bg: 3 8 8;
+  --c-card: 10 20 20;
+  --c-surface: 19 32 32;
+  --c-muted: 94 125 125;
+  --c-fg: 232 240 239;   /* warm off-white primary text (arc.white) */
+  --c-white: 255 255 255;
+  --c-black: 0 0 0;
+  --c-accent: 0 212 170;
+  --c-cyan: 6 182 212;
+  --c-teal: 20 184 166;
+}
+
+:root.light {
+  --c-bg: 239 244 243;
+  --c-card: 255 255 255;
+  --c-surface: 233 240 239;
+  --c-muted: 90 114 114;
+  --c-fg: 9 20 20;       /* near-black primary text */
+  --c-white: 15 26 26;   /* literal "white" utilities → dark ink on light */
+  --c-black: 255 255 255;/* literal "black" utilities → light */
+  --c-accent: 0 166 135;
+  --c-cyan: 8 145 178;
+  --c-teal: 13 148 136;
+}
+
 html {
-  background-color: #030808;
+  background-color: rgb(var(--c-bg));
 }
 
 body {
-  background-color: #030808;
-  color: #E8F0EF;
+  background-color: rgb(var(--c-bg));
+  color: rgb(var(--c-fg));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* Prevent iOS overscroll showing white background */
@@ -20,13 +50,13 @@ body {
 /* Selection */
 ::selection {
   background: rgba(0, 212, 170, 0.3);
-  color: #ffffff;
+  color: rgb(var(--c-fg));
 }
 
 /* Glass panel */
 .glass-panel {
-  background: rgba(19, 32, 32, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgb(var(--c-surface) / 0.85);
+  border: 1px solid rgb(var(--c-white) / 0.06);
   backdrop-filter: blur(12px);
 }
 

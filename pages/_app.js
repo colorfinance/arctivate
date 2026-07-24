@@ -4,9 +4,14 @@ import { useEffect } from 'react'
 import { initCapacitor } from '../lib/capacitor'
 import { supabase } from '../lib/supabaseClient'
 import MotivationBanner from '../components/MotivationBanner'
+import { getStoredTheme, applyTheme } from '../lib/theme'
 
 function MyApp({ Component, pageProps }) {
   useEffect(() => {
+    // Apply saved theme (the no-flash script in _document set the class for
+    // first paint; this keeps meta/status-bar in sync and covers navigations).
+    applyTheme(getStoredTheme())
+
     initCapacitor()
 
     // Auto-scroll focused inputs into view (handles iOS WKWebView keyboard).

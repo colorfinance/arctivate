@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
+import { getStoredTheme, setTheme as applyStoredTheme } from '../lib/theme'
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -91,10 +92,18 @@ export default function Profile() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [theme, setThemeState] = useState('dark')
 
   const showToast = (msg) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  useEffect(() => { setThemeState(getStoredTheme()) }, [])
+
+  const chooseTheme = (next) => {
+    setThemeState(next)
+    applyStoredTheme(next)
   }
 
   useEffect(() => {
@@ -559,12 +568,41 @@ export default function Profile() {
           </div>
         </motion.div>
 
+        {/* Appearance — light / dark mode */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.27 }}
+          className="bg-arc-card border border-white/5 rounded-2xl p-5 mt-8"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Appearance</span>
+            <span className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">{theme === 'light' ? 'Light' : 'Dark'}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 bg-arc-surface rounded-xl p-1 border border-white/5">
+            <button
+              onClick={() => chooseTheme('dark')}
+              className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-colors ${theme === 'dark' ? 'bg-arc-accent text-white shadow-glow' : 'text-arc-muted hover:text-white'}`}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              Dark
+            </button>
+            <button
+              onClick={() => chooseTheme('light')}
+              className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-colors ${theme === 'light' ? 'bg-arc-accent text-white shadow-glow' : 'text-arc-muted hover:text-white'}`}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              Light
+            </button>
+          </div>
+        </motion.div>
+
         {/* Send Feedback */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.28 }}
-          className="mt-8"
+          className="mt-4"
         >
           <button
             onClick={() => router.push('/feedback')}
