@@ -361,19 +361,21 @@ export default function Train() {
         setLogs(history)
       }
 
-      // Compute the current day-streak from distinct workout dates.
+      // Compute the current day-streak. A day counts as active if the member
+      // either logged a set (workout_logs) OR ticked a workout complete
+      // (workout_completions) — the tick-off flow is how most workouts are
+      // marked done now, so it has to count.
       try {
-        const { data: dateRows } = await supabase
-          .from('workout_logs')
-          .select('created_at')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(500)
         const dayStr = (dt) => { const t = dt.getTimezoneOffset() * 60000; return new Date(dt - t).toISOString().slice(0, 10) }
-        const days = new Set((dateRows || []).map((r) => dayStr(new Date(r.created_at))))
+        const [logRes, compRes] = await Promise.all([
+          supabase.from('workout_logs').select('created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(500),
+          supabase.from('workout_completions').select('date').eq('user_id', userId).limit(500),
+        ])
+        const days = new Set((logRes.data || []).map((r) => dayStr(new Date(r.created_at))))
+        ;(compRes.data || []).forEach((r) => { if (r.date) days.add(String(r.date).slice(0, 10)) })
         let s = 0
         const cur = new Date()
-        // Today not logged yet shouldn't break the streak — start from yesterday.
+        // Today not done yet shouldn't break the streak — start from yesterday.
         if (!days.has(dayStr(cur))) cur.setDate(cur.getDate() - 1)
         while (days.has(dayStr(cur))) { s++; cur.setDate(cur.getDate() - 1) }
         setStreak(s)
@@ -532,6 +534,8 @@ export default function Train() {
         triggerCelebration()
         showToast(`${workout.title} done! +50 pts 🎉`)
       }
+      // Ticking (or un-ticking) a workout changes the day-streak — refresh it.
+      fetchWorkoutHistory(user.id)
     } catch {
       setCompletedWorkouts(snapshot); showToast('Something went wrong')
     }
