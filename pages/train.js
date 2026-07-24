@@ -32,6 +32,26 @@ const unitStep = (mt) => (
   mt === 'time' ? '0.1' : mt === 'distance' ? '0.1' : mt === 'distance_m' ? '1' : '0.5'
 )
 
+// Local YYYY-MM-DD for a given date (defaults to today).
+const localDateStr = (d = new Date()) => {
+  const t = d.getTimezoneOffset() * 60000
+  return new Date(d.getTime() - t).toISOString().slice(0, 10)
+}
+// Last N days ending today, newest first: [{ str, dow, dom, isToday }].
+const recentDays = (n = 7) => {
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i)
+    out.push({
+      str: localDateStr(d),
+      dow: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      dom: d.getDate(),
+      isToday: i === 0,
+    })
+  }
+  return out
+}
+
 // Resize a picked image file to a compressed data URL (keeps under the API limit).
 const resizeToDataUrl = (file, maxWidth = 1400) => new Promise((resolve, reject) => {
   const reader = new FileReader()
@@ -167,7 +187,8 @@ export default function Train() {
   const [savingEdit, setSavingEdit] = useState(false)
 
   // Workout(s) of the Day (admin-programmed) — a day can have several
-  const [todayWorkouts, setTodayWorkouts] = useState([]) // [{ ...workout, exercises: [] }]
+  const [todayWorkouts, setTodayWorkouts] = useState([]) // workouts for the selected day
+  const [selectedDate, setSelectedDate] = useState(() => localDateStr())
   const [currentUserId, setCurrentUserId] = useState(null)
   const [scanning, setScanning] = useState(false) // scanning a personal workout photo
   const scanInputRef = useRef(null)
@@ -223,7 +244,7 @@ export default function Train() {
             return
         }
 
-        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id), fetchTodayWorkout(user.id)])
+        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id), fetchWorkoutsForDate(user.id, localDateStr())])
         setIsLoading(false)
     }
     load()
@@ -362,20 +383,21 @@ export default function Train() {
 
   // Fetch the admin-programmed Workout of the Day (if any) for today, plus
   // which prescribed movements this user has already logged.
-  async function fetchTodayWorkout(userId) {
+  async function fetchWorkoutsForDate(userId, dateStr) {
+    const day = dateStr || localDateStr()
     try {
-      const tz = new Date().getTimezoneOffset() * 60000
-      const today = new Date(Date.now() - tz).toISOString().slice(0, 10)
-
       const { data: workouts, error } = await supabase
         .from('daily_workouts')
         .select('*')
-        .eq('workout_date', today)
+        .eq('workout_date', day)
         .eq('is_published', true)
         .order('created_at', { ascending: true })
 
-      // Table may not exist yet (migration not applied) — fail silently.
-      if (error || !workouts || workouts.length === 0) return
+      // No workout for this day (or table missing) — clear the list.
+      if (error || !workouts || workouts.length === 0) {
+        setTodayWorkouts([]); setCompletedWorkouts(new Set()); setExpandedWorkouts(new Set())
+        return
+      }
 
       const ids = workouts.map((w) => w.id)
       const { data: exs } = await supabase
@@ -405,17 +427,15 @@ export default function Train() {
         }
       } catch {}
 
-      // Which whole workouts are ticked off today (defensive if table missing).
+      // Which whole workouts are ticked off on this day (defensive if missing).
       try {
-        const tz2 = new Date().getTimezoneOffset() * 60000
-        const today2 = new Date(Date.now() - tz2).toISOString().slice(0, 10)
         const { data: comps } = await supabase
           .from('workout_completions')
           .select('daily_workout_id')
           .eq('user_id', userId)
-          .eq('date', today2)
+          .eq('date', day)
           .in('daily_workout_id', ids)
-        if (comps) setCompletedWorkouts(new Set(comps.map((c) => c.daily_workout_id)))
+        setCompletedWorkouts(new Set((comps || []).map((c) => c.daily_workout_id)))
       } catch {}
     } catch {}
   }
@@ -445,7 +465,7 @@ export default function Train() {
         showToast(`Loaded "${w.title}" — tap to log it 💪`)
         fireConfetti({ particleCount: 80, spread: 60, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
       } else if (currentUserId) {
-        fetchTodayWorkout(currentUserId)
+        fetchWorkoutsForDate(currentUserId, selectedDate)
       }
     } catch {
       showToast('Could not process that photo. Try a clearer shot.')
@@ -462,9 +482,14 @@ export default function Train() {
     else showToast('Workout removed')
   }
 
-  const localToday = () => {
-    const tz = new Date().getTimezoneOffset() * 60000
-    return new Date(Date.now() - tz).toISOString().slice(0, 10)
+  const localToday = () => localDateStr()
+
+  // Switch the day being viewed (to finish/tick a missed workout).
+  const changeDay = (dateStr) => {
+    if (dateStr === selectedDate) return
+    setSelectedDate(dateStr)
+    setExpandedId(null)
+    if (currentUserId) fetchWorkoutsForDate(currentUserId, dateStr)
   }
 
   // Notes: a quick free-text note for today's training.
@@ -491,14 +516,14 @@ export default function Train() {
         next.delete(workout.id)
         setCompletedWorkouts(next)
         const { error } = await supabase.from('workout_completions')
-          .delete().eq('user_id', user.id).eq('daily_workout_id', workout.id).eq('date', localToday())
+          .delete().eq('user_id', user.id).eq('daily_workout_id', workout.id).eq('date', selectedDate)
         if (error) { setCompletedWorkouts(snapshot); showToast('Could not update'); return }
         await supabase.rpc('increment_points', { row_id: user.id, x: -50 })
         setPoints((p) => Math.max(0, p - 50))
       } else {
         next.add(workout.id)
         setCompletedWorkouts(next)
-        const row = { user_id: user.id, daily_workout_id: workout.id, date: localToday(), completed_at: new Date().toISOString() }
+        const row = { user_id: user.id, daily_workout_id: workout.id, date: selectedDate, completed_at: new Date().toISOString() }
         let { error } = await supabase.from('workout_completions').insert(row)
         if (error && error.code === '23505') error = null // already there
         if (error) { setCompletedWorkouts(snapshot); showToast('Could not update (run migration 024)'); return }
@@ -524,7 +549,7 @@ export default function Train() {
       const { data, error } = await supabase.from('daily_workouts').insert({
         title: name,
         description: newWorkout.details.trim() || null,
-        workout_date: localToday(),
+        workout_date: selectedDate,
         source: 'manual',
         is_published: true,
         owner_id: user.id,
@@ -1208,7 +1233,27 @@ export default function Train() {
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScanWorkout(f); e.target.value = '' }}
             />
 
-            {/* Today's Workout(s) — tick to complete; details shown as text */}
+            {/* Day selector — go back to a missed day to finish/tick it off */}
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                    {recentDays(7).map((d) => {
+                        const active = d.str === selectedDate
+                        return (
+                            <button
+                                key={d.str}
+                                onClick={() => changeDay(d.str)}
+                                className={`flex flex-col items-center justify-center w-11 h-14 rounded-xl border shrink-0 transition-colors ${active ? 'bg-accent-gradient border-transparent text-white' : 'bg-arc-card border-white/[0.06] text-arc-muted hover:text-white'}`}
+                            >
+                                <span className="text-[8px] font-bold uppercase tracking-wider">{d.isToday ? 'Today' : d.dow}</span>
+                                <span className="text-base font-black font-mono">{d.dom}</span>
+                            </button>
+                        )
+                    })}
+                </div>
+                <button onClick={() => router.push('/history')} className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0">History →</button>
+            </div>
+
+            {/* Workout(s) for the selected day — tick to complete */}
             {todayWorkouts.map((workout, wIdx) => {
                 const done = completedWorkouts.has(workout.id)
                 return (
@@ -1232,7 +1277,7 @@ export default function Train() {
                                 </button>
                                 <div className="flex-1 min-w-0">
                                     <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
-                                        {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : "Today's Workout")}
+                                        {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : (selectedDate === localDateStr() ? "Today's Workout" : 'Workout'))}
                                     </span>
                                     <h2 className={`text-xl font-black italic tracking-tight mt-0.5 ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{workout.title}</h2>
                                     {workout.description && (
@@ -1249,6 +1294,14 @@ export default function Train() {
                     </motion.section>
                 )
             })}
+
+            {/* Nothing scheduled / logged for this day */}
+            {todayWorkouts.length === 0 && (
+                <div className="bg-arc-card border border-white/[0.06] rounded-2xl py-6 text-center">
+                    <p className="text-sm text-arc-muted">{selectedDate === localDateStr() ? 'No workout today yet.' : 'No workout on this day.'}</p>
+                    <p className="text-[11px] text-arc-muted/70 mt-0.5">Add one below, or log sets with “Log Workout”.</p>
+                </div>
+            )}
 
             {/* Add your own workout — type it in (or scan a photo) */}
             <button
@@ -1416,87 +1469,6 @@ export default function Train() {
                 </>
               )}
             </AnimatePresence>
-
-            {/* Recent Activity Feed */}
-            <section className="space-y-4">
-                 <div className="flex justify-between items-center px-1">
-                     <h3 className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Recent Activity</h3>
-                     <div className="flex items-center gap-4">
-                         <button
-                             onClick={() => router.push('/calendar')}
-                             className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
-                         >
-                             Calendar
-                         </button>
-                         <button
-                             onClick={() => router.push('/history')}
-                             className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors"
-                         >
-                             History →
-                         </button>
-                         {logs.length > 0 && (
-                             <button
-                                 onClick={() => setShowWorkoutArt(true)}
-                                 className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1"
-                             >
-                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                                 Share
-                             </button>
-                         )}
-                     </div>
-                 </div>
-                 <div className="space-y-2.5 pb-10">
-                    <AnimatePresence initial={false}>
-                        {logs.map((log, index) => (
-                            <motion.div
-                                key={log.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{ delay: index * 0.03 }}
-                                className={`bg-arc-card/60 border ${log.isPB ? 'border-arc-accent/30 shadow-glow' : 'border-white/[0.04]'} p-4 rounded-xl flex justify-between items-center backdrop-blur-sm`}
-                            >
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="font-bold text-sm text-white">{log.name}</span>
-                                        {log.isPB && (
-                                            <span className="text-[8px] bg-accent-gradient text-arc-bg px-2 py-0.5 rounded-md font-black tracking-tight uppercase">
-                                                NEW PB
-                                            </span>
-                                        )}
-                                        {log.voiceMemoUrl && (
-                                            <span className="text-arc-cyan">
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/></svg>
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-[10px] text-arc-muted font-mono">
-                                        {log.time} • {(log.sets != null || log.reps != null) && (
-                                            <span className="text-white/80">{log.sets != null ? `${log.sets}×` : ''}{log.reps != null ? log.reps : ''} · </span>
-                                        )}
-                                        {log.val ? (
-                                            <><span className="text-white/80">{log.val}</span><span className="text-arc-muted ml-0.5">{unitShort(log.metricType)}</span></>
-                                        ) : (
-                                            <span className="text-white/80">Bodyweight</span>
-                                        )}
-                                        {log.rpe != null && <span className="text-arc-muted ml-2">RPE {log.rpe}</span>}
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => openEditLog(log)}
-                                        className="text-white/20 hover:text-arc-cyan transition-colors p-1"
-                                        title="Edit set"
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-                                    </button>
-                                    <div className="font-mono text-arc-accent font-bold text-sm bg-arc-accent/10 px-2.5 py-1 rounded-lg">+{log.points}</div>
-                                </div>
-                            </motion.div>
-                        ))}
-                    </AnimatePresence>
-                 </div>
-            </section>
 
             {/* Private workout photos */}
             <WorkoutPhotos ref={photosRef} onToast={showToast} onAvailabilityChange={setPhotosAvailable} />
