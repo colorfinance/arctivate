@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 const fmtDate = (d) => {
@@ -35,11 +36,12 @@ export default function CalendarPage() {
   const [byDay, setByDay] = useState({}) // { key: { workouts:[], food:[] } }
   const [selected, setSelected] = useState(todayKey())
   const [copying, setCopying] = useState(false)
+  const [toast, setToast] = useState(null)
 
-  const copyFoodToToday = async () => {
-    if (copying) return
-    const src = (byDay[selected]?.food) || []
-    if (src.length === 0) return
+  // Copy any subset of a past day's food to today — a single item, one meal,
+  // or the whole day. Stays on the page so several meals can be copied.
+  const copyFood = async (src, label) => {
+    if (copying || !src || src.length === 0) return
     setCopying(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -47,8 +49,12 @@ export default function CalendarPage() {
       const rows = src.map((f) => ({ user_id: user.id, item_name: f.item_name, calories: f.calories, macros: f.macros }))
       const { error } = await supabase.from('food_logs').insert(rows)
       if (error) throw error
-      router.push('/food')
+      setToast(`${label} copied to today`)
+      setTimeout(() => setToast(null), 2500)
     } catch {
+      setToast('Could not copy that')
+      setTimeout(() => setToast(null), 2500)
+    } finally {
       setCopying(false)
     }
   }
@@ -121,10 +127,29 @@ export default function CalendarPage() {
   const cells = buildMonth(cursor.year, cursor.month)
   const sel = byDay[selected] || { workouts: [], food: [] }
   const selFoodCals = sel.food.reduce((s, f) => s + (f.calories || 0), 0)
+  const selByMeal = sel.food.reduce((acc, f) => {
+    const mt = MEAL_ORDER.includes(f.macros?.meal_type) ? f.macros.meal_type : 'snack'
+    ;(acc[mt] || (acc[mt] = [])).push(f)
+    return acc
+  }, {})
+  // Copying only makes sense from a past day onto today.
+  const canCopy = sel.food.length > 0 && selected !== todayKey()
   const selLabel = new Date(selected + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-28 font-sans">
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-arc-surface border border-white/10 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 backdrop-blur-md"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-arc-cyan" />
+            <span className="text-xs font-medium">{toast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/[0.04]">
         <div className="p-5 flex justify-between items-center max-w-lg mx-auto">
           <div>
@@ -215,8 +240,8 @@ export default function CalendarPage() {
             )}
           </div>
 
-          {/* Food */}
-          <div className="space-y-2">
+          {/* Food — grouped by meal so a single meal can be copied */}
+          <div className="space-y-3">
             <div className="flex items-center justify-between px-1">
               <h3 className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.2em]">🥗 Food</h3>
               {sel.food.length > 0 && <span className="text-[10px] font-bold text-arc-muted">{selFoodCals} cal</span>}
@@ -224,22 +249,52 @@ export default function CalendarPage() {
             {sel.food.length === 0 ? (
               <p className="text-[11px] text-arc-muted px-1">No food logged.</p>
             ) : (
-              sel.food.map((f) => (
-                <div key={f.id} className="bg-arc-card/60 border border-white/[0.04] p-3 rounded-xl flex justify-between items-center">
-                  <div className="min-w-0">
-                    <span className="text-sm font-bold text-white truncate block">{f.item_name}</span>
-                    <span className="text-[10px] text-arc-muted capitalize">{f.macros?.meal_type || 'snack'}</span>
+              MEAL_ORDER.filter((mt) => selByMeal[mt]?.length).map((mt) => {
+                const items = selByMeal[mt]
+                const cals = items.reduce((s, f) => s + (f.calories || 0), 0)
+                return (
+                  <div key={mt} className="space-y-1.5">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-[10px] font-bold text-white/80 capitalize">{mt} <span className="text-arc-muted font-normal">· {cals} cal</span></span>
+                      {canCopy && (
+                        <button
+                          onClick={() => copyFood(items, `${mt.charAt(0).toUpperCase()}${mt.slice(1)}`)}
+                          disabled={copying}
+                          className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors disabled:opacity-50"
+                        >
+                          Copy meal
+                        </button>
+                      )}
+                    </div>
+                    {items.map((f) => (
+                      <div key={f.id} className="bg-arc-card/60 border border-white/[0.04] p-3 rounded-xl flex justify-between items-center gap-3">
+                        <span className="text-sm font-bold text-white truncate min-w-0">{f.item_name}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-sm font-black text-arc-cyan">{f.calories} cal</span>
+                          {canCopy && (
+                            <button
+                              onClick={() => copyFood([f], f.item_name)}
+                              disabled={copying}
+                              aria-label={`Copy ${f.item_name} to today`}
+                              title="Copy to today"
+                              className="text-white/20 hover:text-arc-cyan transition-colors p-1 disabled:opacity-50"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <span className="text-sm font-black text-arc-cyan shrink-0">{f.calories} cal</span>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
 
-          {/* Copy this day's food to today */}
-          {sel.food.length > 0 && selected !== todayKey() && (
+          {/* Copy the whole day */}
+          {canCopy && (
             <button
-              onClick={copyFoodToToday}
+              onClick={() => copyFood(sel.food, "The whole day's food")}
               disabled={copying}
               className="w-full bg-arc-cyan/10 border border-arc-cyan/30 text-arc-cyan font-bold py-3 rounded-xl text-sm hover:bg-arc-cyan/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
