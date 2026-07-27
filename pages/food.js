@@ -12,6 +12,100 @@ const fireConfetti = async (opts) => {
 }
 import { useRouter } from 'next/router'
 
+const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack']
+const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' }
+const mealIcons = { breakfast: '☀️', lunch: '🌞', dinner: '🌙', snack: '⚡' }
+
+const SERVING_PRESETS = [0.5, 1, 1.5, 2]
+const servingLabel = (s) => (s === 0.5 ? '½' : s === 1.5 ? '1½' : `${s}`)
+
+// Nutrition fields, calories first (members asked for cals as the first box).
+const NUTRITION_FIELDS = [
+  { key: 'cals', label: 'Cals' },
+  { key: 'p', label: 'Protein' },
+  { key: 'c', label: 'Carbs' },
+  { key: 'f', label: 'Fat' },
+]
+
+// Shared field layout so ADD FOOD and EDIT FOOD are the same screen.
+// Defined at module scope so typing doesn't remount it (which would drop focus).
+function FoodFormFields({ form, setField, servings, onServings, toNum }) {
+  return (
+    <div className="space-y-4">
+      {/* Name */}
+      <div>
+        <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Name</label>
+        <input
+          type="text" value={form.name}
+          onChange={(e) => setField('name', e.target.value)}
+          placeholder="e.g. Chicken Breast"
+          className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+        />
+      </div>
+
+      {/* Meal */}
+      <div>
+        <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Meal</label>
+        <div className="grid grid-cols-4 gap-2">
+          {mealOrder.map((mt) => (
+            <button
+              key={mt} type="button"
+              onClick={() => setField('meal_type', mt)}
+              className={`py-2.5 rounded-xl text-[11px] font-bold transition-all ${form.meal_type === mt ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+            >
+              {mealIcons[mt]} {mealLabels[mt]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Serving size */}
+      <div>
+        <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Serving size</label>
+        <div className="flex gap-2 mb-2">
+          {SERVING_PRESETS.map((s) => (
+            <button
+              key={s} type="button"
+              onClick={() => onServings(s)}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${toNum(servings) === s ? 'bg-arc-accent/20 border border-arc-accent/50 text-arc-accent' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+            >
+              {servingLabel(s)}×
+            </button>
+          ))}
+        </div>
+        <input
+          type="number" min="0" step="0.25" value={servings}
+          onChange={(e) => onServings(e.target.value)}
+          placeholder="Custom servings"
+          className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-mono text-center"
+        />
+        <p className="text-[10px] text-arc-muted mt-1.5 text-center">Changing servings rescales the calories &amp; macros below.</p>
+      </div>
+
+      {/* Nutrition — calories first */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] block">Nutrition</label>
+          <span className="text-[9px] text-arc-muted">All optional</span>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {NUTRITION_FIELDS.map((fld) => (
+            <div key={fld.key}>
+              <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1.5 block text-center">{fld.label}</label>
+              <input
+                type="number" min="0" value={form[fld.key]}
+                onChange={(e) => setField(fld.key, e.target.value)}
+                placeholder="0"
+                className="w-full bg-arc-surface border border-white/5 text-center font-mono font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Café menu favourites — one-tap add. Calories/macros are approximate
 // estimates based on the listed ingredients.
 const FAVOURITES = [
@@ -98,7 +192,7 @@ export default function Food() {
   // Quantity prompt when logging a pantry item: { item: normalized, qty: string }
   const [qtyPrompt, setQtyPrompt] = useState(null)
   const [showManualEntry, setShowManualEntry] = useState(false)
-  const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
+  const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack', servings: 1 })
   const [todayLogs, setTodayLogs] = useState([])
   const [toast, setToast] = useState(null)
   const [pageLoading, setPageLoading] = useState(true)
@@ -487,12 +581,15 @@ export default function Food() {
       const c = parseInt(manualFood.c, 10) || 0
       const f = parseInt(manualFood.f, 10) || 0
       const mealType = manualFood.meal_type || getDefaultMealType()
+      const servings = num(manualFood.servings) > 0 ? num(manualFood.servings) : 1
+      // Keep the per-serving base so serving changes rescale cleanly on edit.
+      const base = { cals: cals / servings, p: p / servings, c: c / servings, f: f / servings }
 
       const { data: newLog, error: insertError } = await supabase.from('food_logs').insert({
         user_id: user.id,
         item_name: manualFood.name.trim(),
         calories: cals,
-        macros: { p, c, f, meal_type: mealType }
+        macros: { p, c, f, meal_type: mealType, servings, base }
       }).select().single()
 
       if (insertError) {
@@ -515,7 +612,7 @@ export default function Food() {
       showToast('Food logged! Share it to the feed?')
 
       setLastLoggedResult({ name: manualFood.name.trim(), cals, p, c, f, desc: 'Manual entry' })
-      setManualFood({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack' })
+      setManualFood({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack', servings: 1 })
       setShowManualEntry(false)
     } catch {
       showToast('Failed to save food. Please try again.')
@@ -824,6 +921,18 @@ export default function Food() {
     })
   }
 
+  // Add sheet: changing servings rescales the typed numbers by the ratio, so
+  // what you see is always what gets logged (same feel as the edit sheet).
+  const applyManualServings = (s) => {
+    setManualFood((prev) => {
+      const from = num(prev.servings) > 0 ? num(prev.servings) : 1
+      const to = num(s)
+      if (!(to > 0)) return { ...prev, servings: s }
+      const scale = (v) => (v === '' || v === null || v === undefined ? v : String(Math.round(num(v) * (to / from))))
+      return { ...prev, servings: s, cals: scale(prev.cals), p: scale(prev.p), c: scale(prev.c), f: scale(prev.f) }
+    })
+  }
+
   const saveEdit = async () => {
     if (!editingLog || !editForm || savingEdit) return
     setSavingEdit(true)
@@ -1048,11 +1157,6 @@ export default function Food() {
     { key: 'carbs', label: 'Carbs', current: dailyMacros.carbs, goal: goals.carbs, bar: 'bg-yellow-500' },
     { key: 'fat', label: 'Fat', current: dailyMacros.fat, goal: goals.fat, bar: 'bg-orange-500' },
   ]
-
-  // Group logs by meal type
-  const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack']
-  const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' }
-  const mealIcons = { breakfast: '\u2600\uFE0F', lunch: '\uD83C\uDF1E', dinner: '\uD83C\uDF19', snack: '\u26A1' }
 
   const groupedLogs = mealOrder.reduce((acc, type) => {
     const logs = todayLogs.filter(log => (log.macros?.meal_type || 'snack') === type)
@@ -1440,81 +1544,29 @@ export default function Food() {
               <h2 className="text-lg font-black italic tracking-tight text-center mb-5">EDIT FOOD</h2>
 
               <div className="space-y-4">
-                {/* Name */}
-                <div>
-                  <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Name</label>
-                  <input
-                    type="text" value={editForm.name}
-                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                    className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
-                  />
-                </div>
+                <FoodFormFields
+                  form={editForm}
+                  setField={(k, v) => setEditForm((prev) => ({ ...prev, [k]: v }))}
+                  servings={editForm.servings}
+                  onServings={applyServings}
+                  toNum={num}
+                />
 
-                {/* Meal type */}
-                <div>
-                  <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Meal</label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {['breakfast', 'lunch', 'dinner', 'snack'].map((mt) => (
-                      <button
-                        key={mt}
-                        onClick={() => setEditForm({ ...editForm, meal_type: mt })}
-                        className={`py-2.5 rounded-xl text-[11px] font-bold capitalize transition-all ${editForm.meal_type === mt ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
-                      >
-                        {mt}
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={closeEdit}
+                    className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveEdit}
+                    disabled={savingEdit}
+                    className="flex-1 bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
+                  >
+                    {savingEdit ? 'SAVING…' : 'SAVE'}
+                  </button>
                 </div>
-
-                {/* Serving size */}
-                <div>
-                  <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] mb-2 block">Serving size</label>
-                  <div className="flex gap-2 mb-2">
-                    {[0.5, 1, 1.5, 2].map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => applyServings(s)}
-                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${num(editForm.servings) === s ? 'bg-arc-accent/20 border border-arc-accent/50 text-arc-accent' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
-                      >
-                        {s === 0.5 ? '½' : s === 1.5 ? '1½' : `${s}`}×
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    type="number" min="0" step="0.25" value={editForm.servings}
-                    onChange={(e) => applyServings(e.target.value)}
-                    placeholder="Custom servings"
-                    className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-mono text-center"
-                  />
-                  <p className="text-[10px] text-arc-muted mt-1.5 text-center">Changing servings rescales the calories & macros below.</p>
-                </div>
-
-                {/* Nutrition */}
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { key: 'cals', label: 'Cal' },
-                    { key: 'p', label: 'P (g)' },
-                    { key: 'c', label: 'C (g)' },
-                    { key: 'f', label: 'F (g)' },
-                  ].map((fld) => (
-                    <div key={fld.key}>
-                      <label className="text-[8px] font-bold text-arc-muted uppercase tracking-[0.15em] mb-1.5 block text-center">{fld.label}</label>
-                      <input
-                        type="number" min="0" value={editForm[fld.key]}
-                        onChange={(e) => setEditForm({ ...editForm, [fld.key]: e.target.value })}
-                        className="w-full bg-arc-surface border border-white/5 text-center font-mono font-bold text-white py-2.5 rounded-xl outline-none focus:border-arc-accent/40"
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  onClick={saveEdit}
-                  disabled={savingEdit}
-                  className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50"
-                >
-                  {savingEdit ? 'SAVING…' : 'SAVE CHANGES'}
-                </button>
               </div>
             </motion.div>
           </>
@@ -1985,82 +2037,13 @@ export default function Food() {
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
               <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">ADD FOOD</h2>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Food Name</label>
-                  <input
-                    type="text"
-                    value={manualFood.name}
-                    onChange={(e) => setManualFood({ ...manualFood, name: e.target.value })}
-                    placeholder="e.g. Chicken Breast"
-                    className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
-                    autoFocus
-                  />
-                </div>
-
-                {/* Meal Type Selector */}
-                <div>
-                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Meal</label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {mealOrder.map((type) => (
-                      <button
-                        key={type}
-                        onClick={() => setManualFood({ ...manualFood, meal_type: type })}
-                        className={`py-2 px-2 rounded-xl text-xs font-bold transition-colors ${manualFood.meal_type === type ? 'bg-arc-accent text-white' : 'bg-arc-surface text-arc-muted border border-white/10'}`}
-                      >
-                        {mealIcons[type]} {mealLabels[type]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest block">Nutrition</label>
-                  <span className="text-[9px] text-arc-muted">All optional — e.g. log carbs only</span>
-                </div>
-                <div className="grid grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Carbs</label>
-                    <input
-                      type="number"
-                      value={manualFood.c}
-                      onChange={(e) => setManualFood({ ...manualFood, c: e.target.value })}
-                      placeholder="0"
-                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Cals</label>
-                    <input
-                      type="number"
-                      value={manualFood.cals}
-                      onChange={(e) => setManualFood({ ...manualFood, cals: e.target.value })}
-                      placeholder="0"
-                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Protein</label>
-                    <input
-                      type="number"
-                      value={manualFood.p}
-                      onChange={(e) => setManualFood({ ...manualFood, p: e.target.value })}
-                      placeholder="0"
-                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Fat</label>
-                    <input
-                      type="number"
-                      value={manualFood.f}
-                      onChange={(e) => setManualFood({ ...manualFood, f: e.target.value })}
-                      placeholder="0"
-                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center"
-                    />
-                  </div>
-                </div>
-              </div>
+              <FoodFormFields
+                form={manualFood}
+                setField={(k, v) => setManualFood((prev) => ({ ...prev, [k]: v }))}
+                servings={manualFood.servings}
+                onServings={applyManualServings}
+                toNum={num}
+              />
 
               <div className="flex gap-3 mt-6">
                 <button

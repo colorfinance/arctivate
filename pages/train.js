@@ -32,6 +32,16 @@ const unitStep = (mt) => (
   mt === 'time' ? '0.1' : mt === 'distance' ? '0.1' : mt === 'distance_m' ? '1' : '0.5'
 )
 
+// "5×5 · 100kg" — the prescribed scheme for a movement, or '' if none given.
+const movementScheme = (ex) => {
+  const scheme = [
+    ex.target_sets != null ? `${ex.target_sets}×` : '',
+    ex.target_reps != null ? `${ex.target_reps}` : '',
+  ].join('')
+  const load = ex.target_value != null ? `${ex.target_value}${unitShort(ex.metric_type)}` : ''
+  return [scheme, load].filter(Boolean).join(' · ')
+}
+
 // Local YYYY-MM-DD for a given date (defaults to today).
 const localDateStr = (d = new Date()) => {
   const t = d.getTimezoneOffset() * 60000
@@ -387,6 +397,7 @@ export default function Train() {
   // which prescribed movements this user has already logged.
   async function fetchWorkoutsForDate(userId, dateStr) {
     const day = dateStr || localDateStr()
+    fetchNoteForDate(userId, day)
     try {
       const { data: workouts, error } = await supabase
         .from('daily_workouts')
@@ -491,17 +502,24 @@ export default function Train() {
     if (dateStr === selectedDate) return
     setSelectedDate(dateStr)
     setExpandedId(null)
+    setExpandedWorkouts(new Set())
     if (currentUserId) fetchWorkoutsForDate(currentUserId, dateStr)
   }
 
-  // Notes: a quick free-text note for today's training.
+  // Notes: a quick free-text note for the day you're looking at.
+  async function fetchNoteForDate(userId, dateStr) {
+    try {
+      const { data } = await supabase.from('training_notes').select('body').eq('user_id', userId).eq('date', dateStr).maybeSingle()
+      setNoteBody(data?.body || '')
+    } catch { setNoteBody('') }
+  }
+
   const openNotes = async () => {
     setShowNotes(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data } = await supabase.from('training_notes').select('body').eq('user_id', user.id).eq('date', localToday()).maybeSingle()
-      setNoteBody(data?.body || '')
+      await fetchNoteForDate(user.id, selectedDate)
     } catch {}
   }
 
@@ -579,7 +597,7 @@ export default function Train() {
       if (!user) { showToast('Please log in'); setSavingNote(false); return }
       const { error } = await supabase
         .from('training_notes')
-        .upsert({ user_id: user.id, date: localToday(), body: noteBody.trim(), updated_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
+        .upsert({ user_id: user.id, date: selectedDate, body: noteBody.trim(), updated_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
       if (error) throw error
       showToast('Note saved')
       setShowNotes(false)
@@ -1257,9 +1275,12 @@ export default function Train() {
                 <button onClick={() => router.push('/history')} className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0">History →</button>
             </div>
 
-            {/* Workout(s) for the selected day — tick to complete */}
+            {/* Workout(s) for the selected day — tap to see it, tick to complete */}
             {todayWorkouts.map((workout, wIdx) => {
                 const done = completedWorkouts.has(workout.id)
+                const movements = workout.exercises || []
+                const hasDetail = movements.length > 0 || !!workout.description
+                const open = expandedWorkouts.has(workout.id)
                 return (
                     <motion.section
                         key={workout.id}
@@ -1279,21 +1300,72 @@ export default function Train() {
                                         ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                                         : <span className="text-[8px] font-black uppercase tracking-wider text-arc-muted">Tick</span>}
                                 </button>
-                                <div className="flex-1 min-w-0">
+                                <button
+                                    onClick={() => hasDetail && toggleWorkout(workout.id)}
+                                    className="flex-1 min-w-0 text-left"
+                                    aria-expanded={open}
+                                >
                                     <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
                                         {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : (selectedDate === localDateStr() ? "Today's Workout" : 'Workout'))}
                                     </span>
                                     <h2 className={`text-xl font-black italic tracking-tight mt-0.5 ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{workout.title}</h2>
-                                    {workout.description && (
-                                        <p className="text-[11px] text-arc-muted mt-1 leading-snug whitespace-pre-line">{workout.description}</p>
+                                    {hasDetail && (
+                                        <span className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] mt-1 inline-flex items-center gap-1">
+                                            {open ? 'Hide workout' : 'See the workout'}
+                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${open ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
+                                        </span>
                                     )}
-                                </div>
+                                </button>
                                 {workout.owner_id && (
                                     <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="text-white/20 hover:text-red-400 transition-colors p-1 shrink-0 self-start">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                                     </button>
                                 )}
                             </div>
+
+                            {/* The actual workout — what it is, plain and simple */}
+                            <AnimatePresence initial={false}>
+                                {open && hasDetail && (
+                                    <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.22, ease: 'easeOut' }}
+                                        className="overflow-hidden"
+                                    >
+                                        <div className="px-5 pb-5 pt-1 space-y-3 border-t border-white/[0.06] mt-1">
+                                            {workout.description && (
+                                                <p className="text-[13px] text-white/85 leading-relaxed whitespace-pre-line pt-3">{workout.description}</p>
+                                            )}
+
+                                            {movements.length > 0 && (
+                                                <div className="space-y-1.5 pt-1">
+                                                    {movements.map((ex, i) => {
+                                                        const scheme = movementScheme(ex)
+                                                        return (
+                                                            <div key={ex.id || i} className="flex items-baseline justify-between gap-3 bg-arc-surface/60 border border-white/[0.04] rounded-xl px-3.5 py-2.5">
+                                                                <div className="min-w-0">
+                                                                    <span className="text-[13px] font-bold text-white">{ex.name}</span>
+                                                                    {ex.notes && <span className="block text-[10px] text-arc-muted mt-0.5 leading-snug">{ex.notes}</span>}
+                                                                </div>
+                                                                {scheme && <span className="text-[11px] font-mono font-bold text-arc-accent shrink-0">{scheme}</span>}
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            )}
+
+                                            <button
+                                                onClick={openNotes}
+                                                className="w-full bg-arc-surface border border-white/[0.06] text-arc-muted font-bold py-3 rounded-xl text-xs hover:text-white hover:border-arc-accent/30 transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                {noteBody.trim() ? 'Edit your notes' : 'Add your notes'}
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
                     </motion.section>
                 )
@@ -1600,7 +1672,7 @@ export default function Train() {
                     <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 space-y-4 pb-safe">
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
                         <div className="text-center">
-                            <h2 className="text-lg font-black italic tracking-tight">TODAY&apos;S NOTES</h2>
+                            <h2 className="text-lg font-black italic tracking-tight">{selectedDate === localDateStr() ? "TODAY'S NOTES" : 'NOTES'}</h2>
                             <p className="text-[11px] text-arc-muted mt-0.5">How did training feel? Anything to remember.</p>
                         </div>
                         <textarea
