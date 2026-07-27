@@ -208,10 +208,15 @@ export default function Train() {
   const [showNotes, setShowNotes] = useState(false)
   const [noteBody, setNoteBody] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  // Notes for the selected day, keyed by workout id ('' = the general day note):
+  // { [key]: { id, body } }
+  const [notesByWorkout, setNotesByWorkout] = useState({})
+  const [notesFor, setNotesFor] = useState('') // which workout the sheet is editing
   const [completedWorkouts, setCompletedWorkouts] = useState(() => new Set()) // daily_workout ids ticked today
   const [showAddWorkout, setShowAddWorkout] = useState(false)
   const [newWorkout, setNewWorkout] = useState({ name: '', details: '' })
   const [savingWorkout, setSavingWorkout] = useState(false)
+  const [editingWorkout, setEditingWorkout] = useState(null) // your own workout being edited
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
   const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
@@ -506,21 +511,33 @@ export default function Train() {
     if (currentUserId) fetchWorkoutsForDate(currentUserId, dateStr)
   }
 
-  // Notes: a quick free-text note for the day you're looking at.
+  // Notes for the day you're looking at. Each workout keeps its own note; the
+  // note with no workout attached is the general note for the day.
   async function fetchNoteForDate(userId, dateStr) {
     try {
-      const { data } = await supabase.from('training_notes').select('body').eq('user_id', userId).eq('date', dateStr).maybeSingle()
-      setNoteBody(data?.body || '')
-    } catch { setNoteBody('') }
+      const { data } = await supabase
+        .from('training_notes')
+        .select('id, body, daily_workout_id')
+        .eq('user_id', userId)
+        .eq('date', dateStr)
+      const map = {}
+      ;(data || []).forEach((n) => { map[n.daily_workout_id || ''] = { id: n.id, body: n.body || '' } })
+      setNotesByWorkout(map)
+    } catch {
+      // daily_workout_id column may not exist yet (migration 027) — fall back
+      // to the single day note so notes keep working either way.
+      try {
+        const { data } = await supabase.from('training_notes').select('id, body').eq('user_id', userId).eq('date', dateStr).maybeSingle()
+        setNotesByWorkout(data ? { '': { id: data.id, body: data.body || '' } } : {})
+      } catch { setNotesByWorkout({}) }
+    }
   }
 
-  const openNotes = async () => {
+  // workoutId '' opens the general note for the day.
+  const openNotes = (workoutId = '') => {
+    setNotesFor(workoutId)
+    setNoteBody(notesByWorkout[workoutId]?.body || '')
     setShowNotes(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      await fetchNoteForDate(user.id, selectedDate)
-    } catch {}
   }
 
   // Tick a whole workout off (coach's or your own). Awards points.
@@ -579,8 +596,7 @@ export default function Train() {
       }).select().single()
       if (error) throw error
       setTodayWorkouts((prev) => [...prev, { ...data, exercises: [] }])
-      setNewWorkout({ name: '', details: '' })
-      setShowAddWorkout(false)
+      closeWorkoutSheet()
       showToast('Workout added — tick it off when done 💪')
     } catch {
       showToast('Could not add workout')
@@ -589,20 +605,74 @@ export default function Train() {
     }
   }
 
+  // Edit one of your own workouts (title + what the workout is).
+  const openEditWorkout = (workout) => {
+    setEditingWorkout(workout)
+    setNewWorkout({ name: workout.title || '', details: workout.description || '' })
+    setShowAddWorkout(true)
+  }
+
+  const closeWorkoutSheet = () => {
+    setShowAddWorkout(false)
+    setEditingWorkout(null)
+    setNewWorkout({ name: '', details: '' })
+  }
+
+  const saveEditedWorkout = async () => {
+    const name = newWorkout.name.trim()
+    if (!name) { showToast('Name your workout'); return }
+    if (savingWorkout || !editingWorkout) return
+    setSavingWorkout(true)
+    try {
+      const description = newWorkout.details.trim() || null
+      const { error } = await supabase
+        .from('daily_workouts')
+        .update({ title: name, description })
+        .eq('id', editingWorkout.id)
+      if (error) throw error
+      setTodayWorkouts((prev) => prev.map((w) => (w.id === editingWorkout.id ? { ...w, title: name, description } : w)))
+      closeWorkoutSheet()
+      showToast('Workout updated')
+    } catch {
+      showToast('Could not update workout')
+    } finally {
+      setSavingWorkout(false)
+    }
+  }
+
   const saveNote = async () => {
     if (savingNote) return
     setSavingNote(true)
+    const key = notesFor
+    const body = noteBody.trim()
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { showToast('Please log in'); setSavingNote(false); return }
-      const { error } = await supabase
-        .from('training_notes')
-        .upsert({ user_id: user.id, date: selectedDate, body: noteBody.trim(), updated_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
-      if (error) throw error
+
+      // Update by row id when we already have one, otherwise insert. Avoids
+      // relying on upsert conflict targets (the uniqueness is partial).
+      const existing = notesByWorkout[key]
+      let saved
+      if (existing?.id) {
+        const { data, error } = await supabase
+          .from('training_notes')
+          .update({ body, updated_at: new Date().toISOString() })
+          .eq('id', existing.id).select('id, body').single()
+        if (error) throw error
+        saved = data
+      } else {
+        const row = { user_id: user.id, date: selectedDate, body, updated_at: new Date().toISOString() }
+        if (key) row.daily_workout_id = key
+        const { data, error } = await supabase.from('training_notes').insert(row).select('id, body').single()
+        if (error) throw error
+        saved = data
+      }
+
+      setNotesByWorkout((prev) => ({ ...prev, [key]: { id: saved.id, body: saved.body || '' } }))
       showToast('Note saved')
       setShowNotes(false)
     } catch {
-      showToast('Could not save note (run migration 023)')
+      showToast(key ? 'Could not save note (run migration 027)' : 'Could not save note (run migration 023)')
     } finally {
       setSavingNote(false)
     }
@@ -1241,7 +1311,7 @@ export default function Train() {
                     <span className="text-[11px] font-black uppercase tracking-wide text-white">Log PB</span>
                 </button>
                 <button
-                    onClick={openNotes}
+                    onClick={() => openNotes('')}
                     className="bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
                 >
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
@@ -1317,9 +1387,14 @@ export default function Train() {
                                     )}
                                 </button>
                                 {workout.owner_id && (
-                                    <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="text-white/20 hover:text-red-400 transition-colors p-1 shrink-0 self-start">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                    </button>
+                                    <div className="flex items-center gap-0.5 shrink-0 self-start">
+                                        <button onClick={() => openEditWorkout(workout)} aria-label="Edit workout" className="text-white/20 hover:text-arc-cyan transition-colors p-1">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        </button>
+                                        <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="text-white/20 hover:text-red-400 transition-colors p-1">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
                                 )}
                             </div>
 
@@ -1355,13 +1430,27 @@ export default function Train() {
                                                 </div>
                                             )}
 
-                                            <button
-                                                onClick={openNotes}
-                                                className="w-full bg-arc-surface border border-white/[0.06] text-arc-muted font-bold py-3 rounded-xl text-xs hover:text-white hover:border-arc-accent/30 transition-colors flex items-center justify-center gap-2"
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                                {noteBody.trim() ? 'Edit your notes' : 'Add your notes'}
-                                            </button>
+                                            {/* This workout's own notes */}
+                                            {(() => {
+                                                const myNote = (notesByWorkout[workout.id]?.body || '').trim()
+                                                return (
+                                                    <div className="pt-1 space-y-2">
+                                                        {myNote && (
+                                                            <div className="bg-arc-surface/60 border border-white/[0.04] rounded-xl px-3.5 py-2.5">
+                                                                <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em]">Your notes</span>
+                                                                <p className="text-[12px] text-white/85 leading-relaxed whitespace-pre-line mt-1">{myNote}</p>
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            onClick={() => openNotes(workout.id)}
+                                                            className="w-full bg-arc-surface border border-white/[0.06] text-arc-muted font-bold py-3 rounded-xl text-xs hover:text-white hover:border-arc-accent/30 transition-colors flex items-center justify-center gap-2"
+                                                        >
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                            {myNote ? 'Edit your notes' : 'Add your notes'}
+                                                        </button>
+                                                    </div>
+                                                )
+                                            })()}
                                         </div>
                                     </motion.div>
                                 )}
@@ -1634,10 +1723,10 @@ export default function Train() {
         <AnimatePresence>
             {showAddWorkout && (
                 <>
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddWorkout(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeWorkoutSheet} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
                     <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 space-y-4 pb-safe max-h-[90vh] overflow-y-auto">
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
-                        <h2 className="text-center text-lg font-black italic tracking-tight">ADD A WORKOUT</h2>
+                        <h2 className="text-center text-lg font-black italic tracking-tight">{editingWorkout ? 'EDIT WORKOUT' : 'ADD A WORKOUT'}</h2>
                         <input
                             type="text" value={newWorkout.name} onChange={(e) => setNewWorkout({ ...newWorkout, name: e.target.value })}
                             placeholder="Name (e.g. YGIG, Strength, Leg Day)" autoFocus
@@ -1649,16 +1738,25 @@ export default function Train() {
                             rows={5}
                             className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
                         />
-                        <button onClick={addTypedWorkout} disabled={savingWorkout} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
-                            {savingWorkout ? 'ADDING…' : 'ADD WORKOUT'}
+                        <button onClick={editingWorkout ? saveEditedWorkout : addTypedWorkout} disabled={savingWorkout} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
+                            {savingWorkout ? (editingWorkout ? 'SAVING…' : 'ADDING…') : (editingWorkout ? 'SAVE CHANGES' : 'ADD WORKOUT')}
                         </button>
-                        <button
-                            onClick={() => { setShowAddWorkout(false); if (!scanning) scanInputRef.current?.click() }}
-                            className="w-full flex items-center justify-center gap-2 text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                            Or scan a photo instead
-                        </button>
+                        {editingWorkout ? (
+                            <button
+                                onClick={closeWorkoutSheet}
+                                className="w-full text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => { closeWorkoutSheet(); if (!scanning) scanInputRef.current?.click() }}
+                                className="w-full flex items-center justify-center gap-2 text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                Or scan a photo instead
+                            </button>
+                        )}
                     </motion.div>
                 </>
             )}
@@ -1672,8 +1770,14 @@ export default function Train() {
                     <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 space-y-4 pb-safe">
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
                         <div className="text-center">
-                            <h2 className="text-lg font-black italic tracking-tight">{selectedDate === localDateStr() ? "TODAY'S NOTES" : 'NOTES'}</h2>
-                            <p className="text-[11px] text-arc-muted mt-0.5">How did training feel? Anything to remember.</p>
+                            <h2 className="text-lg font-black italic tracking-tight">
+                                {notesFor
+                                    ? (todayWorkouts.find((w) => w.id === notesFor)?.title || 'WORKOUT').toUpperCase()
+                                    : (selectedDate === localDateStr() ? "TODAY'S NOTES" : 'NOTES')}
+                            </h2>
+                            <p className="text-[11px] text-arc-muted mt-0.5">
+                                {notesFor ? 'Notes for this workout.' : 'How did training feel? Anything to remember.'}
+                            </p>
                         </div>
                         <textarea
                             value={noteBody} onChange={(e) => setNoteBody(e.target.value)}
