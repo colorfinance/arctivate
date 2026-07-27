@@ -192,8 +192,8 @@ export default function Habits() {
       // (Re)schedule any habit reminders (real alarms on the native app).
       syncHabitReminders(habitsData)
 
-      // Fetch progress photos
-      await fetchProgressPhotos(user.id)
+      // Fetch progress photos + weigh-in history
+      await Promise.all([fetchProgressPhotos(user.id), fetchWeightLogs(user.id)])
     } catch {
       // swallow
     } finally {
@@ -204,6 +204,12 @@ export default function Habits() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [toast, setToast] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+
+  // Weekly weigh-in — ticking it captures the number so there's a trend.
+  const [weighInFor, setWeighInFor] = useState(null) // habit being ticked
+  const [weightInput, setWeightInput] = useState('')
+  const [savingWeight, setSavingWeight] = useState(false)
+  const [weightLogs, setWeightLogs] = useState([]) // [{ date, weight }] newest first
 
   // Habit reminder alarms
   const [reminderEditId, setReminderEditId] = useState(null)
@@ -267,12 +273,19 @@ export default function Habits() {
     }
   }
 
-  const toggleHabit = async (habitId) => {
+  const toggleHabit = async (habitId, skipWeighIn = false) => {
     const habit = habits.find(h => h.id === habitId)
     const isWeekly = (habit?.frequency || 'daily') === 'weekly'
     const doneSet = isWeekly ? weeklyDone : logs
     const setDone = isWeekly ? setWeeklyDone : setLogs
     const snapshot = new Set(doneSet)
+
+    // Ticking the weigh-in asks for the number first, so there's a real
+    // history to trend rather than a box that records nothing.
+    if (!skipWeighIn && isWeighIn(habit) && !snapshot.has(habitId)) {
+      openWeighIn(habit)
+      return
+    }
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -480,6 +493,69 @@ export default function Habits() {
       showToast('Something went wrong')
     } finally {
       setIsUpdating(false)
+    }
+  }
+
+  // --- Weekly weigh-in ------------------------------------------------------
+
+  const isWeighIn = (habit) => /weigh\s*-?\s*in/i.test(habit?.title || '')
+
+  const openWeighIn = (habit) => {
+    // Prefill with the most recent figure so it's a nudge, not a blank box.
+    const last = weightLogs[0]?.weight
+    setWeightInput(last != null ? String(last) : '')
+    setWeighInFor(habit.id)
+  }
+
+  async function fetchWeightLogs(userId) {
+    try {
+      const { data } = await supabase
+        .from('weight_logs')
+        .select('date, weight')
+        .eq('user_id', userId)
+        .order('date', { ascending: false })
+        .limit(60)
+      setWeightLogs(data || [])
+    } catch {
+      setWeightLogs([]) // table may not exist yet (migration 026 not applied)
+    }
+  }
+
+  const saveWeighIn = async () => {
+    if (savingWeight || !weighInFor) return
+    const kg = parseFloat(weightInput)
+    if (!Number.isFinite(kg) || kg <= 0 || kg > 500) {
+      showToast('Enter a weight between 1 and 500')
+      return
+    }
+    setSavingWeight(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+
+      const today = getTodayStr()
+      const row = { user_id: user.id, date: today, weight: kg }
+      let { error } = await supabase.from('weight_logs').insert(row)
+      if (error && error.code === '23505') {
+        // Already weighed in today — replace it.
+        const retry = await supabase.from('weight_logs')
+          .update({ weight: kg }).eq('user_id', user.id).eq('date', today)
+        error = retry.error
+      }
+      if (error) { showToast('Could not save weight (run migration 026)'); return }
+
+      // Keep the profile's current weight in step with the latest entry.
+      await supabase.from('profiles').update({ weight: kg }).eq('id', user.id)
+
+      setWeightLogs((prev) => [{ date: today, weight: kg }, ...prev.filter(w => w.date !== today)])
+      const habitId = weighInFor
+      setWeighInFor(null)
+      // Now actually tick the habit off (and award its points).
+      await toggleHabit(habitId, true)
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setSavingWeight(false)
     }
   }
 
@@ -960,6 +1036,44 @@ export default function Habits() {
                 </button>
             </section>
 
+            {/* Weigh-in trend — only once there's something to show */}
+            {weightLogs.length > 0 && (
+                <section className="space-y-3">
+                    <div className="flex items-center justify-between px-1">
+                        <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Weigh-in</h2>
+                        <span className="text-[10px] text-arc-muted">{weightLogs.length} logged</span>
+                    </div>
+                    <div className="bg-glass-gradient border border-white/5 p-6 rounded-[2rem] relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-arc-cyan/5 blur-3xl rounded-full pointer-events-none" />
+                        <div className="flex items-end justify-between">
+                            <div>
+                                <div className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Current</div>
+                                <div className="text-4xl font-black italic tracking-tighter">
+                                    {weightLogs[0].weight}<span className="text-lg text-white/30 ml-1">kg</span>
+                                </div>
+                                <div className="text-[10px] text-arc-muted mt-1">
+                                    {new Date(weightLogs[0].date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </div>
+                            </div>
+                            {weightLogs.length > 1 && (() => {
+                                const first = weightLogs[weightLogs.length - 1]
+                                const diff = Number(weightLogs[0].weight) - Number(first.weight)
+                                const down = diff < 0
+                                return (
+                                    <div className="text-right">
+                                        <div className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Since start</div>
+                                        <div className={`text-2xl font-black italic tracking-tighter ${down ? 'text-green-500' : diff > 0 ? 'text-arc-cyan' : 'text-arc-muted'}`}>
+                                            {diff > 0 ? '+' : ''}{diff.toFixed(1)}<span className="text-sm ml-0.5">kg</span>
+                                        </div>
+                                        <div className="text-[10px] text-arc-muted mt-1">from {first.weight}kg</div>
+                                    </div>
+                                )
+                            })()}
+                        </div>
+                    </div>
+                </section>
+            )}
+
             {/* Progress Photo Section - 75 Hard Style */}
             <section className="space-y-4 pb-12">
                 <div className="flex items-center justify-between">
@@ -1244,6 +1358,64 @@ export default function Habits() {
                         <p className="text-center text-xs text-arc-muted">
                             "Lock In" resets your counter to Day 1.
                         </p>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Weigh-in Sheet */}
+        <AnimatePresence>
+            {weighInFor && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setWeighInFor(null)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <div className="text-center">
+                            <h2 className="text-xl font-black italic tracking-tighter">WEEKLY WEIGH-IN</h2>
+                            <p className="text-xs text-arc-muted mt-1">Log the number so you can see the trend.</p>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Weight (kg)</label>
+                            <input
+                                type="number" inputMode="decimal" step="0.1" min="0"
+                                value={weightInput}
+                                onChange={(e) => setWeightInput(e.target.value)}
+                                placeholder="0.0"
+                                autoFocus
+                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl"
+                            />
+                            {weightLogs.length > 0 && (
+                                <p className="text-[11px] text-arc-muted mt-2 text-center">
+                                    Last time: {weightLogs[0].weight}kg on {new Date(weightLogs[0].date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={saveWeighIn}
+                                disabled={savingWeight}
+                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                            >
+                                {savingWeight ? 'SAVING…' : 'SAVE & TICK OFF'}
+                            </button>
+                            <button
+                                onClick={() => { const id = weighInFor; setWeighInFor(null); toggleHabit(id, true) }}
+                                disabled={savingWeight}
+                                className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                            >
+                                Skip — just tick it off
+                            </button>
+                        </div>
                     </motion.div>
                 </>
             )}
