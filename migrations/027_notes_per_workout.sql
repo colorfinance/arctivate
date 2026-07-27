@@ -17,25 +17,21 @@ ALTER TABLE public.training_notes
 -- Dropped by lookup rather than by name, so it goes regardless of what the
 -- constraint ended up being called.
 DO $$
-DECLARE con_name text;
+DECLARE r record;
 BEGIN
-  SELECT con.conname INTO con_name
-  FROM pg_constraint con
-  JOIN pg_class rel ON rel.oid = con.conrelid
-  JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
-  WHERE nsp.nspname = 'public'
-    AND rel.relname = 'training_notes'
-    AND con.contype = 'u'
-    AND (
-      SELECT array_agg(att.attname ORDER BY att.attname)
-      FROM unnest(con.conkey) AS k(attnum)
-      JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = k.attnum
-    ) = ARRAY['date', 'user_id']
-  LIMIT 1;
-
-  IF con_name IS NOT NULL THEN
-    EXECUTE format('ALTER TABLE public.training_notes DROP CONSTRAINT %I', con_name);
-  END IF;
+  FOR r IN
+    SELECT con.conname, pg_get_constraintdef(con.oid) AS def
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+    WHERE nsp.nspname = 'public'
+      AND rel.relname = 'training_notes'
+      AND con.contype = 'u'
+  LOOP
+    IF r.def IN ('UNIQUE (user_id, date)', 'UNIQUE (date, user_id)') THEN
+      EXECUTE format('ALTER TABLE public.training_notes DROP CONSTRAINT %I', r.conname);
+    END IF;
+  END LOOP;
 END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_training_notes_day
