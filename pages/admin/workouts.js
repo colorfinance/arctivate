@@ -143,9 +143,12 @@ export default function AdminWorkouts() {
 
   async function loadWeekStatus(start) {
     const end = addDays(start, 6)
+    // Global WODs only — members' personal workouts (owner_id set) are theirs,
+    // not something the coach programs or should see here.
     const { data } = await supabase
       .from('daily_workouts')
       .select('workout_date, title, is_published, created_at')
+      .is('owner_id', null)
       .gte('workout_date', start)
       .lte('workout_date', end)
       .order('created_at', { ascending: true })
@@ -168,6 +171,7 @@ export default function AdminWorkouts() {
     const { data: list } = await supabase
       .from('daily_workouts')
       .select('*')
+      .is('owner_id', null)
       .eq('workout_date', d)
       .order('created_at', { ascending: true })
 
@@ -319,7 +323,7 @@ export default function AdminWorkouts() {
       loadWeekStatus(weekStart)
       // Refresh the day's workout list (without resetting the editor).
       const { data: list } = await supabase
-        .from('daily_workouts').select('*').eq('workout_date', date).order('created_at', { ascending: true })
+        .from('daily_workouts').select('*').is('owner_id', null).eq('workout_date', date).order('created_at', { ascending: true })
       setDayWorkouts(list || [])
     } catch (err) {
       console.error('[Arctivate] save workout failed:', err)
