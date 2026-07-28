@@ -404,12 +404,16 @@ export default function Train() {
     const day = dateStr || localDateStr()
     fetchNoteForDate(userId, day)
     try {
-      const { data: workouts, error } = await supabase
+      // Only the coach's workout for the day (owner_id NULL) plus your own.
+      // Admins can read every row under RLS, so without this filter a coach's
+      // Train screen fills up with every member's personal workouts.
+      let q = supabase
         .from('daily_workouts')
         .select('*')
         .eq('workout_date', day)
         .eq('is_published', true)
-        .order('created_at', { ascending: true })
+      q = userId ? q.or(`owner_id.is.null,owner_id.eq.${userId}`) : q.is('owner_id', null)
+      const { data: workouts, error } = await q.order('created_at', { ascending: true })
 
       // No workout for this day (or table missing) — clear the list.
       if (error || !workouts || workouts.length === 0) {
