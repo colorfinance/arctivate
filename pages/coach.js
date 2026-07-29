@@ -195,6 +195,7 @@ export default function Coach() {
   const [habitsToday, setHabitsToday] = useState({ done: 0, total: 0 })
   const [checklist, setChecklist] = useState([]) // [{ title, frequency, done }]
   const [foodToday, setFoodToday] = useState({ count: 0, calories: 0 })
+  const [completionsToday, setCompletionsToday] = useState(0) // workouts ticked off today
   const proactiveDone = useRef(false)
 
   // Chat
@@ -218,7 +219,8 @@ export default function Coach() {
     const n = new Date()
     return d.toDateString() === n.toDateString()
   }).length
-  const trainedToday = setsToday > 0
+  // Trained today = logged a set OR ticked a workout off.
+  const trainedToday = setsToday > 0 || completionsToday > 0
   const firstName = (profile?.username || '').trim().split(' ')[0]
 
   // ─── Load Data ───────────────────────────────────
@@ -239,6 +241,7 @@ export default function Coach() {
         fetchChatHistory(user.id),
         fetchHabitsToday(user.id),
         fetchFoodToday(user.id),
+        fetchCompletionsToday(user.id),
       ])
       setIsLoading(false)
     }
@@ -321,12 +324,35 @@ export default function Coach() {
     } catch {}
   }
 
-  async function fetchFoodToday(uid) {
+  // Ticking a workout writes to workout_completions, not workout_logs — the
+  // usual way people mark training done since Train moved to the tick-off model.
+  async function fetchCompletionsToday(uid) {
     try {
       const now = new Date()
       const pad = (n) => String(n).padStart(2, '0')
-      const start = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T00:00:00`
-      const { data } = await supabase.from('food_logs').select('calories, created_at').eq('user_id', uid).gte('created_at', start)
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      const { data } = await supabase
+        .from('workout_completions')
+        .select('daily_workout_id')
+        .eq('user_id', uid)
+        .eq('date', todayStr)
+      setCompletionsToday((data || []).length)
+    } catch { setCompletionsToday(0) }
+  }
+
+  async function fetchFoodToday(uid) {
+    try {
+      // food_logs has no created_at — it's eaten_at. Querying the wrong column
+      // errored, got swallowed, and left the coach believing nothing was ever
+      // logged. Local midnight as a real instant so timezones line up too.
+      const start = new Date()
+      start.setHours(0, 0, 0, 0)
+      const { data, error } = await supabase
+        .from('food_logs')
+        .select('calories, eaten_at')
+        .eq('user_id', uid)
+        .gte('eaten_at', start.toISOString())
+      if (error) throw error
       if (data) setFoodToday({ count: data.length, calories: data.reduce((a, r) => a + (r.calories || 0), 0) })
     } catch {}
   }
