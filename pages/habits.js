@@ -77,7 +77,9 @@ export default function Habits() {
       }
 
       // 1. Fetch Challenge Info & Points
-      const { data: profile } = await supabase.from('profiles').select('challenge_start_date, challenge_days_goal, total_points, completed_onboarding').eq('id', user.id).single()
+      // select('*') so a missing presets_seeded_for (028 not applied) can't
+      // break the page.
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
 
       if (profile && profile.completed_onboarding === false) {
         router.push('/onboarding')
@@ -146,21 +148,33 @@ export default function Habits() {
 
       // Seed the challenge preset habits once per challenge start (also covers
       // an admin reset, which bumps the start date so presets refresh).
+      // The guard lives on the profile, not localStorage — a per-device flag
+      // meant deleted presets came back as soon as you opened the app anywhere
+      // else. Seeds once per challenge start, so an admin reset still refreshes
+      // them but a habit you delete stays deleted.
       if (profile?.challenge_start_date) {
         try {
-          const seededFor = localStorage.getItem('arc_presets_seeded')
-          if (seededFor !== profile.challenge_start_date) {
+          const alreadySeeded = profile.presets_seeded_for &&
+            new Date(profile.presets_seeded_for).getTime() === new Date(profile.challenge_start_date).getTime()
+
+          if (!alreadySeeded) {
             const have = new Set(habitsData.map(h => h.title.toLowerCase()))
             const toAdd = PRESET_HABITS
               .filter(p => !have.has(p.title.toLowerCase()))
               .map(p => ({ user_id: user.id, title: p.title, frequency: p.frequency, points_reward: p.points_reward, is_preset: true }))
+
+            let seedErr = null
             if (toAdd.length) {
-              const { data: inserted, error: seedErr } = await supabase.from('habits').insert(toAdd).select()
+              const { data: inserted, error } = await supabase.from('habits').insert(toAdd).select()
+              seedErr = error
               if (inserted?.length) habitsData = [...habitsData, ...inserted]
-              // Only mark done on success, so it retries after migration 019 lands.
-              if (!seedErr) localStorage.setItem('arc_presets_seeded', profile.challenge_start_date)
-            } else {
-              localStorage.setItem('arc_presets_seeded', profile.challenge_start_date)
+            }
+            // Mark done on success so it never re-seeds; if the column isn't
+            // there yet (028 not applied) this fails quietly and behaves as before.
+            if (!seedErr) {
+              await supabase.from('profiles')
+                .update({ presets_seeded_for: profile.challenge_start_date })
+                .eq('id', user.id)
             }
           }
         } catch {}
