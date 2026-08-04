@@ -225,6 +225,10 @@ export default function Habits() {
   const [savingWeight, setSavingWeight] = useState(false)
   const [weightLogs, setWeightLogs] = useState([]) // [{ date, weight }] newest first
 
+  // Restart the challenge from Day 1
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false)
+  const [isRestarting, setIsRestarting] = useState(false)
+
   // Habit reminder alarms
   const [reminderEditId, setReminderEditId] = useState(null)
   const [reminderInput, setReminderInput] = useState('07:00')
@@ -239,6 +243,47 @@ export default function Habits() {
   const showToast = (msg) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  // Start the challenge again from Day 1 — for when someone drops off and
+  // wants a clean run at it. Keeps everything they've earned and their habit
+  // list exactly as they've curated it; only the day counter goes back to 1.
+  const restartChallenge = async () => {
+    if (isRestarting) return
+    setIsRestarting(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in to continue'); return }
+
+      const startedAt = new Date().toISOString()
+      // presets_seeded_for moves with it, so habits they deliberately deleted
+      // don't reappear just because they restarted.
+      let { error } = await supabase.from('profiles')
+        .update({ challenge_start_date: startedAt, presets_seeded_for: startedAt })
+        .eq('id', user.id)
+      if (error) {
+        // Column may not exist yet (migration 028) — retry without it.
+        const retry = await supabase.from('profiles')
+          .update({ challenge_start_date: startedAt })
+          .eq('id', user.id)
+        error = retry.error
+      }
+      if (error) { showToast('Could not restart the challenge'); return }
+
+      setChallengeDay(1)
+      setShowRestartConfirm(false)
+      // Let the Day 1 welcome show again for the fresh run.
+      try {
+        localStorage.removeItem('arc_challenge_welcomed')
+        localStorage.removeItem('arc_challenge_completed_ack')
+      } catch {}
+      fireConfetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
+      showToast("Challenge restarted — Day 1. Let's go 🔥")
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setIsRestarting(false)
+    }
   }
 
   const updateGoal = async (restart = false) => {
@@ -261,12 +306,22 @@ export default function Habits() {
 
       const updates = { challenge_days_goal: goal }
 
-      // If restarting, reset the start date to NOW
+      // If restarting, reset the start date to NOW. presets_seeded_for moves
+      // with it so deleted habits don't reappear (same as "Start again").
       if (restart) {
-        updates.challenge_start_date = new Date().toISOString()
+        const startedAt = new Date().toISOString()
+        updates.challenge_start_date = startedAt
+        updates.presets_seeded_for = startedAt
       }
 
-      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+      let { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+
+      if (error && restart) {
+        // Column may not exist yet (migration 028) — retry without it.
+        delete updates.presets_seeded_for
+        const retry = await supabase.from('profiles').update(updates).eq('id', user.id)
+        error = retry.error
+      }
 
       if (error) {
         showToast('Failed to update goal')
@@ -865,14 +920,21 @@ export default function Habits() {
                     </div>
                     <div className="text-right">
                         <div className="text-xs font-mono font-bold text-arc-accent">{Math.round(challengeProgress)}%</div>
+                        <button
+                            onClick={() => setShowRestartConfirm(true)}
+                            className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-arc-accent transition-colors mt-1 flex items-center gap-1 ml-auto"
+                        >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                            Start again
+                        </button>
                     </div>
                  </div>
-                 
+
                  {/* Progress Bar */}
                  <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
-                        initial={{ width: 0 }} 
-                        animate={{ width: `${challengeProgress}%` }} 
+                    <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${challengeProgress}%` }}
                         className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan"
                     />
                  </div>
@@ -1372,6 +1434,65 @@ export default function Habits() {
                         <p className="text-center text-xs text-arc-muted">
                             "Lock In" resets your counter to Day 1.
                         </p>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Restart the challenge */}
+        <AnimatePresence>
+            {showRestartConfirm && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setShowRestartConfirm(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <div className="text-center">
+                            <div className="text-4xl mb-3">🔄</div>
+                            <h2 className="text-xl font-black italic tracking-tighter">START AGAIN?</h2>
+                            <p className="text-sm text-arc-muted mt-2 leading-relaxed">
+                                Missed a few days? No drama — take a clean run at it. You&apos;ll go back to <span className="text-white font-bold">Day 1</span> of your {challengeGoal}-day challenge.
+                            </p>
+                        </div>
+
+                        <div className="bg-arc-surface border border-white/5 rounded-xl p-4 space-y-2">
+                            <div className="flex items-start gap-2.5">
+                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <span className="text-[12px] text-arc-muted leading-snug">Your points, photos and history all stay</span>
+                            </div>
+                            <div className="flex items-start gap-2.5">
+                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <span className="text-[12px] text-arc-muted leading-snug">Your habits stay exactly as you&apos;ve set them up</span>
+                            </div>
+                            <div className="flex items-start gap-2.5">
+                                <span className="text-arc-cyan text-xs mt-0.5">↻</span>
+                                <span className="text-[12px] text-arc-muted leading-snug">Only the day counter goes back to 1</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={restartChallenge}
+                                disabled={isRestarting}
+                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                            >
+                                {isRestarting ? 'RESTARTING…' : 'RESTART FROM DAY 1'}
+                            </button>
+                            <button
+                                onClick={() => setShowRestartConfirm(false)}
+                                disabled={isRestarting}
+                                className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                            >
+                                Keep going as I am
+                            </button>
+                        </div>
                     </motion.div>
                 </>
             )}
