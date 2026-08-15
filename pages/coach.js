@@ -210,6 +210,8 @@ export default function Coach() {
 
   // Wearable form
   const [wearableForm, setWearableForm] = useState({ hrv: '', rhr: '', sleep_hours: '', sleep_quality: 'good' })
+  const [wearableError, setWearableError] = useState(null)
+  const [savingWearable, setSavingWearable] = useState(false)
 
   // Computed
   const muscleRecovery = getMuscleRecovery(workoutLogs)
@@ -488,7 +490,7 @@ export default function Coach() {
 
   // ─── Save Wearable Data ──────────────────────────
   const saveWearableData = async () => {
-    if (!userId) return
+    if (!userId || savingWearable) return
 
     const payload = {
       user_id: userId,
@@ -498,13 +500,28 @@ export default function Coach() {
       sleep_quality: wearableForm.sleep_quality,
     }
 
-    const { error } = await supabase.from('wearable_logs').insert(payload)
-    if (!error) {
-      setWearableData(payload)
-      setWearableHistory(prev => [payload, ...prev])
-      setShowWearableModal(false)
-      setWearableForm({ hrv: '', rhr: '', sleep_hours: '', sleep_quality: 'good' })
+    if (payload.hrv == null && payload.rhr == null && payload.sleep_hours == null) {
+      setWearableError('Enter at least one metric before saving.')
+      return
     }
+
+    setSavingWearable(true)
+    setWearableError(null)
+    // Previously this was `if (!error)` with no else — any failure meant the
+    // button silently did nothing, which read as "it won't let me save".
+    const { data, error } = await supabase.from('wearable_logs').insert(payload).select().single()
+    setSavingWearable(false)
+
+    if (error) {
+      setWearableError(error.message || 'Could not save. Please try again.')
+      return
+    }
+
+    const saved = data || payload
+    setWearableData(saved)
+    setWearableHistory(prev => [saved, ...prev])
+    setShowWearableModal(false)
+    setWearableForm({ hrv: '', rhr: '', sleep_hours: '', sleep_quality: 'good' })
   }
 
   // ─── Handle Key Press ────────────────────────────
@@ -884,11 +901,16 @@ export default function Coach() {
                 </div>
               </div>
 
+              {wearableError && (
+                <p className="text-xs text-red-400 text-center mt-4 leading-relaxed">{wearableError}</p>
+              )}
+
               <button
                 onClick={saveWearableData}
-                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                disabled={savingWearable}
+                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
               >
-                SAVE METRICS
+                {savingWearable ? 'SAVING…' : 'SAVE METRICS'}
               </button>
             </motion.div>
           </>

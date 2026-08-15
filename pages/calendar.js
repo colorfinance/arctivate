@@ -81,10 +81,14 @@ export default function CalendarPage() {
     const startIso = start.toISOString()
     const endIso = end.toISOString()
 
-    const map = {}
-    const ensure = (k) => (map[k] || (map[k] = { workouts: [], food: [] }))
+    // workout_completions.date / daily_workouts.workout_date are date columns.
+    const startStr = fmtDate(start)
+    const endStr = fmtDate(end)
 
-    // Workouts
+    const map = {}
+    const ensure = (k) => (map[k] || (map[k] = { workouts: [], sessions: [], food: [] }))
+
+    // Logged sets
     try {
       const { data: workouts } = await supabase
         .from('workout_logs')
@@ -95,6 +99,52 @@ export default function CalendarPage() {
         .order('created_at', { ascending: false })
       ;(workouts || []).forEach((w) => {
         ensure(fmtDate(new Date(w.created_at))).workouts.push(w)
+      })
+    } catch {}
+
+    // Whole workouts — ticked off, and any you added yourself. Without these
+    // the calendar missed everything logged through the tick-off flow.
+    const seen = {} // `${day}:${workoutId}` -> session, so a ticked personal
+                    // workout appears once rather than twice
+    const addSession = (day, id, title, done, own) => {
+      const key = `${day}:${id}`
+      if (seen[key]) {
+        seen[key].done = seen[key].done || done
+        seen[key].own = seen[key].own || own
+        return
+      }
+      const s = { id, title, done, own }
+      seen[key] = s
+      ensure(day).sessions.push(s)
+    }
+
+    try {
+      const { data: comps } = await supabase
+        .from('workout_completions')
+        .select('daily_workout_id, date, daily_workouts(title, owner_id)')
+        .eq('user_id', user.id)
+        .gte('date', startStr)
+        .lt('date', endStr)
+      ;(comps || []).forEach((c) => {
+        addSession(
+          String(c.date).slice(0, 10),
+          c.daily_workout_id,
+          c.daily_workouts?.title || 'Workout',
+          true,
+          !!c.daily_workouts?.owner_id
+        )
+      })
+    } catch {}
+
+    try {
+      const { data: mine } = await supabase
+        .from('daily_workouts')
+        .select('id, title, workout_date')
+        .eq('owner_id', user.id)
+        .gte('workout_date', startStr)
+        .lt('workout_date', endStr)
+      ;(mine || []).forEach((w) => {
+        addSession(String(w.workout_date).slice(0, 10), w.id, w.title || 'Workout', false, true)
       })
     } catch {}
 
@@ -125,7 +175,7 @@ export default function CalendarPage() {
   if (isLoading) return <LoadingState label="Loading your calendar…" />
 
   const cells = buildMonth(cursor.year, cursor.month)
-  const sel = byDay[selected] || { workouts: [], food: [] }
+  const sel = byDay[selected] || { workouts: [], sessions: [], food: [] }
   const selFoodCals = sel.food.reduce((s, f) => s + (f.calories || 0), 0)
   const selByMeal = sel.food.reduce((acc, f) => {
     const mt = MEAL_ORDER.includes(f.macros?.meal_type) ? f.macros.meal_type : 'snack'
@@ -181,7 +231,7 @@ export default function CalendarPage() {
               if (!d) return <div key={`e${i}`} />
               const key = fmtDate(d)
               const data = byDay[key]
-              const hasWorkout = data && data.workouts.length > 0
+              const hasWorkout = data && (data.workouts.length > 0 || data.sessions.length > 0)
               const hasFood = data && data.food.length > 0
               const isSelected = key === selected
               const isToday = key === todayKey()
@@ -218,7 +268,23 @@ export default function CalendarPage() {
           {/* Workouts */}
           <div className="space-y-2">
             <h3 className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.2em] px-1">💪 Workouts</h3>
-            {sel.workouts.length === 0 ? (
+
+            {/* Whole workouts — ticked off, or added and not done yet */}
+            {sel.sessions.map((s) => (
+              <div key={s.id} className={`border p-3 rounded-xl flex justify-between items-center gap-3 ${s.done ? 'bg-emerald-500/[0.06] border-emerald-500/30' : 'bg-arc-card/60 border-white/[0.04]'}`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${s.done ? 'bg-emerald-500 border-emerald-500' : 'border-white/20'}`}>
+                    {s.done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                  </span>
+                  <span className={`text-sm font-bold truncate ${s.done ? 'text-white' : 'text-white/70'}`}>{s.title}</span>
+                </div>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-arc-muted shrink-0">
+                  {s.done ? 'Done' : 'Not done'}{s.own ? ' · Yours' : ''}
+                </span>
+              </div>
+            ))}
+
+            {sel.sessions.length === 0 && sel.workouts.length === 0 ? (
               <p className="text-[11px] text-arc-muted px-1">No workouts logged.</p>
             ) : (
               sel.workouts.map((w) => {
