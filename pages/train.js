@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { resizeToBlob } from '../lib/imageResize'
 import { useRouter } from 'next/router'
 // Static import so the parent can call its picker via ref
 import WorkoutPhotos from '../components/train/WorkoutPhotos'
@@ -43,6 +44,9 @@ const movementScheme = (ex) => {
 }
 
 // Local YYYY-MM-DD for a given date (defaults to today).
+const PHOTO_BUCKET = 'workout-photos'
+const PHOTO_TTL = 60 * 60 // signed URL lifetime, 1 hour
+
 const localDateStr = (d = new Date()) => {
   const t = d.getTimezoneOffset() * 60000
   return new Date(d.getTime() - t).toISOString().slice(0, 10)
@@ -212,6 +216,12 @@ export default function Train() {
   // { [key]: { id, body } }
   const [notesByWorkout, setNotesByWorkout] = useState({})
   const [notesFor, setNotesFor] = useState('') // which workout the sheet is editing
+  const [recentNotes, setRecentNotes] = useState([]) // past notes, newest first
+  // Photos attached to a workout: { [workoutId]: [{ id, storage_path, url }] }
+  const [workoutPhotos, setWorkoutPhotos] = useState({})
+  const [photoUploadFor, setPhotoUploadFor] = useState(null) // workout id mid-upload
+  const workoutPhotoInputRef = useRef(null)
+  const photoTargetRef = useRef(null) // which workout the picker is for
   const [completedWorkouts, setCompletedWorkouts] = useState(() => new Set()) // daily_workout ids ticked today
   const [showAddWorkout, setShowAddWorkout] = useState(false)
   const [newWorkout, setNewWorkout] = useState({ name: '', details: '' })
@@ -417,11 +427,12 @@ export default function Train() {
 
       // No workout for this day (or table missing) — clear the list.
       if (error || !workouts || workouts.length === 0) {
-        setTodayWorkouts([]); setCompletedWorkouts(new Set()); setExpandedWorkouts(new Set())
+        setTodayWorkouts([]); setCompletedWorkouts(new Set()); setExpandedWorkouts(new Set()); setWorkoutPhotos({})
         return
       }
 
       const ids = workouts.map((w) => w.id)
+      fetchWorkoutPhotos(userId, ids)
       const { data: exs } = await supabase
         .from('daily_workout_exercises')
         .select('*')
@@ -537,11 +548,119 @@ export default function Train() {
     }
   }
 
+  // --- Photos attached to a workout ----------------------------------------
+
+  async function fetchWorkoutPhotos(userId, workoutIds) {
+    if (!workoutIds || workoutIds.length === 0) { setWorkoutPhotos({}); return }
+    try {
+      const { data, error } = await supabase
+        .from('workout_photos')
+        .select('id, storage_path, daily_workout_id')
+        .eq('user_id', userId)
+        .in('daily_workout_id', workoutIds)
+        .order('created_at', { ascending: true })
+      if (error) throw error // column missing until 029 lands
+
+      const rows = data || []
+      const paths = rows.map((r) => r.storage_path)
+      const urlByPath = {}
+      if (paths.length) {
+        try {
+          const { data: signed } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, PHOTO_TTL)
+          ;(signed || []).forEach((s, i) => { if (s?.signedUrl) urlByPath[paths[i]] = s.signedUrl })
+        } catch {}
+      }
+      const map = {}
+      rows.forEach((r) => {
+        ;(map[r.daily_workout_id] || (map[r.daily_workout_id] = [])).push({ ...r, url: urlByPath[r.storage_path] || null })
+      })
+      setWorkoutPhotos(map)
+    } catch {
+      setWorkoutPhotos({})
+    }
+  }
+
+  const pickWorkoutPhoto = (workoutId) => {
+    photoTargetRef.current = workoutId
+    workoutPhotoInputRef.current?.click()
+  }
+
+  const uploadWorkoutPhoto = async (file) => {
+    const workoutId = photoTargetRef.current
+    if (!file || !workoutId) return
+    setPhotoUploadFor(workoutId)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+
+      const blob = await resizeToBlob(file)
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+
+      const { error: upErr } = await supabase.storage
+        .from(PHOTO_BUCKET)
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+      if (upErr) { showToast('Upload failed — is the workout-photos bucket set up?'); return }
+
+      const { data: row, error: insErr } = await supabase
+        .from('workout_photos')
+        .insert({ user_id: user.id, storage_path: path, daily_workout_id: workoutId })
+        .select('id, storage_path, daily_workout_id')
+        .single()
+      if (insErr) { showToast('Saved the image but could not attach it (run migration 029)'); return }
+
+      let url = null
+      try {
+        const { data: signed } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrl(path, PHOTO_TTL)
+        url = signed?.signedUrl || null
+      } catch {}
+
+      setWorkoutPhotos((prev) => ({ ...prev, [workoutId]: [...(prev[workoutId] || []), { ...row, url }] }))
+      showToast('Photo added — only you can see it')
+    } catch {
+      showToast('Could not add photo')
+    } finally {
+      setPhotoUploadFor(null)
+      photoTargetRef.current = null
+    }
+  }
+
+  const removeWorkoutPhoto = async (workoutId, photo) => {
+    try {
+      await supabase.storage.from(PHOTO_BUCKET).remove([photo.storage_path])
+      await supabase.from('workout_photos').delete().eq('id', photo.id)
+      setWorkoutPhotos((prev) => ({ ...prev, [workoutId]: (prev[workoutId] || []).filter((p) => p.id !== photo.id) }))
+      showToast('Photo removed')
+    } catch {
+      showToast('Could not remove photo')
+    }
+  }
+
+  // Past notes, so a note isn't write-only once you've moved off the day.
+  async function fetchRecentNotes(userId) {
+    try {
+      const { data } = await supabase
+        .from('training_notes')
+        .select('date, body, daily_workout_id')
+        .eq('user_id', userId)
+        .not('body', 'is', null)
+        .order('date', { ascending: false })
+        .limit(40)
+      setRecentNotes((data || []).filter((n) => (n.body || '').trim()))
+    } catch { setRecentNotes([]) }
+  }
+
   // workoutId '' opens the general note for the day.
   const openNotes = (workoutId = '') => {
     setNotesFor(workoutId)
     setNoteBody(notesByWorkout[workoutId]?.body || '')
     setShowNotes(true)
+    if (currentUserId) fetchRecentNotes(currentUserId)
+  }
+
+  // Jump the whole screen to the day a past note belongs to.
+  const goToNoteDay = (dateStr) => {
+    setShowNotes(false)
+    changeDay(dateStr)
   }
 
   // Tick a whole workout off (coach's or your own). Awards points.
@@ -1316,8 +1435,12 @@ export default function Train() {
                 </button>
                 <button
                     onClick={() => openNotes('')}
-                    className="bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
+                    className="relative bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
                 >
+                    {/* Dot when this day already has a note, so it's findable */}
+                    {(notesByWorkout['']?.body || '').trim() && (
+                        <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full bg-arc-accent" />
+                    )}
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
                     <span className="text-[11px] font-black uppercase tracking-wide text-white">Notes</span>
                 </button>
@@ -1327,6 +1450,12 @@ export default function Train() {
             <input
                 ref={scanInputRef} type="file" accept="image/*" capture="environment" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScanWorkout(f); e.target.value = '' }}
+            />
+
+            {/* Hidden input for attaching a photo to a workout */}
+            <input
+                ref={workoutPhotoInputRef} type="file" accept="image/*" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadWorkoutPhoto(f); e.target.value = '' }}
             />
 
             {/* Day selector — go back to a missed day to finish/tick it off */}
@@ -1434,6 +1563,54 @@ export default function Train() {
                                                 </div>
                                             )}
 
+                                            {/* Photos for this workout — private to you */}
+                                            {(() => {
+                                                const pics = workoutPhotos[workout.id] || []
+                                                const busy = photoUploadFor === workout.id
+                                                return (
+                                                    <div className="pt-1 space-y-2">
+                                                        {pics.length > 0 && (
+                                                            <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                                                                {pics.map((p) => (
+                                                                    <div key={p.id} className="relative shrink-0">
+                                                                        {p.url ? (
+                                                                            // eslint-disable-next-line @next/next/no-img-element
+                                                                            <img src={p.url} alt="" className="w-20 h-20 object-cover rounded-xl border border-white/[0.06]" />
+                                                                        ) : (
+                                                                            <div className="w-20 h-20 rounded-xl bg-arc-surface border border-white/[0.06]" />
+                                                                        )}
+                                                                        <button
+                                                                            onClick={() => removeWorkoutPhoto(workout.id, p)}
+                                                                            aria-label="Remove photo"
+                                                                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-arc-bg border border-white/15 text-white/60 hover:text-red-400 flex items-center justify-center"
+                                                                        >
+                                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                                                        </button>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            onClick={() => pickWorkoutPhoto(workout.id)}
+                                                            disabled={busy}
+                                                            className="w-full bg-arc-surface border border-white/[0.06] text-arc-muted font-bold py-3 rounded-xl text-xs hover:text-white hover:border-arc-accent/30 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                                                        >
+                                                            {busy ? (
+                                                                <>
+                                                                    <span className="w-3.5 h-3.5 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+                                                                    Uploading…
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                                                    {pics.length ? 'Add another photo' : 'Add a photo'}
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                    </div>
+                                                )
+                                            })()}
+
                                             {/* This workout's own notes */}
                                             {(() => {
                                                 const myNote = (notesByWorkout[workout.id]?.body || '').trim()
@@ -1471,6 +1648,26 @@ export default function Train() {
                     <p className="text-[11px] text-arc-muted/70 mt-0.5">Add one below, or log sets with “Log Workout”.</p>
                 </div>
             )}
+
+            {/* The day's note — shown on the day so it isn't lost behind a button */}
+            {(() => {
+                const dayNote = (notesByWorkout['']?.body || '').trim()
+                if (!dayNote) return null
+                return (
+                    <button
+                        onClick={() => openNotes('')}
+                        className="w-full text-left bg-arc-card border border-white/[0.06] rounded-2xl p-4 hover:border-arc-accent/30 transition-colors"
+                    >
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">
+                                {selectedDate === localDateStr() ? "Today's note" : 'Note for this day'}
+                            </span>
+                            <span className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em]">Edit</span>
+                        </div>
+                        <p className="text-[13px] text-white/85 leading-relaxed whitespace-pre-line">{dayNote}</p>
+                    </button>
+                )
+            })()}
 
             {/* Add your own workout — type it in (or scan a photo) */}
             <button
@@ -1792,6 +1989,29 @@ export default function Train() {
                         <button onClick={saveNote} disabled={savingNote} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
                             {savingNote ? 'SAVING…' : 'SAVE NOTE'}
                         </button>
+
+                        {/* Look back over past notes — tap one to open that day */}
+                        {!notesFor && recentNotes.filter((n) => n.date !== selectedDate || n.daily_workout_id).length > 0 && (
+                            <div className="pt-2 space-y-2 max-h-56 overflow-y-auto">
+                                <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] block px-1">Past notes</span>
+                                {recentNotes
+                                    .filter((n) => n.date !== selectedDate || n.daily_workout_id)
+                                    .slice(0, 20)
+                                    .map((n, i) => (
+                                        <button
+                                            key={`${n.date}-${n.daily_workout_id || 'day'}-${i}`}
+                                            onClick={() => goToNoteDay(n.date)}
+                                            className="w-full text-left bg-arc-surface border border-white/[0.06] rounded-xl px-3.5 py-2.5 hover:border-arc-accent/30 transition-colors"
+                                        >
+                                            <span className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em]">
+                                                {new Date(n.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                                {n.daily_workout_id ? ' · workout' : ''}
+                                            </span>
+                                            <p className="text-[12px] text-white/80 leading-snug mt-0.5 line-clamp-2">{n.body}</p>
+                                        </button>
+                                    ))}
+                            </div>
+                        )}
                     </motion.div>
                 </>
             )}

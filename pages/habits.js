@@ -202,6 +202,13 @@ export default function Habits() {
       setHabits(habitsData)
       setLogs(todaySet)
       setWeeklyDone(weekSet)
+      setStrictMode(!!profile?.strict_challenge)
+
+      // Strict mode: a missed day sends you back to Day 1.
+      if (profile?.strict_challenge && profile?.challenge_start_date) {
+        const reset = await enforceStrictChallenge(user.id, profile, habitsData)
+        if (reset) setChallengeDay(1)
+      }
 
       // (Re)schedule any habit reminders (real alarms on the native app).
       syncHabitReminders(habitsData)
@@ -229,6 +236,12 @@ export default function Habits() {
   const [showRestartConfirm, setShowRestartConfirm] = useState(false)
   const [isRestarting, setIsRestarting] = useState(false)
 
+  // Strict mode — miss a day and the challenge restarts itself
+  const [strictMode, setStrictMode] = useState(false)
+  const [savingStrict, setSavingStrict] = useState(false)
+  const [showStrictConfirm, setShowStrictConfirm] = useState(false)
+  const [strictReset, setStrictReset] = useState(null) // date that was missed
+
   // Habit reminder alarms
   const [reminderEditId, setReminderEditId] = useState(null)
   const [reminderInput, setReminderInput] = useState('07:00')
@@ -243,6 +256,82 @@ export default function Habits() {
   const showToast = (msg) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  const setStrict = async (on) => {
+    if (savingStrict) return
+    setSavingStrict(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      const { error } = await supabase.from('profiles')
+        .update({ strict_challenge: on, strict_last_checked: getTodayStr() })
+        .eq('id', user.id)
+      if (error) { showToast('Could not update (run migration 030)'); return }
+      setStrictMode(on)
+      setShowStrictConfirm(false)
+      showToast(on ? 'Strict mode on — no missed days 🔒' : 'Strict mode off')
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setSavingStrict(false)
+    }
+  }
+
+  // --- Strict challenge (75 Hard style) -------------------------------------
+  // Walks the days since the challenge started and, if a day's daily habits
+  // weren't all ticked, restarts at Day 1. Day 1 itself is a grace day (you
+  // may have started it at 11pm), and each day only requires the habits that
+  // already existed on it, so adding a habit today can't fail you yesterday.
+  async function enforceStrictChallenge(userId, profile, habitsData) {
+    try {
+      const dailyHabits = (habitsData || []).filter(h => (h.frequency || 'daily') !== 'weekly')
+      if (dailyHabits.length === 0) return false
+
+      const today = getTodayStr()
+      const start = new Date(profile.challenge_start_date)
+      const firstCheck = new Date(start)
+      firstCheck.setDate(firstCheck.getDate() + 1) // day 1 is a grace day
+      const firstStr = fmtLocal(firstCheck)
+      if (firstStr >= today) return false // nothing completed yet to judge
+
+      const { data: pastLogs, error } = await supabase
+        .from('habit_logs')
+        .select('habit_id, date')
+        .eq('user_id', userId)
+        .gte('date', firstStr)
+        .lt('date', today)
+      if (error) return false
+
+      const doneByDay = {}
+      ;(pastLogs || []).forEach(l => {
+        ;(doneByDay[l.date] || (doneByDay[l.date] = new Set())).add(l.habit_id)
+      })
+
+      // Walk each day that has already finished.
+      let missed = null
+      for (let d = new Date(firstCheck); fmtLocal(d) < today; d.setDate(d.getDate() + 1)) {
+        const key = fmtLocal(d)
+        const endOfDay = new Date(`${key}T23:59:59`)
+        const required = dailyHabits.filter(h => new Date(h.created_at) <= endOfDay)
+        if (required.length === 0) continue
+        const done = doneByDay[key] || new Set()
+        const allDone = required.every(h => done.has(h.id))
+        if (!allDone) { missed = key; break }
+      }
+      if (!missed) return false
+
+      const startedAt = new Date().toISOString()
+      const { error: upErr } = await supabase.from('profiles')
+        .update({ challenge_start_date: startedAt, presets_seeded_for: startedAt, strict_last_checked: today })
+        .eq('id', userId)
+      if (upErr) return false
+
+      setStrictReset(missed)
+      return true
+    } catch {
+      return false
+    }
   }
 
   // Start the challenge again from Day 1 — for when someone drops off and
@@ -938,6 +1027,28 @@ export default function Habits() {
                         className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan"
                     />
                  </div>
+
+                 {/* Strict mode — opt in to a real, no-missed-days challenge */}
+                 <button
+                    onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
+                    disabled={savingStrict}
+                    className={`w-full mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 transition-colors disabled:opacity-50 ${
+                        strictMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-arc-surface border-white/5 hover:border-white/15'
+                    }`}
+                 >
+                    <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm">{strictMode ? '🔒' : '🔓'}</span>
+                        <span className="text-left min-w-0">
+                            <span className={`block text-[11px] font-bold ${strictMode ? 'text-amber-400' : 'text-white'}`}>Strict mode</span>
+                            <span className="block text-[9px] text-arc-muted leading-snug">
+                                {strictMode ? 'Miss a day and you go back to Day 1' : 'Off — a missed day won’t reset you'}
+                            </span>
+                        </span>
+                    </span>
+                    <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${strictMode ? 'bg-amber-500 justify-end' : 'bg-white/10 justify-start'}`}>
+                        <span className="w-4 h-4 rounded-full bg-white" />
+                    </span>
+                 </button>
             </section>
 
             {/* Daily Grind Circle — closes when daily tasks are done, turns gold when weekly are too */}
@@ -1434,6 +1545,103 @@ export default function Habits() {
                         <p className="text-center text-xs text-arc-muted">
                             "Lock In" resets your counter to Day 1.
                         </p>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Strict mode was triggered — you missed a day */}
+        <AnimatePresence>
+            {strictReset && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setStrictReset(null)}
+                        className="fixed inset-0 bg-black/85 backdrop-blur-md z-[60]"
+                    />
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                        className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+                    >
+                        <div className="bg-arc-card border border-amber-500/40 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5">
+                            <div className="text-5xl">🔒</div>
+                            <div>
+                                <div className="text-[10px] font-bold text-amber-400 uppercase tracking-[0.2em] mb-2">Strict mode</div>
+                                <h2 className="text-2xl font-black italic tracking-tighter leading-tight">BACK TO DAY 1</h2>
+                            </div>
+                            <p className="text-sm text-arc-muted leading-relaxed">
+                                Your daily habits weren&apos;t all ticked on{' '}
+                                <span className="text-white font-bold">
+                                    {new Date(strictReset + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                </span>
+                                , so the challenge has restarted. You chose strict mode — this is the deal. Everything you&apos;ve earned is still yours.
+                            </p>
+                            <button
+                                onClick={() => setStrictReset(null)}
+                                className="w-full bg-arc-accent text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                            >
+                                GO AGAIN
+                            </button>
+                        </div>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Turning strict mode on */}
+        <AnimatePresence>
+            {showStrictConfirm && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setShowStrictConfirm(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <div className="text-center">
+                            <div className="text-4xl mb-3">🔒</div>
+                            <h2 className="text-xl font-black italic tracking-tighter">TURN ON STRICT MODE?</h2>
+                            <p className="text-sm text-arc-muted mt-2 leading-relaxed">
+                                A real challenge, 75 Hard style. Miss a single day of your daily habits and you go <span className="text-white font-bold">back to Day 1</span>.
+                            </p>
+                        </div>
+
+                        <div className="bg-arc-surface border border-white/5 rounded-xl p-4 space-y-2">
+                            <div className="flex items-start gap-2.5">
+                                <span className="text-amber-400 text-xs mt-0.5">!</span>
+                                <span className="text-[12px] text-arc-muted leading-snug">Checked when you open the app — miss days away and it resets on your return</span>
+                            </div>
+                            <div className="flex items-start gap-2.5">
+                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <span className="text-[12px] text-arc-muted leading-snug">Today and your first day are safe — only completed days count against you</span>
+                            </div>
+                            <div className="flex items-start gap-2.5">
+                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <span className="text-[12px] text-arc-muted leading-snug">Points, photos and history are never lost — and you can switch it off anytime</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => setStrict(true)}
+                                disabled={savingStrict}
+                                className="w-full bg-amber-500 text-arc-bg font-bold py-4 rounded-xl text-lg active:scale-95 transition-transform disabled:opacity-50"
+                            >
+                                {savingStrict ? 'SAVING…' : "I'M IN — LOCK IT"}
+                            </button>
+                            <button
+                                onClick={() => setShowStrictConfirm(false)}
+                                disabled={savingStrict}
+                                className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                            >
+                                Not for me
+                            </button>
+                        </div>
                     </motion.div>
                 </>
             )}
