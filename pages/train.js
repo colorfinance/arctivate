@@ -212,6 +212,7 @@ export default function Train() {
   // { [key]: { id, body } }
   const [notesByWorkout, setNotesByWorkout] = useState({})
   const [notesFor, setNotesFor] = useState('') // which workout the sheet is editing
+  const [recentNotes, setRecentNotes] = useState([]) // past notes, newest first
   const [completedWorkouts, setCompletedWorkouts] = useState(() => new Set()) // daily_workout ids ticked today
   const [showAddWorkout, setShowAddWorkout] = useState(false)
   const [newWorkout, setNewWorkout] = useState({ name: '', details: '' })
@@ -537,11 +538,32 @@ export default function Train() {
     }
   }
 
+  // Past notes, so a note isn't write-only once you've moved off the day.
+  async function fetchRecentNotes(userId) {
+    try {
+      const { data } = await supabase
+        .from('training_notes')
+        .select('date, body, daily_workout_id')
+        .eq('user_id', userId)
+        .not('body', 'is', null)
+        .order('date', { ascending: false })
+        .limit(40)
+      setRecentNotes((data || []).filter((n) => (n.body || '').trim()))
+    } catch { setRecentNotes([]) }
+  }
+
   // workoutId '' opens the general note for the day.
   const openNotes = (workoutId = '') => {
     setNotesFor(workoutId)
     setNoteBody(notesByWorkout[workoutId]?.body || '')
     setShowNotes(true)
+    if (currentUserId) fetchRecentNotes(currentUserId)
+  }
+
+  // Jump the whole screen to the day a past note belongs to.
+  const goToNoteDay = (dateStr) => {
+    setShowNotes(false)
+    changeDay(dateStr)
   }
 
   // Tick a whole workout off (coach's or your own). Awards points.
@@ -1316,8 +1338,12 @@ export default function Train() {
                 </button>
                 <button
                     onClick={() => openNotes('')}
-                    className="bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
+                    className="relative bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
                 >
+                    {/* Dot when this day already has a note, so it's findable */}
+                    {(notesByWorkout['']?.body || '').trim() && (
+                        <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full bg-arc-accent" />
+                    )}
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
                     <span className="text-[11px] font-black uppercase tracking-wide text-white">Notes</span>
                 </button>
@@ -1471,6 +1497,26 @@ export default function Train() {
                     <p className="text-[11px] text-arc-muted/70 mt-0.5">Add one below, or log sets with “Log Workout”.</p>
                 </div>
             )}
+
+            {/* The day's note — shown on the day so it isn't lost behind a button */}
+            {(() => {
+                const dayNote = (notesByWorkout['']?.body || '').trim()
+                if (!dayNote) return null
+                return (
+                    <button
+                        onClick={() => openNotes('')}
+                        className="w-full text-left bg-arc-card border border-white/[0.06] rounded-2xl p-4 hover:border-arc-accent/30 transition-colors"
+                    >
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">
+                                {selectedDate === localDateStr() ? "Today's note" : 'Note for this day'}
+                            </span>
+                            <span className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em]">Edit</span>
+                        </div>
+                        <p className="text-[13px] text-white/85 leading-relaxed whitespace-pre-line">{dayNote}</p>
+                    </button>
+                )
+            })()}
 
             {/* Add your own workout — type it in (or scan a photo) */}
             <button
@@ -1792,6 +1838,29 @@ export default function Train() {
                         <button onClick={saveNote} disabled={savingNote} className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-4 rounded-xl shadow-glow-accent disabled:opacity-50">
                             {savingNote ? 'SAVING…' : 'SAVE NOTE'}
                         </button>
+
+                        {/* Look back over past notes — tap one to open that day */}
+                        {!notesFor && recentNotes.filter((n) => n.date !== selectedDate || n.daily_workout_id).length > 0 && (
+                            <div className="pt-2 space-y-2 max-h-56 overflow-y-auto">
+                                <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em] block px-1">Past notes</span>
+                                {recentNotes
+                                    .filter((n) => n.date !== selectedDate || n.daily_workout_id)
+                                    .slice(0, 20)
+                                    .map((n, i) => (
+                                        <button
+                                            key={`${n.date}-${n.daily_workout_id || 'day'}-${i}`}
+                                            onClick={() => goToNoteDay(n.date)}
+                                            className="w-full text-left bg-arc-surface border border-white/[0.06] rounded-xl px-3.5 py-2.5 hover:border-arc-accent/30 transition-colors"
+                                        >
+                                            <span className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.15em]">
+                                                {new Date(n.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                                {n.daily_workout_id ? ' · workout' : ''}
+                                            </span>
+                                            <p className="text-[12px] text-white/80 leading-snug mt-0.5 line-clamp-2">{n.body}</p>
+                                        </button>
+                                    ))}
+                            </div>
+                        )}
                     </motion.div>
                 </>
             )}
