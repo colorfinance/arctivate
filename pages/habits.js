@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
@@ -1049,6 +1050,21 @@ export default function Habits() {
                         <span className="w-4 h-4 rounded-full bg-white" />
                     </span>
                  </button>
+
+                 {/* Challenges you can join, on top of your own run */}
+                 <Link
+                    href="/challenges"
+                    className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
+                 >
+                    <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm">🏁</span>
+                        <span className="text-left min-w-0">
+                            <span className="block text-[11px] font-bold text-white">Challenges</span>
+                            <span className="block text-[9px] text-arc-muted leading-snug">Join one your gym is running</span>
+                        </span>
+                    </span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                 </Link>
             </section>
 
             {/* Daily Grind Circle — closes when daily tasks are done, turns gold when weekly are too */}

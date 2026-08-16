@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { parseCsv, detectColumns, detectDateOrder, buildEntries, summarise, toLogRow, MAX_ROWS, MAX_BYTES } from '../lib/csvImport'
 // Lazy-load confetti
 const fireConfetti = async (opts) => {
   try {
@@ -192,6 +193,11 @@ export default function Food() {
   // Quantity prompt when logging a pantry item: { item: normalized, qty: string }
   const [qtyPrompt, setQtyPrompt] = useState(null)
   const [showManualEntry, setShowManualEntry] = useState(false)
+  // Importing a food diary exported from another app
+  const [importState, setImportState] = useState(null) // { fileName, headers, rows, mapping, dateOrder, ambiguous, decimalComma }
+  const [importing, setImporting] = useState(false)
+  const [importDone, setImportDone] = useState(null)
+  const csvInputRef = useRef(null)
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack', servings: 1 })
   const [todayLogs, setTodayLogs] = useState([])
   const [toast, setToast] = useState(null)
@@ -820,6 +826,96 @@ export default function Food() {
   }
 
   // Copy every food entry from a given day (default: yesterday) onto today.
+  // --- Importing a diary from another app ------------------------------------
+
+  const handleCsvFile = async (file) => {
+    if (!file) return
+    setImportDone(null)
+    if (file.size > MAX_BYTES) {
+      showToast('That file is too big (max 5MB)')
+      return
+    }
+    try {
+      const text = await file.text()
+      const { rows, delimiter } = parseCsv(text)
+      if (rows.length < 2) {
+        showToast("That file doesn't have any rows in it")
+        return
+      }
+      const headers = rows[0]
+      const mapping = detectColumns(headers)
+      // Detection is English-header based, so a diary in another language may
+      // match nothing. Still open the sheet — the column pickers are there for
+      // exactly this, and bailing out would leave no way to fix it.
+      const dateValues = mapping.date !== undefined ? rows.slice(1).map(r => r[mapping.date]) : []
+      const detected = detectDateOrder(dateValues)
+      setImportState({
+        fileName: file.name,
+        headers,
+        rows: rows.length - 1 > MAX_ROWS ? rows.slice(0, MAX_ROWS + 1) : rows,
+        truncated: rows.length - 1 > MAX_ROWS,
+        mapping,
+        dateOrder: detected || 'dmy',
+        ambiguous: mapping.date !== undefined && detected === null,
+        decimalComma: delimiter === ';',
+        needsMapping: mapping.name === undefined || mapping.calories === undefined,
+      })
+    } catch {
+      showToast("Couldn't read that file")
+    }
+  }
+
+  // Recomputed whenever the member corrects a column or the date order.
+  const importPreview = useMemo(() => {
+    if (!importState) return null
+    const { entries, skipped } = buildEntries(importState.rows, importState.mapping, {
+      dateOrder: importState.dateOrder,
+      decimalComma: importState.decimalComma,
+    })
+    return { entries, skipped, summary: summarise(entries) }
+  }, [importState])
+
+  const setImportColumn = (field, idx) => {
+    setImportState(prev => {
+      if (!prev) return prev
+      const mapping = { ...prev.mapping }
+      if (idx === '') delete mapping[field]
+      else mapping[field] = Number(idx)
+      return {
+        ...prev,
+        mapping,
+        needsMapping: mapping.name === undefined || mapping.calories === undefined,
+      }
+    })
+  }
+
+  const runImport = async () => {
+    if (!importPreview || !importPreview.entries.length || importing) return
+    setImporting(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+
+      const rows = importPreview.entries.map(e => toLogRow(e, user.id))
+      // Chunked so a big diary doesn't go over the request limit.
+      let saved = 0
+      for (let i = 0; i < rows.length; i += 200) {
+        const { error } = await supabase.from('food_logs').insert(rows.slice(i, i + 200))
+        if (error) throw error
+        saved += Math.min(200, rows.length - i)
+      }
+
+      const summary = importPreview.summary
+      setImportState(null)
+      setImportDone({ count: saved, days: summary?.days || 0 })
+      await fetchDailyCalories()
+    } catch {
+      showToast('Import failed — nothing was changed for the remaining rows')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const copyDayToToday = async (fromDateKey) => {
     if (copying) return
     setCopying(true)
@@ -1402,6 +1498,223 @@ export default function Food() {
             )}
           </button>
         </div>
+
+        {/* Bring a diary across from another app */}
+        <button
+          onClick={() => csvInputRef.current?.click()}
+          className="mt-3 w-full bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Import a food diary
+        </button>
+        <input
+          ref={csvInputRef}
+          type="file"
+          accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+          className="hidden"
+          onChange={(e) => { handleCsvFile(e.target.files?.[0]); e.target.value = '' }}
+        />
+
+        {/* Check the diary before anything is saved */}
+        <AnimatePresence>
+          {importState && importPreview && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => !importing && setImportState(null)}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+              />
+              <motion.div
+                initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[88vh] overflow-y-auto"
+              >
+                <div className="p-6 space-y-5 pb-safe">
+                  <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+
+                  <div>
+                    <h2 className="text-xl font-black italic tracking-tighter">CHECK THIS LOOKS RIGHT</h2>
+                    <p className="text-[11px] text-arc-muted mt-1 truncate">{importState.fileName}</p>
+                  </div>
+
+                  {importPreview.entries.length === 0 ? (
+                    <p className="text-sm text-arc-muted bg-arc-surface border border-white/5 rounded-xl p-4">
+                      {importState.needsMapping
+                        ? "We couldn't tell which columns are which — this happens when the diary isn't in English. Set the food name and calories below and the rest will follow."
+                        : 'No rows came through. Check the food name and calories are pointing at the right columns below.'}
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: 'Items', value: importPreview.summary.count },
+                        { label: 'Days', value: importPreview.summary.days || '—' },
+                        { label: 'Calories', value: importPreview.summary.calories.toLocaleString() },
+                      ].map(s => (
+                        <div key={s.label} className="bg-arc-surface border border-white/5 rounded-xl p-3 text-center">
+                          <div className="text-lg font-black text-white leading-none">{s.value}</div>
+                          <div className="text-[9px] text-arc-muted uppercase tracking-wider mt-1">{s.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {importPreview.summary?.from && (
+                    <p className="text-[11px] text-arc-muted text-center -mt-2">
+                      {importPreview.summary.from.toLocaleDateString()} → {importPreview.summary.to.toLocaleDateString()}
+                    </p>
+                  )}
+
+                  {/* Dates like 03/04 are unreadable without knowing the format */}
+                  {importState.ambiguous && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-3">
+                      <p className="text-[11px] text-amber-200 leading-snug">
+                        The dates in this file could be read either way round. Which is it?
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { key: 'dmy', label: 'Day / Month', hint: '15/08 = 15 Aug' },
+                          { key: 'mdy', label: 'Month / Day', hint: '08/15 = 15 Aug' },
+                        ].map(o => (
+                          <button
+                            key={o.key}
+                            onClick={() => setImportState(prev => ({ ...prev, dateOrder: o.key }))}
+                            className={`rounded-lg py-2 px-2 text-left transition-colors ${importState.dateOrder === o.key ? 'bg-amber-500 text-arc-bg' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
+                          >
+                            <span className="block text-[11px] font-bold">{o.label}</span>
+                            <span className="block text-[9px] opacity-80">{o.hint}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* First few rows, so a wrong column is obvious at a glance */}
+                  {importPreview.entries.length > 0 && (
+                    <div className="space-y-1.5">
+                      {importPreview.entries.slice(0, 3).map((e, i) => (
+                        <div key={i} className="bg-arc-surface border border-white/5 rounded-xl px-3 py-2 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[12px] font-bold text-white truncate">{e.name}</div>
+                            <div className="text-[9px] text-arc-muted">
+                              {e.eatenAt ? e.eatenAt.toLocaleDateString() : 'no date'} · {e.meal} · P{e.p} C{e.c} F{e.f}
+                            </div>
+                          </div>
+                          <div className="text-[12px] font-black text-arc-accent shrink-0">{e.calories}</div>
+                        </div>
+                      ))}
+                      {importPreview.entries.length > 3 && (
+                        <p className="text-[10px] text-arc-muted text-center pt-1">
+                          and {importPreview.entries.length - 3} more
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Say plainly what won't come across */}
+                  {(importPreview.skipped.noName + importPreview.skipped.noCalories + importPreview.skipped.badDate > 0 || importState.truncated) && (
+                    <div className="bg-arc-surface border border-white/5 rounded-xl p-3 space-y-1">
+                      {importState.truncated && (
+                        <p className="text-[10px] text-amber-400">Only the first {MAX_ROWS.toLocaleString()} rows will be imported.</p>
+                      )}
+                      {importPreview.skipped.noCalories > 0 && (
+                        <p className="text-[10px] text-arc-muted">{importPreview.skipped.noCalories} row(s) skipped — no calories.</p>
+                      )}
+                      {importPreview.skipped.noName > 0 && (
+                        <p className="text-[10px] text-arc-muted">{importPreview.skipped.noName} row(s) skipped — no food name.</p>
+                      )}
+                      {importPreview.skipped.badDate > 0 && (
+                        <p className="text-[10px] text-arc-muted">{importPreview.skipped.badDate} row(s) skipped — unreadable date.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Fix the guesses */}
+                  <details open={importState.needsMapping} className="bg-arc-surface border border-white/5 rounded-xl overflow-hidden">
+                    <summary className="px-4 py-3 text-[11px] font-bold text-arc-muted cursor-pointer select-none">
+                      {importState.needsMapping ? 'Tell us which columns are which' : 'Columns look wrong?'}
+                    </summary>
+                    <div className="px-4 pb-4 space-y-2">
+                      {[
+                        { field: 'name', label: 'Food name' },
+                        { field: 'calories', label: 'Calories' },
+                        { field: 'protein', label: 'Protein' },
+                        { field: 'carbs', label: 'Carbs' },
+                        { field: 'fat', label: 'Fat' },
+                        { field: 'date', label: 'Date' },
+                        { field: 'meal', label: 'Meal' },
+                      ].map(({ field, label }) => (
+                        <label key={field} className="flex items-center justify-between gap-3">
+                          <span className="text-[11px] text-arc-muted shrink-0">{label}</span>
+                          <select
+                            value={importState.mapping[field] ?? ''}
+                            onChange={(e) => setImportColumn(field, e.target.value)}
+                            className="flex-1 min-w-0 bg-arc-bg border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-white"
+                          >
+                            <option value="">Not in this file</option>
+                            {importState.headers.map((h, idx) => (
+                              <option key={idx} value={idx}>{h || `Column ${idx + 1}`}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+
+                  <div className="space-y-2">
+                    <button
+                      onClick={runImport}
+                      disabled={importing || importPreview.entries.length === 0}
+                      className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-40"
+                    >
+                      {importing ? 'IMPORTING…' : `IMPORT ${importPreview.entries.length} ITEM${importPreview.entries.length === 1 ? '' : 'S'}`}
+                    </button>
+                    <button
+                      onClick={() => setImportState(null)}
+                      disabled={importing}
+                      className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Imported */}
+        <AnimatePresence>
+          {importDone && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => setImportDone(null)}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60]"
+              />
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+              >
+                <div className="bg-arc-card border border-white/10 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5">
+                  <div className="text-5xl">📥</div>
+                  <div>
+                    <h2 className="text-2xl font-black italic tracking-tighter leading-tight">DIARY IMPORTED</h2>
+                    <p className="text-sm text-arc-muted mt-2">
+                      {importDone.count.toLocaleString()} item{importDone.count === 1 ? '' : 's'}
+                      {importDone.days > 0 && ` across ${importDone.days} day${importDone.days === 1 ? '' : 's'}`} — you&apos;ll find them on the days they were eaten.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setImportDone(null)}
+                    className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                  >
+                    NICE
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
         {/* Voice Recording Indicator */}
         <AnimatePresence>
