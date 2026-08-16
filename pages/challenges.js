@@ -4,6 +4,8 @@ import Link from 'next/link'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, ArrowLeftIcon } from '../components/icons'
+import Avatar from '../components/Avatar'
+import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart,
   isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr,
@@ -22,6 +24,23 @@ export default function Challenges() {
   const [resetNotice, setResetNotice] = useState(null) // { title, missed }
   const [expanded, setExpanded] = useState(null)
   const [missingTables, setMissingTables] = useState(false)
+
+  // Starting your own and challenging people to it
+  const [myGymId, setMyGymId] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [people, setPeople] = useState([])        // everyone, for the invite picker
+  const [friendships, setFriendships] = useState([])
+  const [invites, setInvites] = useState([])      // invites involving me
+  const [showCreate, setShowCreate] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [form, setForm] = useState({
+    title: '', description: '', start_date: '', length_days: '30',
+    strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
+  })
+  const [inviteFor, setInviteFor] = useState(null) // challenge being invited to
+  const [invitePicked, setInvitePicked] = useState([])
+  const [inviteSearch, setInviteSearch] = useState('')
+  const [sendingInvites, setSendingInvites] = useState(false)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
 
@@ -44,17 +63,39 @@ export default function Challenges() {
         .select('*')
       setMembers(memberData || [])
 
-      // Names for the standings.
+      // Names and faces for the standings. profiles carries `username`; there
+      // is no full_name/email column, and asking for one errors the whole
+      // query, which is what left every entrant showing as "Member".
       const ids = [...new Set((memberData || []).map(m => m.user_id))]
       if (ids.length) {
         const { data: profs } = await supabase
           .from('profiles')
-          .select('id, full_name, email')
+          .select('id, username, avatar_url')
           .in('id', ids)
         const map = {}
-        ;(profs || []).forEach(p => { map[p.id] = p.full_name || (p.email || '').split('@')[0] || 'Member' })
+        ;(profs || []).forEach(p => { map[p.id] = { name: p.username || 'Member', avatar: p.avatar_url } })
         setNames(map)
       }
+
+      // Everything the create and invite flows need.
+      const { data: me } = await supabase
+        .from('profiles').select('gym_id, is_admin').eq('id', user.id).single()
+      setMyGymId(me?.gym_id || null)
+      setIsAdmin(!!me?.is_admin)
+
+      const { data: everyone } = await supabase
+        .from('profiles').select('id, username, avatar_url, total_points, gym_id')
+      setPeople(everyone || [])
+
+      const { data: fr } = await supabase
+        .from('friendships').select('*')
+        .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
+      setFriendships(fr || [])
+
+      const { data: inv } = await supabase
+        .from('challenge_invites').select('*')
+        .or(`invitee_id.eq.${user.id},inviter_id.eq.${user.id}`)
+      setInvites(inv || [])
 
       await enforceStrict(user.id, chData || [], memberData || [])
     } catch {
@@ -107,29 +148,36 @@ export default function Challenges() {
 
   const myRow = (challengeId) => members.find(m => m.challenge_id === challengeId && m.user_id === userId)
 
+  // The actual joining, with no busy-guard of its own so that accepting an
+  // invite can reuse it. Guarding here would depend on when React had flushed
+  // `busy`, and the invite would quietly not join.
+  const doJoin = async (ch) => {
+    // Someone joining before the start waits for it; joining later starts today.
+    const start = hasStarted(ch.start_date) ? todayStr() : String(ch.start_date).slice(0, 10)
+    const existing = myRow(ch.id)
+    if (existing) {
+      // Rejoining something they'd left.
+      const { error } = await supabase
+        .from('group_challenge_members')
+        .update({ status: 'active', start_date: start, last_checked: todayStr() })
+        .eq('id', existing.id)
+      if (error) throw error
+    } else {
+      const { error } = await supabase.from('group_challenge_members').insert({
+        challenge_id: ch.id,
+        user_id: userId,
+        start_date: start,
+        last_checked: todayStr(),
+      })
+      if (error) throw error
+    }
+  }
+
   const join = async (ch) => {
     if (busy) return
     setBusy(ch.id)
     try {
-      // Someone joining before the start waits for it; joining later starts today.
-      const start = hasStarted(ch.start_date) ? todayStr() : String(ch.start_date).slice(0, 10)
-      const existing = myRow(ch.id)
-      if (existing) {
-        // Rejoining something they'd left.
-        const { error } = await supabase
-          .from('group_challenge_members')
-          .update({ status: 'active', start_date: start, last_checked: todayStr() })
-          .eq('id', existing.id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('group_challenge_members').insert({
-          challenge_id: ch.id,
-          user_id: userId,
-          start_date: start,
-          last_checked: todayStr(),
-        })
-        if (error) throw error
-      }
+      await doJoin(ch)
       setConfirmJoin(null)
       await fetchAll()
       showToast(`You're in — ${ch.title}`)
@@ -161,7 +209,138 @@ export default function Challenges() {
     }
   }
 
+  // --- Starting your own -----------------------------------------------------
+
+  const createChallenge = async () => {
+    if (creating) return
+    const title = form.title.trim()
+    if (!title) { showToast('Give it a name'); return }
+    const length = parseInt(form.length_days, 10)
+    if (!length || length < 1 || length > 400) { showToast('Length must be 1 to 400 days'); return }
+
+    setCreating(true)
+    try {
+      const start = form.start_date || todayStr()
+      const { data: ch, error } = await supabase.from('group_challenges').insert({
+        title,
+        description: form.description.trim() || null,
+        start_date: start,
+        length_days: length,
+        strict: form.strict,
+        visibility: form.visibility,
+        gym_vs_gym: form.gym_vs_gym,
+        is_official: isAdmin ? form.is_official : false,
+        gym_id: myGymId,
+        is_active: true,
+        created_by: userId,
+      }).select().single()
+      if (error) throw error
+
+      // Whoever starts it is in it. A challenge with nobody in it, including
+      // its owner, reads as broken.
+      await supabase.from('group_challenge_members').insert({
+        challenge_id: ch.id,
+        user_id: userId,
+        start_date: hasStarted(start) ? todayStr() : start,
+        last_checked: todayStr(),
+      })
+
+      setShowCreate(false)
+      setForm({
+        title: '', description: '', start_date: '', length_days: '30',
+        strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
+      })
+      await fetchAll()
+      showToast('Challenge created. Invite someone.')
+      setInviteFor(ch)
+    } catch {
+      showToast('Could not create (run migration 032)')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  // --- Challenging people ----------------------------------------------------
+
+  const sendInvites = async () => {
+    if (sendingInvites || !inviteFor || invitePicked.length === 0) return
+    setSendingInvites(true)
+    try {
+      const rows = invitePicked.map(id => ({
+        challenge_id: inviteFor.id,
+        inviter_id: userId,
+        invitee_id: id,
+      }))
+      // Someone already invited shouldn't block the rest of the batch.
+      const { error } = await supabase
+        .from('challenge_invites')
+        .upsert(rows, { onConflict: 'challenge_id,invitee_id', ignoreDuplicates: true })
+      if (error) throw error
+
+      const n = invitePicked.length
+      setInviteFor(null)
+      setInvitePicked([])
+      setInviteSearch('')
+      await fetchAll()
+      showToast(`Challenged ${n} ${n === 1 ? 'person' : 'people'}`)
+    } catch {
+      showToast('Could not send those')
+    } finally {
+      setSendingInvites(false)
+    }
+  }
+
+  const respondInvite = async (invite, accept) => {
+    if (busy) return
+    setBusy(invite.id)
+    try {
+      const { error } = await supabase
+        .from('challenge_invites')
+        .update({ status: accept ? 'accepted' : 'declined' })
+        .eq('id', invite.id)
+      if (error) throw error
+
+      if (accept) {
+        const ch = challenges.find(c => c.id === invite.challenge_id)
+        if (ch) await doJoin(ch)
+      }
+      await fetchAll()
+      showToast(accept ? "You're in" : 'Declined')
+    } catch {
+      showToast('Could not do that')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const today = todayStr()
+  const myFriendIds = friendIds(friendships, userId)
+  const pendingForMe = invites.filter(i => i.invitee_id === userId && i.status === 'pending')
+
+  // The invite picker puts friends first, then people from your own gym.
+  const invitable = (() => {
+    if (!inviteFor) return []
+    const q = inviteSearch.trim().toLowerCase()
+    const alreadyIn = new Set(
+      members.filter(m => m.challenge_id === inviteFor.id && m.status !== 'left').map(m => m.user_id)
+    )
+    const alreadyAsked = new Set(
+      invites.filter(i => i.challenge_id === inviteFor.id && i.status !== 'declined').map(i => i.invitee_id)
+    )
+    return people
+      .filter(p => p.id !== userId && !alreadyIn.has(p.id) && !alreadyAsked.has(p.id))
+      .filter(p => !q || String(p.username || '').toLowerCase().includes(q))
+      .sort((a, b) => {
+        const fa = myFriendIds.includes(a.id) ? 0 : 1
+        const fb = myFriendIds.includes(b.id) ? 0 : 1
+        if (fa !== fb) return fa - fb
+        const ga = a.gym_id === myGymId ? 0 : 1
+        const gb = b.gym_id === myGymId ? 0 : 1
+        if (ga !== gb) return ga - gb
+        return (Number(b.total_points) || 0) - (Number(a.total_points) || 0)
+      })
+      .slice(0, 40)
+  })()
 
   if (loading) {
     return (
@@ -198,6 +377,63 @@ export default function Challenges() {
       </header>
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
+        {/* Somebody has challenged you */}
+        {pendingForMe.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-[10px] font-bold text-arc-accent uppercase tracking-widest px-1">
+              {pendingForMe.length === 1 ? "You've been challenged" : `${pendingForMe.length} challenges for you`}
+            </h2>
+            {pendingForMe.map(inv => {
+              const ch = challenges.find(c => c.id === inv.challenge_id)
+              const from = names[inv.inviter_id] || people.find(p => p.id === inv.inviter_id)
+              return (
+                <div key={inv.id} className="bg-arc-card border border-arc-accent/30 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar src={from?.avatar || from?.avatar_url} name={from?.name || from?.username} size={32} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-bold text-white truncate">
+                        {from?.name || from?.username || 'Someone'} challenged you
+                      </p>
+                      <p className="text-[11px] text-arc-muted truncate">
+                        {ch ? `${ch.title} · ${ch.length_days} days${ch.strict ? ' · strict' : ''}` : 'A challenge'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => respondInvite(inv, true)} disabled={busy === inv.id}
+                      className="flex-1 bg-accent-gradient text-white font-black italic py-2.5 rounded-xl text-sm shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                    >
+                      ACCEPT
+                    </button>
+                    <button
+                      onClick={() => respondInvite(inv, false)} disabled={busy === inv.id}
+                      className="px-4 bg-white/5 text-arc-muted hover:text-white font-bold py-2.5 rounded-xl text-xs transition-colors disabled:opacity-50"
+                    >
+                      No thanks
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </section>
+        )}
+
+        {/* Start your own */}
+        <button
+          onClick={() => setShowCreate(true)}
+          className="w-full bg-arc-card border border-white/[0.06] hover:border-arc-accent/30 rounded-2xl p-4 flex items-center gap-3 transition-colors text-left"
+        >
+          <span className="w-9 h-9 rounded-full bg-arc-accent/10 text-arc-accent flex items-center justify-center shrink-0">
+            <FlagIcon size={17} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-bold text-white">Start your own challenge</span>
+            <span className="block text-[10px] text-arc-muted">Set the rules, then challenge whoever you like</span>
+          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+
         {missingTables && (
           <div className="bg-arc-card border border-amber-500/30 rounded-2xl p-5 text-center">
             <p className="text-sm text-amber-200">Challenges aren&apos;t set up yet — migration 031 needs to be run.</p>
@@ -253,6 +489,22 @@ export default function Challenges() {
                           Closed
                         </span>
                       )}
+                      {ch.gym_vs_gym && (
+                        <span className="text-[9px] font-bold text-arc-cyan bg-arc-cyan/10 border border-arc-cyan/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          Gym vs gym
+                        </span>
+                      )}
+                      {ch.is_official ? (
+                        <span className="text-[9px] font-bold text-arc-accent bg-arc-accent/10 border border-arc-accent/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          Official
+                        </span>
+                      ) : ch.created_by && ch.created_by !== userId ? (
+                        <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider">
+                          by {names[ch.created_by]?.name || people.find(p => p.id === ch.created_by)?.username || 'a member'}
+                        </span>
+                      ) : ch.created_by === userId ? (
+                        <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider">Yours</span>
+                      ) : null}
                     </div>
                   </div>
                   {joined && (
@@ -316,6 +568,12 @@ export default function Challenges() {
                         {expanded === ch.id ? 'Hide standings' : 'Standings'}
                       </button>
                       <button
+                        onClick={() => { setInviteFor(ch); setInvitePicked([]); setInviteSearch('') }}
+                        className="px-4 bg-arc-accent/15 text-arc-accent hover:bg-arc-accent/25 text-xs font-bold py-2.5 rounded-xl transition-colors"
+                      >
+                        Challenge
+                      </button>
+                      <button
                         onClick={() => setConfirmLeave(ch)}
                         disabled={busy === ch.id}
                         className="px-4 bg-white/5 text-arc-muted hover:text-white text-xs font-bold py-2.5 rounded-xl transition-colors disabled:opacity-50"
@@ -352,8 +610,13 @@ export default function Challenges() {
                           className={`flex items-center gap-3 px-3 py-2 rounded-xl ${m.user_id === userId ? 'bg-arc-accent/10 border border-arc-accent/20' : 'bg-arc-surface'}`}
                         >
                           <span className="text-[10px] font-black text-arc-muted w-5 shrink-0">{i + 1}</span>
+                          <Avatar
+                            src={names[m.user_id]?.avatar}
+                            name={names[m.user_id]?.name}
+                            size={24}
+                          />
                           <span className="text-[12px] font-bold text-white truncate flex-1">
-                            {m.user_id === userId ? 'You' : (names[m.user_id] || 'Member')}
+                            {m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member')}
                           </span>
                           {m.restarts > 0 && (
                             <span className="text-[9px] text-arc-muted shrink-0">{m.restarts}× restart</span>
@@ -371,6 +634,248 @@ export default function Challenges() {
           )
         })}
       </main>
+
+      {/* Start your own */}
+      <AnimatePresence>
+        {showCreate && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !creating && setShowCreate(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[92vh] overflow-y-auto"
+            >
+              <div className="p-6 space-y-4 pb-safe">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <h2 className="text-xl font-black italic tracking-tighter">START A CHALLENGE</h2>
+
+                <input
+                  value={form.title}
+                  onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder="e.g. October Grind"
+                  className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+                />
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="What it involves (optional)"
+                  rows={2}
+                  className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
+                />
+
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1 block">Starts</label>
+                    <input
+                      type="date" value={form.start_date}
+                      onChange={(e) => setForm(f => ({ ...f, start_date: e.target.value }))}
+                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent text-sm"
+                    />
+                  </div>
+                  <div className="w-24">
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1 block">Days</label>
+                    <input
+                      type="number" inputMode="numeric" min="1" max="400" value={form.length_days}
+                      onChange={(e) => setForm(f => ({ ...f, length_days: e.target.value }))}
+                      className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent text-center font-bold"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-arc-muted -mt-2">Leave the date blank to start today.</p>
+
+                {/* Who can see it */}
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Who can join</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {Object.entries(VISIBILITY).map(([key, v]) => (
+                      <button
+                        key={key}
+                        onClick={() => setForm(f => ({ ...f, visibility: key }))}
+                        className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all border ${
+                          form.visibility === key
+                            ? 'bg-accent-gradient text-white border-transparent'
+                            : 'bg-arc-surface text-arc-muted border-white/[0.06] hover:text-white'
+                        }`}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-arc-muted mt-1.5">{VISIBILITY[form.visibility].hint}</p>
+                </div>
+
+                {/* Strict */}
+                <button
+                  onClick={() => setForm(f => ({ ...f, strict: !f.strict }))}
+                  className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                    form.strict ? 'bg-amber-500/10 border-amber-500/30' : 'bg-arc-surface border-white/[0.06]'
+                  }`}
+                >
+                  <span className="text-left min-w-0 flex items-center gap-2">
+                    <LockIcon size={14} className={form.strict ? 'text-amber-400' : 'text-arc-muted'} />
+                    <span>
+                      <span className={`block text-[11px] font-bold ${form.strict ? 'text-amber-400' : 'text-white'}`}>
+                        Strict
+                      </span>
+                      <span className="block text-[9px] text-arc-muted leading-snug">Miss a day, back to Day 1</span>
+                    </span>
+                  </span>
+                  <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${form.strict ? 'bg-amber-500 justify-end' : 'bg-white/10 justify-start'}`}>
+                    <span className="w-4 h-4 rounded-full bg-white" />
+                  </span>
+                </button>
+
+                {/* Gym vs gym */}
+                <button
+                  onClick={() => setForm(f => ({ ...f, gym_vs_gym: !f.gym_vs_gym, visibility: !f.gym_vs_gym ? 'public' : f.visibility }))}
+                  className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                    form.gym_vs_gym ? 'bg-arc-cyan/10 border-arc-cyan/30' : 'bg-arc-surface border-white/[0.06]'
+                  }`}
+                >
+                  <span className="text-left min-w-0 flex items-center gap-2">
+                    <TrophyIcon size={14} className={form.gym_vs_gym ? 'text-arc-cyan' : 'text-arc-muted'} />
+                    <span>
+                      <span className={`block text-[11px] font-bold ${form.gym_vs_gym ? 'text-arc-cyan' : 'text-white'}`}>
+                        Gym vs gym
+                      </span>
+                      <span className="block text-[9px] text-arc-muted leading-snug">Scored on each gym&apos;s average, so size doesn&apos;t decide it</span>
+                    </span>
+                  </span>
+                  <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${form.gym_vs_gym ? 'bg-arc-cyan justify-end' : 'bg-white/10 justify-start'}`}>
+                    <span className="w-4 h-4 rounded-full bg-white" />
+                  </span>
+                </button>
+
+                {isAdmin && (
+                  <button
+                    onClick={() => setForm(f => ({ ...f, is_official: !f.is_official }))}
+                    className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                      form.is_official ? 'bg-arc-accent/10 border-arc-accent/30' : 'bg-arc-surface border-white/[0.06]'
+                    }`}
+                  >
+                    <span className="text-left">
+                      <span className={`block text-[11px] font-bold ${form.is_official ? 'text-arc-accent' : 'text-white'}`}>
+                        Official gym challenge
+                      </span>
+                      <span className="block text-[9px] text-arc-muted leading-snug">Marks it as run by the gym, not a member</span>
+                    </span>
+                    <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${form.is_official ? 'bg-arc-accent justify-end' : 'bg-white/10 justify-start'}`}>
+                      <span className="w-4 h-4 rounded-full bg-white" />
+                    </span>
+                  </button>
+                )}
+
+                <div className="space-y-2 pt-1">
+                  <button
+                    onClick={createChallenge} disabled={creating}
+                    className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    {creating ? 'CREATING…' : 'CREATE'}
+                  </button>
+                  <button
+                    onClick={() => setShowCreate(false)} disabled={creating}
+                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Challenge people to it */}
+      <AnimatePresence>
+        {inviteFor && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !sendingInvites && setInviteFor(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[85vh] flex flex-col"
+            >
+              <div className="p-6 pb-3 space-y-3 shrink-0">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <div>
+                  <h2 className="text-xl font-black italic tracking-tighter">CHALLENGE WHO?</h2>
+                  <p className="text-[11px] text-arc-muted mt-0.5 truncate">{inviteFor.title}</p>
+                </div>
+                <input
+                  value={inviteSearch}
+                  onChange={(e) => setInviteSearch(e.target.value)}
+                  placeholder="Search by name"
+                  className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
+                />
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 space-y-1.5 min-h-0">
+                {invitable.length === 0 && (
+                  <p className="text-sm text-arc-muted text-center py-6">
+                    {inviteSearch ? 'Nobody by that name.' : "Everyone's already in or invited."}
+                  </p>
+                )}
+                {invitable.map(p => {
+                  const picked = invitePicked.includes(p.id)
+                  const isFriend = myFriendIds.includes(p.id)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setInvitePicked(prev =>
+                        picked ? prev.filter(x => x !== p.id) : [...prev, p.id])}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors text-left ${
+                        picked ? 'bg-arc-accent/10 border-arc-accent/30' : 'bg-arc-surface border-white/[0.04]'
+                      }`}
+                    >
+                      <Avatar src={p.avatar_url} name={p.username} size={30} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-bold text-white truncate">{p.username || 'Member'}</span>
+                        <span className="block text-[9px] text-arc-muted">
+                          {isFriend ? 'Friend' : p.gym_id === myGymId ? 'Your gym' : 'Another gym'}
+                          {' · '}{(Number(p.total_points) || 0).toLocaleString()} pts
+                        </span>
+                      </span>
+                      <span className={`shrink-0 w-6 h-6 rounded-full border flex items-center justify-center ${
+                        picked ? 'bg-arc-accent border-arc-accent text-white' : 'border-white/20 text-transparent'
+                      }`}>
+                        <CheckIcon size={13} />
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="p-6 pt-3 space-y-2 shrink-0 border-t border-white/5">
+                <button
+                  onClick={sendInvites}
+                  disabled={sendingInvites || invitePicked.length === 0}
+                  className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-40"
+                >
+                  {sendingInvites
+                    ? 'SENDING…'
+                    : invitePicked.length === 0
+                      ? 'PICK SOMEONE'
+                      : `CHALLENGE ${invitePicked.length}`}
+                </button>
+                <button
+                  onClick={() => setInviteFor(null)} disabled={sendingInvites}
+                  className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Joining something strict is worth spelling out */}
       <AnimatePresence>
