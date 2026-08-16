@@ -1061,7 +1061,22 @@ export default function Habits() {
                         <span className="text-arc-muted"><FlagIcon size={15} /></span>
                         <span className="text-left min-w-0">
                             <span className="block text-[11px] font-bold text-white">Challenges</span>
-                            <span className="block text-[9px] text-arc-muted leading-snug">Join one your gym is running</span>
+                            <span className="block text-[9px] text-arc-muted leading-snug">Join one, or start your own</span>
+                        </span>
+                    </span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                 </Link>
+
+                 {/* Where you stand against your friends and the rest of the gym */}
+                 <Link
+                    href="/leaderboard"
+                    className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
+                 >
+                    <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-arc-muted"><TrophyIcon size={15} /></span>
+                        <span className="text-left min-w-0">
+                            <span className="block text-[11px] font-bold text-white">Leaderboard</span>
+                            <span className="block text-[9px] text-arc-muted leading-snug">You vs your friends, your gym, other gyms</span>
                         </span>
                     </span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>

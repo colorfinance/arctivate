@@ -4,6 +4,7 @@ import Link from 'next/link'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, ArrowLeftIcon } from '../components/icons'
+import Avatar from '../components/Avatar'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart,
   isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr,
@@ -44,15 +45,17 @@ export default function Challenges() {
         .select('*')
       setMembers(memberData || [])
 
-      // Names for the standings.
+      // Names and faces for the standings. profiles carries `username`; there
+      // is no full_name/email column, and asking for one errors the whole
+      // query, which is what left every entrant showing as "Member".
       const ids = [...new Set((memberData || []).map(m => m.user_id))]
       if (ids.length) {
         const { data: profs } = await supabase
           .from('profiles')
-          .select('id, full_name, email')
+          .select('id, username, avatar_url')
           .in('id', ids)
         const map = {}
-        ;(profs || []).forEach(p => { map[p.id] = p.full_name || (p.email || '').split('@')[0] || 'Member' })
+        ;(profs || []).forEach(p => { map[p.id] = { name: p.username || 'Member', avatar: p.avatar_url } })
         setNames(map)
       }
 
@@ -352,8 +355,13 @@ export default function Challenges() {
                           className={`flex items-center gap-3 px-3 py-2 rounded-xl ${m.user_id === userId ? 'bg-arc-accent/10 border border-arc-accent/20' : 'bg-arc-surface'}`}
                         >
                           <span className="text-[10px] font-black text-arc-muted w-5 shrink-0">{i + 1}</span>
+                          <Avatar
+                            src={names[m.user_id]?.avatar}
+                            name={names[m.user_id]?.name}
+                            size={24}
+                          />
                           <span className="text-[12px] font-bold text-white truncate flex-1">
-                            {m.user_id === userId ? 'You' : (names[m.user_id] || 'Member')}
+                            {m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member')}
                           </span>
                           {m.restarts > 0 && (
                             <span className="text-[9px] text-arc-muted shrink-0">{m.restarts}× restart</span>
