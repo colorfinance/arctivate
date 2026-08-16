@@ -134,6 +134,10 @@ export default function AdminChallenges() {
     setSavingGroup(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
+      // Anything started from here is the gym's own, not a member's, so it
+      // carries the official badge and belongs to the coach's gym.
+      const { data: me } = await supabase
+        .from('profiles').select('gym_id').eq('id', user?.id).single()
       const { data, error } = await supabase
         .from('group_challenges')
         .insert({
@@ -145,6 +149,8 @@ export default function AdminChallenges() {
           strict: gcForm.strict,
           is_active: true,
           created_by: user?.id,
+          is_official: true,
+          gym_id: me?.gym_id || null,
         })
         .select()
         .single()
