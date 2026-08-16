@@ -4,6 +4,7 @@ import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { ArrowLeftIcon, ChatIcon, BugIcon, IdeaIcon, HeartIcon } from '../components/icons'
 
 const IMG_BUCKET = 'feedback-images'
 
@@ -41,10 +42,10 @@ function resizeToBlob(file, maxWidth = 1400) {
 }
 
 const CATEGORIES = [
-  { value: 'general', label: '💬 General' },
-  { value: 'bug', label: '🐞 Bug' },
-  { value: 'feature', label: '💡 Idea' },
-  { value: 'praise', label: '❤️ Praise' },
+  { value: 'general', label: 'General', Icon: ChatIcon },
+  { value: 'bug', label: 'Bug', Icon: BugIcon },
+  { value: 'feature', label: 'Idea', Icon: IdeaIcon },
+  { value: 'praise', label: 'Praise', Icon: HeartIcon },
 ]
 
 const STATUS_LABEL = { new: 'Received', reviewed: 'Reviewed', resolved: 'Resolved' }
@@ -180,7 +181,7 @@ export default function Feedback() {
             <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Feedback</span>
           </div>
           <button onClick={() => router.back()} className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
-            ← Back
+            <span className="inline-flex items-center gap-1.5"><ArrowLeftIcon size={12} /> Back</span>
           </button>
         </div>
       </header>
@@ -208,7 +209,10 @@ export default function Feedback() {
                         : 'bg-arc-surface text-arc-muted border-white/[0.06] hover:text-white'
                     }`}
                   >
-                    {c.label}
+                    <span className="inline-flex items-center justify-center gap-1.5">
+                      <c.Icon size={14} />
+                      {c.label}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -272,7 +276,9 @@ export default function Feedback() {
                 return (
                   <div key={f.id} className="bg-arc-card/60 border border-white/[0.04] p-4 rounded-xl">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">{cat ? cat.label : f.category}</span>
+                      <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider inline-flex items-center gap-1.5">
+                        {cat ? <><cat.Icon size={11} />{cat.label}</> : f.category}
+                      </span>
                       <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
                         f.status === 'resolved' ? 'bg-emerald-500/15 text-emerald-400'
                           : f.status === 'reviewed' ? 'bg-arc-cyan/15 text-arc-cyan'

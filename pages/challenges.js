@@ -3,16 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
+import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, ArrowLeftIcon } from '../components/icons'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart,
   isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr,
 } from '../lib/challenges'
-
-const ArrowLeftIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
-  </svg>
-)
 
 export default function Challenges() {
   const [loading, setLoading] = useState(true)
@@ -211,7 +206,7 @@ export default function Challenges() {
 
         {!missingTables && challenges.length === 0 && (
           <div className="bg-arc-card border border-white/5 rounded-2xl p-8 text-center space-y-2">
-            <div className="text-4xl">🏁</div>
+            <div className="flex justify-center text-arc-muted"><FlagIcon size={40} /></div>
             <h2 className="text-lg font-black italic tracking-tighter">NOTHING RUNNING YET</h2>
             <p className="text-sm text-arc-muted">When your coach sets a challenge up, it&apos;ll appear here to join.</p>
           </div>
@@ -244,8 +239,8 @@ export default function Challenges() {
                         {ch.length_days} days
                       </span>
                       {ch.strict && (
-                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          🔒 Strict
+                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider inline-flex items-center gap-1">
+                          <LockIcon size={9} /> Strict
                         </span>
                       )}
                       {!started && (
@@ -263,7 +258,7 @@ export default function Challenges() {
                   {joined && (
                     <div className="text-right shrink-0">
                       <div className="text-2xl font-black italic text-arc-accent leading-none">
-                        {done ? '✓' : started ? day : '—'}
+                        {done ? <CheckIcon size={22} className="inline" /> : started ? day : '—'}
                       </div>
                       <div className="text-[9px] text-arc-muted uppercase tracking-wider mt-0.5">
                         {done ? 'Done' : started ? 'Day' : 'Waiting'}
@@ -293,7 +288,7 @@ export default function Challenges() {
 
                 {done && (
                   <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center">
-                    <p className="text-sm font-bold text-green-400">Finished — all {ch.length_days} days 🏆</p>
+                    <p className="text-sm font-bold text-green-400 flex items-center justify-center gap-2"><TrophyIcon size={16} /> Finished — all {ch.length_days} days</p>
                   </div>
                 )}
 
@@ -364,7 +359,7 @@ export default function Challenges() {
                             <span className="text-[9px] text-arc-muted shrink-0">{m.restarts}× restart</span>
                           )}
                           <span className="text-[11px] font-black text-arc-accent shrink-0">
-                            {m.status === 'completed' ? '🏆' : `D${m.day}`}
+                            {m.status === 'completed' ? <TrophyIcon size={14} className="inline" /> : `D${m.day}`}
                           </span>
                         </div>
                       ))}
@@ -393,7 +388,7 @@ export default function Challenges() {
             >
               <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
               <div className="text-center">
-                <div className="text-4xl mb-3">🔒</div>
+                <div className="mb-3 flex justify-center text-amber-400"><LockIcon size={36} /></div>
                 <h2 className="text-xl font-black italic tracking-tighter">{confirmJoin.title.toUpperCase()}</h2>
                 <p className="text-sm text-arc-muted mt-2 leading-relaxed">
                   This one is strict. Miss a single day of your daily habits and you go{' '}
@@ -402,11 +397,11 @@ export default function Challenges() {
               </div>
               <div className="bg-arc-surface border border-white/5 rounded-xl p-4 space-y-2">
                 <div className="flex items-start gap-2.5">
-                  <span className="text-green-500 text-xs mt-0.5">✓</span>
+                  <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
                   <span className="text-[12px] text-arc-muted leading-snug">Your first day and today are safe — only finished days count against you</span>
                 </div>
                 <div className="flex items-start gap-2.5">
-                  <span className="text-green-500 text-xs mt-0.5">✓</span>
+                  <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
                   <span className="text-[12px] text-arc-muted leading-snug">Points, photos and history are never lost, and you can leave anytime</span>
                 </div>
               </div>
@@ -483,7 +478,7 @@ export default function Challenges() {
               className="fixed inset-0 z-[60] flex items-center justify-center p-6"
             >
               <div className="bg-arc-card border border-amber-500/40 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5">
-                <div className="text-5xl">🔒</div>
+                <div className="flex justify-center text-amber-400"><LockIcon size={48} /></div>
                 <div>
                   <div className="text-[10px] font-bold text-amber-400 uppercase tracking-[0.2em] mb-2">{resetNotice.title}</div>
                   <h2 className="text-2xl font-black italic tracking-tighter leading-tight">BACK TO DAY 1</h2>

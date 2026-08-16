@@ -1,3 +1,4 @@
+import { FlameIcon } from '../components/icons'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
@@ -594,7 +595,7 @@ export default function Coach() {
                         : "You haven't logged a workout yet today. Let's not break the chain — a few sets counts."}
                     </p>
                     <p className="text-[11px] text-arc-muted mt-1.5">
-                      {profile?.current_streak > 0 && <span className="text-arc-accent font-bold">🔥 {profile.current_streak}-day streak. </span>}
+                      {profile?.current_streak > 0 && <span className="text-arc-accent font-bold inline-flex items-center gap-1"><FlameIcon size={12} /> {profile.current_streak}-day streak. </span>}
                       {habitsToday.total > 0
                         ? `Habits: ${habitsToday.done}/${habitsToday.total} done today.`
                         : 'Set up a habit to build consistency.'}

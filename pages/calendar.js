@@ -4,6 +4,7 @@ import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, DumbbellIcon, FoodIcon } from '../components/icons'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
@@ -207,7 +208,7 @@ export default function CalendarPage() {
             <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Calendar</span>
           </div>
           <button onClick={() => router.push(router.query.from === 'food' ? '/food' : '/train')} className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
-            ← {router.query.from === 'food' ? 'Food' : 'Train'}
+            <span className="inline-flex items-center gap-1.5"><ArrowLeftIcon size={12} /> {router.query.from === 'food' ? 'Food' : 'Train'}</span>
           </button>
         </div>
       </header>
@@ -217,10 +218,10 @@ export default function CalendarPage() {
         <section className="bg-arc-card border border-white/[0.04] rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between px-1">
             <button onClick={() => goMonth(-1)} aria-label="Previous month"
-              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center">‹</button>
+              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center"><ChevronLeftIcon size={16} /></button>
             <span className="text-sm font-black italic tracking-tight">{MONTHS[cursor.month]} {cursor.year}</span>
             <button onClick={() => goMonth(1)} aria-label="Next month"
-              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center">›</button>
+              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center"><ChevronRightIcon size={16} /></button>
           </div>
 
           <div className="grid grid-cols-7 gap-1">
@@ -267,7 +268,7 @@ export default function CalendarPage() {
 
           {/* Workouts */}
           <div className="space-y-2">
-            <h3 className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.2em] px-1">💪 Workouts</h3>
+            <h3 className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.2em] px-1 flex items-center gap-1.5"><DumbbellIcon size={12} /> Workouts</h3>
 
             {/* Whole workouts — ticked off, or added and not done yet */}
             {sel.sessions.map((s) => (
@@ -309,7 +310,7 @@ export default function CalendarPage() {
           {/* Food — grouped by meal so a single meal can be copied */}
           <div className="space-y-3">
             <div className="flex items-center justify-between px-1">
-              <h3 className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.2em]">🥗 Food</h3>
+              <h3 className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.2em] flex items-center gap-1.5"><FoodIcon size={12} /> Food</h3>
               {sel.food.length > 0 && <span className="text-[10px] font-bold text-arc-muted">{selFoodCals} cal</span>}
             </div>
             {sel.food.length === 0 ? (

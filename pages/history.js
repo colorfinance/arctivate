@@ -4,6 +4,7 @@ import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { ArrowLeftIcon } from '../components/icons'
 
 const TrophyIcon = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -97,7 +98,7 @@ export default function History() {
             <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Training History</span>
           </div>
           <button onClick={() => router.push('/train')} className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors">
-            ← Train
+            <span className="inline-flex items-center gap-1.5"><ArrowLeftIcon size={12} /> Train</span>
           </button>
         </div>
       </header>

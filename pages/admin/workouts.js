@@ -1,3 +1,5 @@
+import { CloseIcon } from '../../components/icons'
+import { CameraIcon, ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/router'
@@ -389,7 +391,7 @@ export default function AdminWorkouts() {
                     <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
                     <span>READING…</span>
                   </>
-                ) : '📸 SCAN WORKOUT PHOTO'}
+                ) : <span className="inline-flex items-center justify-center gap-2"><CameraIcon size={16} /> SCAN WORKOUT PHOTO</span>}
               </button>
             </div>
           </div>
@@ -399,12 +401,12 @@ export default function AdminWorkouts() {
         <section className="bg-arc-card border border-white/[0.04] rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between px-1">
             <button onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label="Previous week"
-              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center">‹</button>
+              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center"><ChevronLeftIcon size={16} /></button>
             <span className="text-[10px] font-bold text-arc-muted uppercase tracking-[0.2em]">
               Week of {new Date(weekStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </span>
             <button onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label="Next week"
-              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center">›</button>
+              className="w-8 h-8 rounded-lg bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white transition-colors flex items-center justify-center"><ChevronRightIcon size={16} /></button>
           </div>
 
           <div className="grid grid-cols-7 gap-1.5">
@@ -500,7 +502,7 @@ export default function AdminWorkouts() {
               <div className="flex gap-2">
                 <input type="text" value={row.name} onChange={(e) => updateRow(i, 'name', e.target.value)} placeholder="Movement name"
                   className="flex-1 bg-arc-surface border border-white/[0.06] text-white p-3 rounded-xl outline-none focus:border-arc-accent/40 font-bold text-sm" />
-                <button onClick={() => removeRow(i)} aria-label="Remove" className="px-3 rounded-xl bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-red-400 transition-colors">✕</button>
+                <button onClick={() => removeRow(i)} aria-label="Remove" className="px-3 rounded-xl bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-red-400 transition-colors flex items-center justify-center"><CloseIcon size={14} /></button>
               </div>
               <select value={row.metric_type} onChange={(e) => updateRow(i, 'metric_type', e.target.value)}
                 className="w-full bg-arc-surface border border-white/[0.06] text-white p-2.5 rounded-xl outline-none focus:border-arc-accent/40 text-sm">

@@ -1,3 +1,4 @@
+import { ArrowRightIcon } from '../components/icons'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
@@ -119,8 +120,8 @@ const FireIcon = () => (
   </svg>
 )
 
-const TrophyIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+const TrophyIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
     <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
     <path d="M4 22h16"/>
@@ -1475,7 +1476,7 @@ export default function Train() {
                         )
                     })}
                 </div>
-                <button onClick={() => router.push('/history')} className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0">History →</button>
+                <button onClick={() => router.push('/history')} className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0 inline-flex items-center gap-1.5">History <ArrowRightIcon size={11} /></button>
             </div>
 
             {/* Workout(s) for the selected day — tap to see it, tick to complete */}
@@ -1706,7 +1707,7 @@ export default function Train() {
 
                     <div className="p-6 space-y-5">
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
-                        <h2 className="text-center text-lg font-black italic tracking-tight">{loggerMode === 'pb' ? 'LOG A PB 🏆' : 'LOG A WORKOUT'}</h2>
+                        <h2 className="text-center text-lg font-black italic tracking-tight">{loggerMode === 'pb' ? <span className="inline-flex items-center gap-2">LOG A PB <TrophyIcon size={16} /></span> : 'LOG A WORKOUT'}</h2>
 
                         {/* Exercise Selection Header */}
                         <div className="flex justify-between items-center">
@@ -1775,7 +1776,7 @@ export default function Train() {
                         </div>
                         <p className="text-[10px] text-arc-muted text-center -mt-2">
                             {loggerMode === 'pb'
-                                ? <>Enter your new best {unitLabelLower}. Beat {currentPB || 0} to set a PB 🏆</>
+                                ? <>Enter your new best {unitLabelLower}. Beat {currentPB || 0} to set a PB</>
                                 : <>Leave {unitLabelLower} empty for a bodyweight set — just log reps.</>}
                         </p>
 

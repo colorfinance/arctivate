@@ -13,6 +13,7 @@ const fireConfetti = async (opts) => {
   } catch {}
 }
 import { useRouter } from 'next/router'
+import { LockIcon, UnlockIcon, FlagIcon, TrophyIcon, FlameIcon, RestartIcon, CheckIcon, StarIcon } from '../components/icons'
 
 // Helper for dates - use local date to avoid timezone issues
 const fmtLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -1038,7 +1039,7 @@ export default function Habits() {
                     }`}
                  >
                     <span className="flex items-center gap-2 min-w-0">
-                        <span className="text-sm">{strictMode ? '🔒' : '🔓'}</span>
+                        <span className={strictMode ? 'text-amber-400' : 'text-arc-muted'}>{strictMode ? <LockIcon size={15} /> : <UnlockIcon size={15} />}</span>
                         <span className="text-left min-w-0">
                             <span className={`block text-[11px] font-bold ${strictMode ? 'text-amber-400' : 'text-white'}`}>Strict mode</span>
                             <span className="block text-[9px] text-arc-muted leading-snug">
@@ -1057,7 +1058,7 @@ export default function Habits() {
                     className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
                  >
                     <span className="flex items-center gap-2 min-w-0">
-                        <span className="text-sm">🏁</span>
+                        <span className="text-arc-muted"><FlagIcon size={15} /></span>
                         <span className="text-left min-w-0">
                             <span className="block text-[11px] font-bold text-white">Challenges</span>
                             <span className="block text-[9px] text-arc-muted leading-snug">Join one your gym is running</span>
@@ -1081,12 +1082,18 @@ export default function Habits() {
                     </div>
                     <div className="text-[10px] font-bold mt-1 uppercase">
                         {allDailyDone
-                            ? <span className={allWeeklyDone ? 'text-yellow-400' : 'text-green-500'}>{allWeeklyDone ? 'All done — daily + weekly 🏆' : 'Daily done! 🔥'}</span>
+                            ? <span className={`inline-flex items-center gap-1.5 ${allWeeklyDone ? 'text-yellow-400' : 'text-green-500'}`}>
+                                {allWeeklyDone ? <TrophyIcon size={12} /> : <FlameIcon size={12} />}
+                                {allWeeklyDone ? 'All done — daily + weekly' : 'Daily done!'}
+                              </span>
                             : <span className="text-arc-muted">Daily tasks</span>}
                     </div>
                     {weeklyTotal > 0 && (
                         <div className="text-[10px] font-bold mt-1.5 uppercase tracking-wider">
-                            <span className={allWeeklyDone ? 'text-yellow-400' : 'text-arc-muted'}>Weekly {weeklyDoneCount}/{weeklyTotal}{allWeeklyDone ? ' ⭐' : ''}</span>
+                            <span className={`inline-flex items-center gap-1.5 ${allWeeklyDone ? 'text-yellow-400' : 'text-arc-muted'}`}>
+                                Weekly {weeklyDoneCount}/{weeklyTotal}
+                                {allWeeklyDone && <StarIcon size={11} />}
+                              </span>
                         </div>
                     )}
                 </div>
@@ -1422,7 +1429,7 @@ export default function Habits() {
                         <div className="bg-arc-card border border-arc-accent/40 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5 relative overflow-hidden shadow-glow">
                             <div className="absolute -top-10 -left-10 w-40 h-40 bg-arc-accent/15 blur-3xl rounded-full pointer-events-none" />
                             <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-arc-cyan/15 blur-3xl rounded-full pointer-events-none" />
-                            <div className="text-5xl">🏆</div>
+                            <div className="flex justify-center text-yellow-400"><TrophyIcon size={48} /></div>
                             <div>
                                 <div className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.2em] mb-2">Challenge Complete</div>
                                 <h2 className="text-2xl font-black italic tracking-tighter leading-tight">CONGRATULATIONS!</h2>
@@ -1457,7 +1464,7 @@ export default function Habits() {
                     >
                         <div className="bg-arc-card border border-arc-accent/30 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5 relative overflow-hidden shadow-glow">
                             <div className="absolute -top-10 -right-10 w-40 h-40 bg-arc-accent/10 blur-3xl rounded-full pointer-events-none" />
-                            <div className="text-4xl">🔥</div>
+                            <div className="flex justify-center text-arc-accent"><FlameIcon size={40} /></div>
                             <div>
                                 <div className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.2em] mb-2">Day 1</div>
                                 <h2 className="text-2xl font-black italic tracking-tighter leading-tight">WELCOME TO THE<br/>ARCTIVATE CHALLENGE</h2>
@@ -1580,7 +1587,7 @@ export default function Habits() {
                         className="fixed inset-0 z-[60] flex items-center justify-center p-6"
                     >
                         <div className="bg-arc-card border border-amber-500/40 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5">
-                            <div className="text-5xl">🔒</div>
+                            <div className="flex justify-center text-amber-400"><LockIcon size={48} /></div>
                             <div>
                                 <div className="text-[10px] font-bold text-amber-400 uppercase tracking-[0.2em] mb-2">Strict mode</div>
                                 <h2 className="text-2xl font-black italic tracking-tighter leading-tight">BACK TO DAY 1</h2>
@@ -1620,7 +1627,7 @@ export default function Habits() {
                     >
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
                         <div className="text-center">
-                            <div className="text-4xl mb-3">🔒</div>
+                            <div className="mb-3 flex justify-center text-amber-400"><LockIcon size={36} /></div>
                             <h2 className="text-xl font-black italic tracking-tighter">TURN ON STRICT MODE?</h2>
                             <p className="text-sm text-arc-muted mt-2 leading-relaxed">
                                 A real challenge, 75 Hard style. Miss a single day of your daily habits and you go <span className="text-white font-bold">back to Day 1</span>.
@@ -1633,11 +1640,11 @@ export default function Habits() {
                                 <span className="text-[12px] text-arc-muted leading-snug">Checked when you open the app — miss days away and it resets on your return</span>
                             </div>
                             <div className="flex items-start gap-2.5">
-                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
                                 <span className="text-[12px] text-arc-muted leading-snug">Today and your first day are safe — only completed days count against you</span>
                             </div>
                             <div className="flex items-start gap-2.5">
-                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
                                 <span className="text-[12px] text-arc-muted leading-snug">Points, photos and history are never lost — and you can switch it off anytime</span>
                             </div>
                         </div>
@@ -1679,7 +1686,7 @@ export default function Habits() {
                     >
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
                         <div className="text-center">
-                            <div className="text-4xl mb-3">🔄</div>
+                            <div className="mb-3 flex justify-center text-arc-cyan"><RestartIcon size={36} /></div>
                             <h2 className="text-xl font-black italic tracking-tighter">START AGAIN?</h2>
                             <p className="text-sm text-arc-muted mt-2 leading-relaxed">
                                 Missed a few days? No drama — take a clean run at it. You&apos;ll go back to <span className="text-white font-bold">Day 1</span> of your {challengeGoal}-day challenge.
@@ -1688,15 +1695,15 @@ export default function Habits() {
 
                         <div className="bg-arc-surface border border-white/5 rounded-xl p-4 space-y-2">
                             <div className="flex items-start gap-2.5">
-                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
                                 <span className="text-[12px] text-arc-muted leading-snug">Your points, photos and history all stay</span>
                             </div>
                             <div className="flex items-start gap-2.5">
-                                <span className="text-green-500 text-xs mt-0.5">✓</span>
+                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
                                 <span className="text-[12px] text-arc-muted leading-snug">Your habits stay exactly as you&apos;ve set them up</span>
                             </div>
                             <div className="flex items-start gap-2.5">
-                                <span className="text-arc-cyan text-xs mt-0.5">↻</span>
+                                <RestartIcon size={13} className="text-arc-cyan mt-0.5 shrink-0" />
                                 <span className="text-[12px] text-arc-muted leading-snug">Only the day counter goes back to 1</span>
                             </div>
                         </div>
