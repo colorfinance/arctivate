@@ -1,3 +1,4 @@
+import { ChatIcon } from '../components/icons'
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
@@ -608,7 +609,7 @@ export default function Profile() {
             onClick={() => router.push('/feedback')}
             className="w-full bg-arc-surface border border-white/5 text-arc-muted font-bold py-4 rounded-2xl flex items-center justify-center gap-3 hover:text-white hover:border-white/10 transition-colors"
           >
-            <span aria-hidden="true">💬</span>
+            <ChatIcon size={15} />
             <span>Send Feedback</span>
           </button>
         </motion.div>

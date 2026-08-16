@@ -7,7 +7,7 @@ import LoadingState from '../../components/LoadingState'
 import { supabase } from '../../lib/supabaseClient'
 
 const CATEGORY_LABEL = {
-  general: '💬 General', bug: '🐞 Bug', feature: '💡 Idea', praise: '❤️ Praise', other: '📌 Other',
+  general: 'General', bug: 'Bug', feature: 'Idea', praise: 'Praise', other: 'Other',
 }
 
 const FILTERS = [

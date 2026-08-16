@@ -1,3 +1,5 @@
+import { AlertIcon } from './icons'
+
 /**
  * Shared error surface. Pass a `retry` callback to render a Try again
  * button — keeps users out of dead-end blank screens when Supabase or
@@ -16,7 +18,7 @@ export default function ErrorState({
   return (
     <div className={wrapper} role="alert">
       <div className="flex flex-col items-center gap-3 text-center max-w-sm">
-        <div className="text-3xl" aria-hidden="true">⚠️</div>
+        <div className="flex justify-center text-amber-400"><AlertIcon size={32} /></div>
         <h2 className="text-lg font-bold text-white">{title}</h2>
         <p className="text-sm">{message}</p>
         {retry && (

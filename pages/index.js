@@ -1,3 +1,4 @@
+import { ArrowRightIcon } from '../components/icons'
 import { useState, useEffect } from 'react'
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
@@ -226,7 +227,7 @@ export default function Auth() {
 
         <div className="mt-4">
           <Link href="/landing" className="text-arc-muted hover:text-white transition text-sm">
-            Learn more about Arctivate →
+            <span className="inline-flex items-center gap-2">Learn more about Arctivate <ArrowRightIcon size={14} /></span>
           </Link>
         </div>
       </motion.div>

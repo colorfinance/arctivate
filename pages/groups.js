@@ -4,6 +4,7 @@ import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { UsersIcon as UsersGlyph } from '../components/icons'
 
 // Icons
 const PlusIcon = () => (
@@ -504,7 +505,7 @@ export default function Groups() {
           </div>
         ) : groups.length === 0 ? (
           <div className="text-center py-20">
-            <div className="text-4xl mb-4">👥</div>
+            <div className="mb-4 flex justify-center text-arc-muted"><UsersGlyph size={40} /></div>
             <h3 className="text-lg font-bold text-white mb-2">No Groups Yet</h3>
             <p className="text-arc-muted text-sm mb-6">Create the first fitness group!</p>
             <button

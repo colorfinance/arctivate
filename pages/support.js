@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import Link from 'next/link'
+import { ArrowLeftIcon } from '../components/icons'
 
 export default function Support() {
   return (
@@ -75,7 +76,7 @@ export default function Support() {
 
         <div style={{ marginTop: 48, paddingTop: 24, borderTop: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
           <Link href="/" style={{ color: '#00D4FF', textDecoration: 'none', fontWeight: 600 }}>
-            ← Back to Arctivate
+            <span className="inline-flex items-center gap-1.5"><ArrowLeftIcon size={12} /> Back to Arctivate</span>
           </Link>
         </div>
       </div>

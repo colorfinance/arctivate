@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { supabase } from '../lib/supabaseClient'
 import { pickQuote } from '../lib/quotes'
+import { DumbbellIcon } from './icons'
 
 // Shows a motivational quote once per app open (per session), for logged-in
 // members only. Auto-dismisses; tap to close early. Mounted globally in _app.
@@ -41,7 +42,7 @@ export default function MotivationBanner() {
         >
           <div className="relative overflow-hidden rounded-2xl border border-arc-accent/25 bg-arc-card/90 backdrop-blur-xl shadow-glow px-4 py-3 flex items-start gap-3">
             <div className="absolute -top-8 -right-8 w-24 h-24 bg-arc-accent/15 blur-2xl rounded-full pointer-events-none" />
-            <span className="text-lg leading-none mt-0.5">💪</span>
+            <DumbbellIcon size={18} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
               <div className="text-[9px] font-bold text-arc-accent uppercase tracking-[0.2em] mb-0.5">Daily fuel</div>
               <p className="text-[13px] font-semibold text-white leading-snug">{quote}</p>

@@ -1,3 +1,4 @@
+import { SunriseIcon, SunIcon, MoonIcon, SnackIcon, CheckIcon, DownloadIcon, StarIcon } from '../components/icons'
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
@@ -15,7 +16,11 @@ import { useRouter } from 'next/router'
 
 const mealOrder = ['breakfast', 'lunch', 'dinner', 'snack']
 const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' }
-const mealIcons = { breakfast: '☀️', lunch: '🌞', dinner: '🌙', snack: '⚡' }
+const mealIcons = { breakfast: SunriseIcon, lunch: SunIcon, dinner: MoonIcon, snack: SnackIcon }
+const MealIcon = ({ meal, size = 14 }) => {
+  const I = mealIcons[meal]
+  return I ? <I size={size} /> : null
+}
 
 const SERVING_PRESETS = [0.5, 1, 1.5, 2]
 const servingLabel = (s) => (s === 0.5 ? '½' : s === 1.5 ? '1½' : `${s}`)
@@ -54,7 +59,7 @@ function FoodFormFields({ form, setField, servings, onServings, toNum }) {
               onClick={() => setField('meal_type', mt)}
               className={`py-2.5 rounded-xl text-[11px] font-bold transition-all ${form.meal_type === mt ? 'bg-accent-gradient text-white' : 'bg-arc-surface text-arc-muted border border-white/5'}`}
             >
-              {mealIcons[mt]} {mealLabels[mt]}
+              <span className="inline-flex items-center justify-center gap-1.5"><MealIcon meal={mt} size={12} /> {mealLabels[mt]}</span>
             </button>
           ))}
         </div>
@@ -1373,7 +1378,7 @@ export default function Food() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-arc-muted flex items-center gap-1">
                           {m.label}
-                          {hit && <span className="text-emerald-400" title="Goal reached">✓</span>}
+                          {hit && <CheckIcon size={12} className="text-emerald-400" title="Goal reached" />}
                         </span>
                         <span className={`text-sm font-bold ${hit ? 'text-emerald-400' : ''}`}>
                           {m.current}{m.goal != null ? <span className="text-arc-muted font-normal"> / {m.goal}</span> : ''}g
@@ -1696,7 +1701,7 @@ export default function Food() {
                 className="fixed inset-0 z-[60] flex items-center justify-center p-6"
               >
                 <div className="bg-arc-card border border-white/10 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5">
-                  <div className="text-5xl">📥</div>
+                  <div className="flex justify-center text-arc-accent"><DownloadIcon size={48} /></div>
                   <div>
                     <h2 className="text-2xl font-black italic tracking-tighter leading-tight">DIARY IMPORTED</h2>
                     <p className="text-sm text-arc-muted mt-2">
@@ -1769,7 +1774,7 @@ export default function Food() {
                   <div key={mealType}>
                     <div className="flex items-center justify-between mb-2 px-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm">{mealIcons[mealType]}</span>
+                        <span className="text-arc-muted"><MealIcon meal={mealType} size={15} /></span>
                         <span className="text-xs font-bold text-white uppercase tracking-wider">{mealLabels[mealType]}</span>
                       </div>
                       <span className="text-xs font-bold text-arc-muted">{mealCals} cal</span>
@@ -2007,7 +2012,7 @@ export default function Food() {
 
               <div className="flex items-center gap-2 mb-4">
                 <span className="text-xs text-arc-muted">Meal:</span>
-                <span className="text-xs font-bold text-white capitalize">{mealIcons[voiceResult.meal_type]} {voiceResult.meal_type}</span>
+                <span className="text-xs font-bold text-white capitalize inline-flex items-center gap-1.5"><MealIcon meal={voiceResult.meal_type} size={13} /> {voiceResult.meal_type}</span>
               </div>
 
               <div className="flex gap-3">
@@ -2197,7 +2202,10 @@ export default function Food() {
                 </AnimatePresence>
 
                 {myFavourites.length === 0 ? (
-                  <p className="text-[11px] text-arc-muted">Your pantry is empty. Add a food above (with its macros per 100 g, per wrap, etc.), or tap ⭐ on a logged food.</p>
+                  <p className="text-[11px] text-arc-muted">
+                    Your pantry is empty. Add a food above (with its macros per 100 g, per wrap, etc.), or tap
+                    <StarIcon size={11} className="inline mx-1 -mt-0.5" /> on a logged food.
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {myFavourites.map((fav) => (

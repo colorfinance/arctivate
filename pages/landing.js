@@ -1,3 +1,5 @@
+import { ArrowRightIcon } from '../components/icons'
+import { RocketIcon } from '../components/icons'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
@@ -90,7 +92,7 @@ export default function Landing() {
             transition={{ delay: 0.2, duration: 0.5 }}
             className="inline-block mb-6 px-4 py-2 rounded-full bg-arc-accent/10 border border-arc-accent/20"
           >
-            <span className="text-arc-accent text-sm font-bold">🚀 Now with Garmin Integration</span>
+            <span className="text-arc-accent text-sm font-bold inline-flex items-center gap-2"><RocketIcon size={15} /> Now with Garmin Integration</span>
           </motion.div>
 
           <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
@@ -290,7 +292,7 @@ export default function Landing() {
               "Train hard. Recover smart. Pay less."
             </p>
             <button className="bg-arc-surface text-white px-6 py-3 rounded-xl font-bold hover:bg-arc-bg transition border border-white/10">
-              View All Partners →
+              <span className="inline-flex items-center gap-2">View All Partners <ArrowRightIcon size={14} /></span>
             </button>
           </motion.div>
         </div>

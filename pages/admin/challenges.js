@@ -1,3 +1,4 @@
+import { LockIcon } from '../../components/icons'
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/router'
@@ -312,7 +313,7 @@ export default function AdminChallenges() {
                     <p className="text-sm font-bold text-white truncate">{ch.title}</p>
                     <p className="text-[10px] text-arc-muted mt-0.5">
                       {new Date(ch.start_date + 'T12:00:00').toLocaleDateString()} · {ch.length_days} days
-                      {ch.strict && ' · 🔒 strict'}
+                      {ch.strict && <span className="inline-flex items-center gap-1"> · <LockIcon size={10} /> strict</span>}
                       {' · '}{groupCounts[ch.id] || 0} joined
                     </p>
                   </div>

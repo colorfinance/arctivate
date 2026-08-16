@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '../lib/supabaseClient'
 import confetti from 'canvas-confetti'
+import { SadIcon } from './icons'
 
 // Icons
 const QRIcon = () => (
@@ -256,7 +257,7 @@ export default function QRScanner({ onPointsEarned }) {
                 {/* Error State */}
                 {error && !scanResult && (
                   <div className="text-center py-8">
-                    <div className="text-5xl mb-4">😕</div>
+                    <div className="mb-4 flex justify-center text-arc-muted"><SadIcon size={48} /></div>
                     <h3 className="text-xl font-bold text-white mb-2">Oops!</h3>
                     <p className="text-red-400 mb-6">{error}</p>
                     <button
