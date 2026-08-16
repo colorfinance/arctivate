@@ -34,6 +34,14 @@ export default function AdminChallenges() {
   const [resetting, setResetting] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
 
+  // Multi-day challenges members join. Several can run at once.
+  const [groups, setGroups] = useState([])
+  const [groupCounts, setGroupCounts] = useState({})
+  const [groupsMissing, setGroupsMissing] = useState(false)
+  const [gcForm, setGcForm] = useState({ title: '', description: '', start_date: '', length_days: '75', strict: false })
+  const [savingGroup, setSavingGroup] = useState(false)
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(null)
+
   const showToast = (m) => setToast(m)
 
   useEffect(() => {
@@ -45,6 +53,7 @@ export default function AdminChallenges() {
       setIsAdmin(true)
       setIsLoading(false)
       loadChallenges()
+      loadGroups()
     }
     init()
   }, [])
@@ -97,6 +106,77 @@ export default function AdminChallenges() {
     if (error) { setChallenges(prev); showToast('Failed to delete') }
   }
 
+  async function loadGroups() {
+    const { data, error } = await supabase
+      .from('group_challenges')
+      .select('*')
+      .order('start_date', { ascending: false })
+    if (error) { setGroupsMissing(true); return }
+    setGroups(data || [])
+
+    const { data: mem } = await supabase
+      .from('group_challenge_members')
+      .select('challenge_id, status')
+    const counts = {}
+    ;(mem || []).forEach(m => {
+      if (m.status === 'left') return
+      counts[m.challenge_id] = (counts[m.challenge_id] || 0) + 1
+    })
+    setGroupCounts(counts)
+  }
+
+  const addGroupChallenge = async () => {
+    const title = gcForm.title.trim()
+    if (!title) { showToast('Give the challenge a name'); return }
+    const length = parseInt(gcForm.length_days, 10)
+    if (!length || length < 1 || length > 400) { showToast('Length must be between 1 and 400 days'); return }
+    setSavingGroup(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data, error } = await supabase
+        .from('group_challenges')
+        .insert({
+          title,
+          description: gcForm.description.trim() || null,
+          // Blank means it starts today.
+          start_date: gcForm.start_date || new Date().toISOString().slice(0, 10),
+          length_days: length,
+          strict: gcForm.strict,
+          is_active: true,
+          created_by: user?.id,
+        })
+        .select()
+        .single()
+      if (error) throw error
+      setGroups(prev => [data, ...prev])
+      setGcForm({ title: '', description: '', start_date: '', length_days: '75', strict: false })
+      showToast('Challenge is live — members can join it now 🏁')
+    } catch {
+      showToast('Could not create (run migration 031)')
+    } finally {
+      setSavingGroup(false)
+    }
+  }
+
+  const toggleGroupActive = async (ch) => {
+    const next = !ch.is_active
+    setGroups(prev => prev.map(c => c.id === ch.id ? { ...c, is_active: next } : c))
+    const { error } = await supabase.from('group_challenges').update({ is_active: next }).eq('id', ch.id)
+    if (error) {
+      setGroups(prev => prev.map(c => c.id === ch.id ? { ...c, is_active: ch.is_active } : c))
+      showToast('Failed to update')
+    }
+  }
+
+  const deleteGroupChallenge = async (ch) => {
+    setConfirmDeleteGroup(null)
+    const prev = groups
+    setGroups(p => p.filter(c => c.id !== ch.id))
+    const { error } = await supabase.from('group_challenges').delete().eq('id', ch.id)
+    if (error) { setGroups(prev); showToast('Failed to delete') }
+    else showToast('Challenge deleted')
+  }
+
   const resetEveryone = async () => {
     setConfirmReset(false)
     setResetting(true)
@@ -144,11 +224,126 @@ export default function AdminChallenges() {
           </Link>
         </div>
 
+        {/* Joinable, multi-day challenges */}
+        <section className="bg-arc-card border border-white/[0.06] rounded-[2rem] p-6 space-y-4">
+          <div>
+            <h2 className="text-sm font-black italic tracking-tight">START A CHALLENGE</h2>
+            <p className="text-[11px] text-arc-muted mt-1">
+              A multi-day challenge members choose to join. As many can run at once as you like.
+            </p>
+          </div>
+
+          {groupsMissing && (
+            <p className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+              Run migration 031 to enable these.
+            </p>
+          )}
+
+          <input
+            type="text" value={gcForm.title}
+            onChange={(e) => setGcForm(f => ({ ...f, title: e.target.value }))}
+            placeholder="e.g. 75 Hard — Autumn"
+            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
+          />
+          <textarea
+            value={gcForm.description}
+            onChange={(e) => setGcForm(f => ({ ...f, description: e.target.value }))}
+            placeholder="What it involves (optional)"
+            rows={2}
+            className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
+          />
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1 block">Starts</label>
+              <input
+                type="date" value={gcForm.start_date}
+                onChange={(e) => setGcForm(f => ({ ...f, start_date: e.target.value }))}
+                className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent text-sm"
+              />
+            </div>
+            <div className="w-28">
+              <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1 block">Days</label>
+              <input
+                type="number" inputMode="numeric" min="1" max="400" value={gcForm.length_days}
+                onChange={(e) => setGcForm(f => ({ ...f, length_days: e.target.value }))}
+                className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent text-center font-bold"
+              />
+            </div>
+          </div>
+          <p className="text-[10px] text-arc-muted -mt-2">Leave the date blank to start today.</p>
+
+          {/* Strict is opt-in per challenge, and joining it is the member's consent */}
+          <button
+            onClick={() => setGcForm(f => ({ ...f, strict: !f.strict }))}
+            className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors ${
+              gcForm.strict ? 'bg-amber-500/10 border-amber-500/30' : 'bg-arc-surface border-white/[0.06]'
+            }`}
+          >
+            <span className="text-left min-w-0">
+              <span className={`block text-[11px] font-bold ${gcForm.strict ? 'text-amber-400' : 'text-white'}`}>
+                Strict — miss a day, back to Day 1
+              </span>
+              <span className="block text-[9px] text-arc-muted leading-snug">
+                Only applies to members who join this challenge
+              </span>
+            </span>
+            <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${gcForm.strict ? 'bg-amber-500 justify-end' : 'bg-white/10 justify-start'}`}>
+              <span className="w-4 h-4 rounded-full bg-white" />
+            </span>
+          </button>
+
+          <button
+            onClick={addGroupChallenge} disabled={savingGroup}
+            className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+          >
+            {savingGroup ? 'CREATING…' : 'CREATE CHALLENGE'}
+          </button>
+        </section>
+
+        {/* Challenges that are running */}
+        {groups.length > 0 && (
+          <section className="space-y-3">
+            <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1">Running challenges</h3>
+            {groups.map(ch => (
+              <div key={ch.id} className="bg-arc-card border border-white/[0.06] rounded-2xl p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-white truncate">{ch.title}</p>
+                    <p className="text-[10px] text-arc-muted mt-0.5">
+                      {new Date(ch.start_date + 'T12:00:00').toLocaleDateString()} · {ch.length_days} days
+                      {ch.strict && ' · 🔒 strict'}
+                      {' · '}{groupCounts[ch.id] || 0} joined
+                    </p>
+                  </div>
+                  <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${ch.is_active ? 'bg-green-500/10 text-green-400' : 'bg-white/5 text-arc-muted'}`}>
+                    {ch.is_active ? 'Open' : 'Closed'}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => toggleGroupActive(ch)}
+                    className="flex-1 bg-arc-surface border border-white/[0.06] text-arc-muted hover:text-white text-[11px] font-bold py-2 rounded-lg transition-colors"
+                  >
+                    {ch.is_active ? 'Close to new members' : 'Reopen'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteGroup(ch)}
+                    className="px-3 bg-red-500/10 text-red-400 text-[11px] font-bold py-2 rounded-lg hover:bg-red-500/20 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
         {/* Add a challenge */}
         <section className="bg-arc-card border border-white/[0.06] rounded-[2rem] p-6 space-y-4">
           <div>
-            <h2 className="text-sm font-black italic tracking-tight">ADD A CHALLENGE</h2>
-            <p className="text-[11px] text-arc-muted mt-1">Appears in every member&apos;s Protocol list to tick off — stays up for 24 hours, then drops off automatically.</p>
+            <h2 className="text-sm font-black italic tracking-tight">ADD A DAILY CHALLENGE</h2>
+            <p className="text-[11px] text-arc-muted mt-1">A one-off task for today. Appears in every member&apos;s Protocol list to tick off — stays up for 24 hours, then drops off automatically.</p>
           </div>
           <input
             type="text" value={title} onChange={(e) => setTitle(e.target.value)}
@@ -174,7 +369,7 @@ export default function AdminChallenges() {
 
         {/* Live challenges */}
         <section className="space-y-3">
-          <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1">Published challenges</h3>
+          <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1">Published daily challenges</h3>
           {challenges.length === 0 && (
             <p className="text-sm text-arc-muted px-1">None yet. Add one above.</p>
           )}
@@ -221,6 +416,28 @@ export default function AdminChallenges() {
                 <div className="flex gap-3">
                   <button onClick={() => setConfirmReset(false)} className="flex-1 py-3 rounded-xl border border-white/10 text-arc-muted font-bold">Cancel</button>
                   <button onClick={resetEveryone} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold">Reset</button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+
+        {confirmDeleteGroup && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setConfirmDeleteGroup(null)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-6">
+              <div className="bg-arc-card border border-white/10 rounded-2xl p-6 w-full max-w-xs text-center space-y-4">
+                <h3 className="text-lg font-black italic">DELETE THIS CHALLENGE?</h3>
+                <p className="text-sm text-arc-muted">
+                  <span className="text-white font-bold">{confirmDeleteGroup.title}</span> and everyone&apos;s progress in it
+                  {groupCounts[confirmDeleteGroup.id] ? ` (${groupCounts[confirmDeleteGroup.id]} member${groupCounts[confirmDeleteGroup.id] === 1 ? '' : 's'})` : ''} will be removed. This cannot be undone.
+                </p>
+                <p className="text-[11px] text-arc-muted">
+                  To stop new people joining without losing anyone&apos;s progress, close it instead.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setConfirmDeleteGroup(null)} className="flex-1 py-3 rounded-xl border border-white/10 text-arc-muted font-bold">Cancel</button>
+                  <button onClick={() => deleteGroupChallenge(confirmDeleteGroup)} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold">Delete</button>
                 </div>
               </div>
             </motion.div>
