@@ -249,6 +249,13 @@ export default function Friends() {
           ) : (
             myFriends.map(p => (
               <Row key={p.id} p={p}>
+                {/* Straight into the create sheet with them already lined up */}
+                <Link
+                  href={`/challenges?invite=${p.id}`}
+                  className="shrink-0 text-[10px] font-black uppercase tracking-wider text-arc-accent bg-arc-accent/15 hover:bg-arc-accent/25 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Challenge
+                </Link>
                 <button
                   onClick={() => removeFriend(p)} disabled={busy === p.id}
                   className="shrink-0 text-[10px] font-bold text-arc-muted hover:text-red-400 px-2 py-1.5 transition-colors disabled:opacity-50"

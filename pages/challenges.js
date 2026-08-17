@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
-import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, ArrowLeftIcon } from '../components/icons'
+import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, UsersIcon } from '../components/icons'
 import Avatar from '../components/Avatar'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
@@ -39,6 +40,9 @@ export default function Challenges() {
   })
   const [inviteFor, setInviteFor] = useState(null) // challenge being invited to
   const [invitePicked, setInvitePicked] = useState([])
+  // Who the new challenge is aimed at, carried from the hero or from a
+  // "Challenge" button on the friends page through to the invite picker.
+  const [prePicked, setPrePicked] = useState([])
   const [inviteSearch, setInviteSearch] = useState('')
   const [sendingInvites, setSendingInvites] = useState(false)
 
@@ -106,6 +110,17 @@ export default function Challenges() {
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Arriving from "Challenge" on someone's row opens the create sheet with
+  // them already lined up. The query is cleared so a refresh doesn't reopen it.
+  const router = useRouter()
+  useEffect(() => {
+    const target = router.query.invite
+    if (!target || loading) return
+    setPrePicked([target])
+    setShowCreate(true)
+    router.replace('/challenges', undefined, { shallow: true })
+  }, [router, loading])
 
   // Strict challenges send you back to your own Day 1 if you miss a day.
   // Checked here on load, using the same rule the personal challenge uses.
@@ -251,8 +266,11 @@ export default function Challenges() {
         strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
       })
       await fetchAll()
-      showToast('Challenge created. Invite someone.')
+      showToast('Challenge created. Now pick who you’re up against.')
+      // Straight into the picker, with anyone this was aimed at already ticked.
       setInviteFor(ch)
+      setInvitePicked(prePicked)
+      setPrePicked([])
     } catch {
       showToast('Could not create (run migration 032)')
     } finally {
@@ -342,12 +360,222 @@ export default function Challenges() {
       .slice(0, 40)
   })()
 
+  // The faces on the hero: friends first, then your own gym, so the commonest
+  // move — calling out someone you actually train with — is one tap.
+  const quickTargets = people
+    .filter(p => p.id !== userId)
+    .filter(p => myFriendIds.includes(p.id) || (myGymId && p.gym_id === myGymId))
+    .sort((a, b) => {
+      const fa = myFriendIds.includes(a.id) ? 0 : 1
+      const fb = myFriendIds.includes(b.id) ? 0 : 1
+      if (fa !== fb) return fa - fb
+      return (Number(b.total_points) || 0) - (Number(a.total_points) || 0)
+    })
+    .slice(0, 8)
+
   if (loading) {
     return (
       <div className="min-h-screen bg-arc-bg text-white flex items-center justify-center">
         <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
           className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full" />
       </div>
+    )
+  }
+
+  // The ones you're in lead the page; everything else is something to join.
+  const amIn = (ch) => {
+    const row = myRow(ch.id)
+    return !!row && row.status !== 'left'
+  }
+  const joinedChallenges = challenges.filter(amIn)
+  const openChallenges = challenges.filter(ch => !amIn(ch))
+
+  // One challenge card. Lifted out of the list so the page can show the
+  // ones you are in separately from the ones you could join, without
+  // keeping two copies of the card.
+  const renderChallenge = (ch) => {
+    const all = members.filter(m => m.challenge_id === ch.id)
+    const mine = all.find(m => m.user_id === userId)
+    const joined = mine && mine.status !== 'left'
+    const stats = cohortStats(all, ch, today)
+    const started = hasStarted(ch.start_date, today)
+    const day = joined ? challengeDay(mine.start_date, today) : 0
+    const done = joined && isFinished(day, ch.length_days)
+    const pct = challengeProgress(day, ch.length_days)
+    const untilStart = daysUntilStart(ch.start_date, today)
+    const standings = rankMembers(all, today)
+
+    return (
+      <motion.section
+        key={ch.id}
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+        className={`bg-arc-card border rounded-2xl overflow-hidden ${joined ? 'border-arc-accent/30' : 'border-white/5'}`}
+      >
+        <div className="p-5 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-lg font-black italic tracking-tighter leading-tight">{ch.title}</h2>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">
+                  {ch.length_days} days
+                </span>
+                {ch.strict && (
+                  <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider inline-flex items-center gap-1">
+                    <LockIcon size={9} /> Strict
+                  </span>
+                )}
+                {!started && (
+                  <span className="text-[9px] font-bold text-arc-cyan bg-arc-cyan/10 border border-arc-cyan/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Starts in {untilStart}d
+                  </span>
+                )}
+                {!ch.is_active && (
+                  <span className="text-[9px] font-bold text-arc-muted bg-white/5 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Closed
+                  </span>
+                )}
+                {ch.gym_vs_gym && (
+                  <span className="text-[9px] font-bold text-arc-cyan bg-arc-cyan/10 border border-arc-cyan/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Gym vs gym
+                  </span>
+                )}
+                {ch.is_official ? (
+                  <span className="text-[9px] font-bold text-arc-accent bg-arc-accent/10 border border-arc-accent/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Official
+                  </span>
+                ) : ch.created_by && ch.created_by !== userId ? (
+                  <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider">
+                    by {names[ch.created_by]?.name || people.find(p => p.id === ch.created_by)?.username || 'a member'}
+                  </span>
+                ) : ch.created_by === userId ? (
+                  <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider">Yours</span>
+                ) : null}
+              </div>
+            </div>
+            {joined && (
+              <div className="text-right shrink-0">
+                <div className="text-2xl font-black italic text-arc-accent leading-none">
+                  {done ? <CheckIcon size={22} className="inline" /> : started ? day : '—'}
+                </div>
+                <div className="text-[9px] text-arc-muted uppercase tracking-wider mt-0.5">
+                  {done ? 'Done' : started ? 'Day' : 'Waiting'}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {ch.description && (
+            <p className="text-[13px] text-arc-muted leading-relaxed">{ch.description}</p>
+          )}
+
+          {joined && started && !done && (
+            <>
+              <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }} animate={{ width: `${pct}%` }}
+                  className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan"
+                />
+              </div>
+              <p className="text-[10px] text-arc-muted">
+                {daysRemaining(day, ch.length_days)} days to go
+                {mine.restarts > 0 && ` · restarted ${mine.restarts}×`}
+              </p>
+            </>
+          )}
+
+          {done && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center">
+              <p className="text-sm font-bold text-green-400 flex items-center justify-center gap-2"><TrophyIcon size={16} /> Finished — all {ch.length_days} days</p>
+            </div>
+          )}
+
+          {/* How the group is doing */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'In', value: stats.total },
+              { label: 'Clean run', value: stats.clean },
+              { label: 'Furthest', value: stats.longestDay || '—' },
+            ].map(s => (
+              <div key={s.label} className="bg-arc-surface border border-white/5 rounded-xl py-2 text-center">
+                <div className="text-base font-black text-white leading-none">{s.value}</div>
+                <div className="text-[8px] text-arc-muted uppercase tracking-wider mt-1">{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            {joined ? (
+              <>
+                <button
+                  onClick={() => setExpanded(expanded === ch.id ? null : ch.id)}
+                  className="flex-1 bg-arc-surface border border-white/5 text-arc-muted hover:text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
+                >
+                  {expanded === ch.id ? 'Hide standings' : 'Standings'}
+                </button>
+                <button
+                  onClick={() => { setInviteFor(ch); setInvitePicked([]); setInviteSearch('') }}
+                  className="px-4 bg-arc-accent/15 text-arc-accent hover:bg-arc-accent/25 text-xs font-bold py-2.5 rounded-xl transition-colors"
+                >
+                  Challenge
+                </button>
+                <button
+                  onClick={() => setConfirmLeave(ch)}
+                  disabled={busy === ch.id}
+                  className="px-4 bg-white/5 text-arc-muted hover:text-white text-xs font-bold py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                >
+                  Leave
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => (ch.strict ? setConfirmJoin(ch) : join(ch))}
+                disabled={busy === ch.id || !ch.is_active}
+                className="flex-1 bg-accent-gradient text-white font-black italic py-3 rounded-xl shadow-glow active:scale-95 transition-transform disabled:opacity-40"
+              >
+                {busy === ch.id ? 'JOINING…' : !ch.is_active ? 'CLOSED' : mine ? 'REJOIN' : 'JOIN'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Standings */}
+        <AnimatePresence>
+          {expanded === ch.id && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden border-t border-white/5"
+            >
+              <div className="p-4 space-y-1.5">
+                {standings.length === 0 && (
+                  <p className="text-xs text-arc-muted text-center py-2">Nobody has joined yet.</p>
+                )}
+                {standings.map((m, i) => (
+                  <div
+                    key={m.id}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl ${m.user_id === userId ? 'bg-arc-accent/10 border border-arc-accent/20' : 'bg-arc-surface'}`}
+                  >
+                    <span className="text-[10px] font-black text-arc-muted w-5 shrink-0">{i + 1}</span>
+                    <Avatar
+                      src={names[m.user_id]?.avatar}
+                      name={names[m.user_id]?.name}
+                      size={24}
+                    />
+                    <span className="text-[12px] font-bold text-white truncate flex-1">
+                      {m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member')}
+                    </span>
+                    {m.restarts > 0 && (
+                      <span className="text-[9px] text-arc-muted shrink-0">{m.restarts}× restart</span>
+                    )}
+                    <span className="text-[11px] font-black text-arc-accent shrink-0">
+                      {m.status === 'completed' ? <TrophyIcon size={14} className="inline" /> : `D${m.day}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.section>
     )
   }
 
@@ -365,14 +593,27 @@ export default function Challenges() {
         )}
       </AnimatePresence>
 
+      {/* Top level now, so no back arrow — the two places you'd go next
+          instead are the people you'd challenge and where you stand. */}
       <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-        <div className="flex items-center gap-3">
-          <Link href="/habits" className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
-            <ArrowLeftIcon />
-          </Link>
+        <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
             CHALLENGES
           </h1>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/friends" aria-label="Friends"
+              className="w-9 h-9 rounded-full bg-white/5 text-arc-muted hover:text-white flex items-center justify-center transition-colors"
+            >
+              <UsersIcon size={17} />
+            </Link>
+            <Link
+              href="/leaderboard" aria-label="Leaderboard"
+              className="w-9 h-9 rounded-full bg-white/5 text-arc-muted hover:text-white flex items-center justify-center transition-colors"
+            >
+              <TrophyIcon size={17} />
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -419,20 +660,46 @@ export default function Challenges() {
           </section>
         )}
 
-        {/* Start your own */}
-        <button
-          onClick={() => setShowCreate(true)}
-          className="w-full bg-arc-card border border-white/[0.06] hover:border-arc-accent/30 rounded-2xl p-4 flex items-center gap-3 transition-colors text-left"
-        >
-          <span className="w-9 h-9 rounded-full bg-arc-accent/10 text-arc-accent flex items-center justify-center shrink-0">
-            <FlagIcon size={17} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-bold text-white">Start your own challenge</span>
-            <span className="block text-[10px] text-arc-muted">Set the rules, then challenge whoever you like</span>
-          </span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
+        {/* The thing the app is for */}
+        <section className="relative overflow-hidden bg-arc-card border border-arc-accent/20 rounded-2xl p-5 space-y-4">
+          <div className="absolute -top-20 -right-14 w-44 h-44 rounded-full bg-arc-accent/10 blur-2xl pointer-events-none" />
+          <div className="relative space-y-1">
+            <h2 className="text-2xl font-black italic tracking-tighter leading-none">CALL SOMEONE OUT</h2>
+            <p className="text-[12px] text-arc-muted leading-relaxed">
+              Set the rules, pick who you&apos;re up against, and see who&apos;s still standing at the end.
+            </p>
+          </div>
+
+          <button
+            onClick={() => { setPrePicked([]); setShowCreate(true) }}
+            className="relative w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+          >
+            CHALLENGE SOMEONE
+          </button>
+
+          {quickTargets.length > 0 && (
+            <div className="relative space-y-2">
+              <p className="text-[9px] font-bold text-arc-muted uppercase tracking-widest">Or go straight at</p>
+              {/* -mx-5 px-5 lets the row bleed to the card edges as it scrolls */}
+              <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-1">
+                {quickTargets.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => { setPrePicked([p.id]); setShowCreate(true) }}
+                    className="shrink-0 w-14 flex flex-col items-center gap-1.5 group"
+                  >
+                    <span className="rounded-full ring-2 ring-transparent group-hover:ring-arc-accent/50 transition-all">
+                      <Avatar src={p.avatar_url} name={p.username} size={44} />
+                    </span>
+                    <span className="text-[9px] text-arc-muted group-hover:text-white transition-colors truncate w-full text-center">
+                      {p.username || 'Member'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
 
         {missingTables && (
           <div className="bg-arc-card border border-amber-500/30 rounded-2xl p-5 text-center">
@@ -444,195 +711,27 @@ export default function Challenges() {
           <div className="bg-arc-card border border-white/5 rounded-2xl p-8 text-center space-y-2">
             <div className="flex justify-center text-arc-muted"><FlagIcon size={40} /></div>
             <h2 className="text-lg font-black italic tracking-tighter">NOTHING RUNNING YET</h2>
-            <p className="text-sm text-arc-muted">When your coach sets a challenge up, it&apos;ll appear here to join.</p>
+            <p className="text-sm text-arc-muted">Be the one who starts it — call someone out above.</p>
           </div>
         )}
 
-        {challenges.map(ch => {
-          const all = members.filter(m => m.challenge_id === ch.id)
-          const mine = all.find(m => m.user_id === userId)
-          const joined = mine && mine.status !== 'left'
-          const stats = cohortStats(all, ch, today)
-          const started = hasStarted(ch.start_date, today)
-          const day = joined ? challengeDay(mine.start_date, today) : 0
-          const done = joined && isFinished(day, ch.length_days)
-          const pct = challengeProgress(day, ch.length_days)
-          const untilStart = daysUntilStart(ch.start_date, today)
-          const standings = rankMembers(all, today)
+        {joinedChallenges.length > 0 && (
+          <section className="space-y-4">
+            <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1">
+              {joinedChallenges.length === 1 ? 'Your challenge' : 'Your challenges'}
+            </h2>
+            {joinedChallenges.map(renderChallenge)}
+          </section>
+        )}
 
-          return (
-            <motion.section
-              key={ch.id}
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              className={`bg-arc-card border rounded-2xl overflow-hidden ${joined ? 'border-arc-accent/30' : 'border-white/5'}`}
-            >
-              <div className="p-5 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-lg font-black italic tracking-tighter leading-tight">{ch.title}</h2>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">
-                        {ch.length_days} days
-                      </span>
-                      {ch.strict && (
-                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider inline-flex items-center gap-1">
-                          <LockIcon size={9} /> Strict
-                        </span>
-                      )}
-                      {!started && (
-                        <span className="text-[9px] font-bold text-arc-cyan bg-arc-cyan/10 border border-arc-cyan/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          Starts in {untilStart}d
-                        </span>
-                      )}
-                      {!ch.is_active && (
-                        <span className="text-[9px] font-bold text-arc-muted bg-white/5 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          Closed
-                        </span>
-                      )}
-                      {ch.gym_vs_gym && (
-                        <span className="text-[9px] font-bold text-arc-cyan bg-arc-cyan/10 border border-arc-cyan/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          Gym vs gym
-                        </span>
-                      )}
-                      {ch.is_official ? (
-                        <span className="text-[9px] font-bold text-arc-accent bg-arc-accent/10 border border-arc-accent/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          Official
-                        </span>
-                      ) : ch.created_by && ch.created_by !== userId ? (
-                        <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider">
-                          by {names[ch.created_by]?.name || people.find(p => p.id === ch.created_by)?.username || 'a member'}
-                        </span>
-                      ) : ch.created_by === userId ? (
-                        <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider">Yours</span>
-                      ) : null}
-                    </div>
-                  </div>
-                  {joined && (
-                    <div className="text-right shrink-0">
-                      <div className="text-2xl font-black italic text-arc-accent leading-none">
-                        {done ? <CheckIcon size={22} className="inline" /> : started ? day : '—'}
-                      </div>
-                      <div className="text-[9px] text-arc-muted uppercase tracking-wider mt-0.5">
-                        {done ? 'Done' : started ? 'Day' : 'Waiting'}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {ch.description && (
-                  <p className="text-[13px] text-arc-muted leading-relaxed">{ch.description}</p>
-                )}
-
-                {joined && started && !done && (
-                  <>
-                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }} animate={{ width: `${pct}%` }}
-                        className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan"
-                      />
-                    </div>
-                    <p className="text-[10px] text-arc-muted">
-                      {daysRemaining(day, ch.length_days)} days to go
-                      {mine.restarts > 0 && ` · restarted ${mine.restarts}×`}
-                    </p>
-                  </>
-                )}
-
-                {done && (
-                  <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center">
-                    <p className="text-sm font-bold text-green-400 flex items-center justify-center gap-2"><TrophyIcon size={16} /> Finished — all {ch.length_days} days</p>
-                  </div>
-                )}
-
-                {/* How the group is doing */}
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: 'In', value: stats.total },
-                    { label: 'Clean run', value: stats.clean },
-                    { label: 'Furthest', value: stats.longestDay || '—' },
-                  ].map(s => (
-                    <div key={s.label} className="bg-arc-surface border border-white/5 rounded-xl py-2 text-center">
-                      <div className="text-base font-black text-white leading-none">{s.value}</div>
-                      <div className="text-[8px] text-arc-muted uppercase tracking-wider mt-1">{s.label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex gap-2">
-                  {joined ? (
-                    <>
-                      <button
-                        onClick={() => setExpanded(expanded === ch.id ? null : ch.id)}
-                        className="flex-1 bg-arc-surface border border-white/5 text-arc-muted hover:text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
-                      >
-                        {expanded === ch.id ? 'Hide standings' : 'Standings'}
-                      </button>
-                      <button
-                        onClick={() => { setInviteFor(ch); setInvitePicked([]); setInviteSearch('') }}
-                        className="px-4 bg-arc-accent/15 text-arc-accent hover:bg-arc-accent/25 text-xs font-bold py-2.5 rounded-xl transition-colors"
-                      >
-                        Challenge
-                      </button>
-                      <button
-                        onClick={() => setConfirmLeave(ch)}
-                        disabled={busy === ch.id}
-                        className="px-4 bg-white/5 text-arc-muted hover:text-white text-xs font-bold py-2.5 rounded-xl transition-colors disabled:opacity-50"
-                      >
-                        Leave
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => (ch.strict ? setConfirmJoin(ch) : join(ch))}
-                      disabled={busy === ch.id || !ch.is_active}
-                      className="flex-1 bg-accent-gradient text-white font-black italic py-3 rounded-xl shadow-glow active:scale-95 transition-transform disabled:opacity-40"
-                    >
-                      {busy === ch.id ? 'JOINING…' : !ch.is_active ? 'CLOSED' : mine ? 'REJOIN' : 'JOIN'}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Standings */}
-              <AnimatePresence>
-                {expanded === ch.id && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden border-t border-white/5"
-                  >
-                    <div className="p-4 space-y-1.5">
-                      {standings.length === 0 && (
-                        <p className="text-xs text-arc-muted text-center py-2">Nobody has joined yet.</p>
-                      )}
-                      {standings.map((m, i) => (
-                        <div
-                          key={m.id}
-                          className={`flex items-center gap-3 px-3 py-2 rounded-xl ${m.user_id === userId ? 'bg-arc-accent/10 border border-arc-accent/20' : 'bg-arc-surface'}`}
-                        >
-                          <span className="text-[10px] font-black text-arc-muted w-5 shrink-0">{i + 1}</span>
-                          <Avatar
-                            src={names[m.user_id]?.avatar}
-                            name={names[m.user_id]?.name}
-                            size={24}
-                          />
-                          <span className="text-[12px] font-bold text-white truncate flex-1">
-                            {m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member')}
-                          </span>
-                          {m.restarts > 0 && (
-                            <span className="text-[9px] text-arc-muted shrink-0">{m.restarts}× restart</span>
-                          )}
-                          <span className="text-[11px] font-black text-arc-accent shrink-0">
-                            {m.status === 'completed' ? <TrophyIcon size={14} className="inline" /> : `D${m.day}`}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.section>
-          )
-        })}
+        {openChallenges.length > 0 && (
+          <section className="space-y-4">
+            <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1">
+              Open to join
+            </h2>
+            {openChallenges.map(renderChallenge)}
+          </section>
+        )}
       </main>
 
       {/* Start your own */}

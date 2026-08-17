@@ -38,7 +38,7 @@ export default function Onboarding() {
       }
       const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', data.user.id).single()
       if (profile?.completed_onboarding) {
-        router.push('/train')
+        router.push('/challenges')
         return
       }
       setCheckingUser(false)
@@ -159,7 +159,7 @@ export default function Onboarding() {
         const confetti = (await import('canvas-confetti')).default
         confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
       } catch {}
-      setTimeout(() => router.push('/train'), 2000)
+      setTimeout(() => router.push('/challenges'), 2000)
     } catch (err) {
       setError('Something went wrong. Please try again.')
       setLoading(false)
