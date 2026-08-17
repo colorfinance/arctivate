@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { DumbbellIcon, CoachIcon, UsersIcon, HabitsIcon, FoodIcon, UserIcon, AdminIcon, FlagIcon } from './icons'
+import { DumbbellIcon, CoachIcon, UsersIcon, HabitsIcon, FoodIcon, AdminIcon, FlagIcon } from './icons'
 
 export default function Nav() {
   const router = useRouter()
@@ -82,10 +82,7 @@ export default function Nav() {
             <FoodIcon size={20} />
             <span className="truncate max-w-full">Food</span>
         </Link>
-        <Link href="/profile" aria-label="Profile" aria-current={router.pathname === '/profile' ? 'page' : undefined} className={itemClasses('/profile')}>
-            <UserIcon size={20} />
-            <span className="truncate max-w-full">Profile</span>
-        </Link>
+        {/* Profile lives top-right in each page header now — see ProfileButton */}
         {isAdmin && (
             <Link href="/admin/workouts" aria-label="Admin" aria-current={router.pathname === '/admin/workouts' ? 'page' : undefined} className={itemClasses('/admin/workouts')}>
                 <AdminIcon size={20} />

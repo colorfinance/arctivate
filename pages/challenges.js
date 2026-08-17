@@ -6,6 +6,7 @@ import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, UsersIcon } from '../components/icons'
 import Avatar from '../components/Avatar'
+import ProfileButton from '../components/ProfileButton'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart,
@@ -613,6 +614,7 @@ export default function Challenges() {
             >
               <TrophyIcon size={17} />
             </Link>
+            <ProfileButton />
           </div>
         </div>
       </header>

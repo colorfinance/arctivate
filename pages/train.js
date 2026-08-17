@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
+import ProfileButton from '../components/ProfileButton'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { resizeToBlob } from '../lib/imageResize'
@@ -1398,11 +1399,14 @@ export default function Train() {
                     </h1>
                     <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Training</span>
                 </div>
-                <div className="flex items-center gap-2 bg-arc-card/80 px-4 py-2 rounded-2xl border border-arc-accent/10 shadow-inner-glow">
-                    <span className="text-arc-accent text-sm drop-shadow-[0_0_8px_rgba(0,212,170,0.5)]">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                    </span>
-                    <NumberTicker value={points} />
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 bg-arc-card/80 px-4 py-2 rounded-2xl border border-arc-accent/10 shadow-inner-glow">
+                        <span className="text-arc-accent text-sm drop-shadow-[0_0_8px_rgba(0,212,170,0.5)]">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        </span>
+                        <NumberTicker value={points} />
+                    </div>
+                    <ProfileButton />
                 </div>
             </div>
         </header>
