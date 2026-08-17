@@ -48,12 +48,12 @@ export default function Auth() {
         .single()
 
       if (error || !data || data.completed_onboarding === false) {
-        router.push(error ? '/train' : '/onboarding')
+        router.push(error ? '/challenges' : '/onboarding')
       } else {
-        router.push('/train')
+        router.push('/challenges')
       }
     } catch {
-      router.push('/train')
+      router.push('/challenges')
     }
   }
 

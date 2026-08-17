@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
+import ProfileButton from '../components/ProfileButton'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { ensureReminderPermission, syncHabitReminders } from '../lib/reminders'
@@ -982,9 +983,12 @@ export default function Habits() {
                 <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
                     PROTOCOL
                 </h1>
-                <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
-                    + Add
-                </button>
+                <div className="flex items-center gap-3">
+                    <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
+                        + Add
+                    </button>
+                    <ProfileButton />
+                </div>
             </div>
 
             {/* Points Display */}

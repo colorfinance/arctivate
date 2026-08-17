@@ -2,6 +2,7 @@ import { FlameIcon } from '../components/icons'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
+import ProfileButton from '../components/ProfileButton'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
 
@@ -555,7 +556,10 @@ export default function Coach() {
               <span className="text-[10px] text-arc-muted font-medium">AI-Powered Training</span>
             </div>
           </div>
-          <ReadinessRing score={readinessScore} size={48} strokeWidth={4} />
+          <div className="flex items-center gap-3">
+            <ReadinessRing score={readinessScore} size={48} strokeWidth={4} />
+            <ProfileButton />
+          </div>
         </div>
 
         {/* Tabs */}
