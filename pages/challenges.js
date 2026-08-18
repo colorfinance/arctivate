@@ -10,7 +10,7 @@ import ProfileButton from '../components/ProfileButton'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart,
-  isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr,
+  isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone,
 } from '../lib/challenges'
 
 export default function Challenges() {
@@ -46,6 +46,11 @@ export default function Challenges() {
   const [prePicked, setPrePicked] = useState([])
   const [inviteSearch, setInviteSearch] = useState('')
   const [sendingInvites, setSendingInvites] = useState(false)
+
+  // Badges
+  const [myBadges, setMyBadges] = useState([])       // everything earned so far
+  const [justEarned, setJustEarned] = useState([])   // earned on this load, worth a cheer
+  const [showHow, setShowHow] = useState(false)      // "how this works" sheet
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
 
@@ -103,6 +108,23 @@ export default function Challenges() {
       setInvites(inv || [])
 
       await enforceStrict(user.id, chData || [], memberData || [])
+
+      // The database counts completed days — a browser can only see its own
+      // owner's ticks, so it is in no position to score anyone. Runs after the
+      // strict check so a reset is reflected in the same pass.
+      await supabase.rpc('recalc_my_challenge_progress')
+      const { data: scored } = await supabase.from('group_challenge_members').select('*')
+      if (scored) setMembers(scored)
+
+      const { data: fresh } = await supabase.rpc('award_my_badges')
+      if (fresh?.length) setJustEarned(fresh)
+
+      const { data: mine } = await supabase
+        .from('user_badges')
+        .select('badge_key, earned_at, badges(key, name, description, icon, sort_order)')
+        .eq('user_id', user.id)
+      setMyBadges((mine || []).map(r => r.badges).filter(Boolean)
+        .sort((a, b) => a.sort_order - b.sort_order))
     } catch {
       setMissingTables(true)
     } finally {
@@ -400,11 +422,11 @@ export default function Challenges() {
     const joined = mine && mine.status !== 'left'
     const stats = cohortStats(all, ch, today)
     const started = hasStarted(ch.start_date, today)
-    const day = joined ? challengeDay(mine.start_date, today) : 0
+    const day = joined ? daysDone(mine) : 0
     const done = joined && isFinished(day, ch.length_days)
     const pct = challengeProgress(day, ch.length_days)
     const untilStart = daysUntilStart(ch.start_date, today)
-    const standings = rankMembers(all, today)
+    const standings = rankMembers(all)
 
     return (
       <motion.section
@@ -459,7 +481,7 @@ export default function Challenges() {
                   {done ? <CheckIcon size={22} className="inline" /> : started ? day : '—'}
                 </div>
                 <div className="text-[9px] text-arc-muted uppercase tracking-wider mt-0.5">
-                  {done ? 'Done' : started ? 'Day' : 'Waiting'}
+                  {done ? 'Done' : started ? (day === 1 ? 'Day done' : 'Days done') : 'Waiting'}
                 </div>
               </div>
             )}
@@ -702,6 +724,36 @@ export default function Challenges() {
             </div>
           )}
         </section>
+
+        {/* What you've earned */}
+        {myBadges.length > 0 && (
+          <section className="bg-arc-card border border-white/[0.06] rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Your badges</span>
+              <span className="text-[10px] font-bold text-arc-muted">{myBadges.length} of 8</span>
+            </div>
+            <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4">
+              {myBadges.map(bg => (
+                <div key={bg.key} className="shrink-0 w-16 flex flex-col items-center gap-1 text-center" title={bg.description}>
+                  <span className="w-12 h-12 rounded-full bg-arc-surface border border-arc-accent/25 flex items-center justify-center text-xl">
+                    {bg.icon}
+                  </span>
+                  <span className="text-[9px] text-arc-muted leading-tight">{bg.name}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Plain English, because nobody reads a challenge they don't understand */}
+        <button
+          onClick={() => setShowHow(true)}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-arc-card border border-white/[0.06] hover:border-arc-accent/30 transition-colors text-left"
+        >
+          <span className="w-7 h-7 rounded-full bg-arc-accent/10 text-arc-accent flex items-center justify-center text-sm font-black shrink-0">?</span>
+          <span className="text-[12px] font-bold text-white flex-1">How challenges work</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
 
         {missingTables && (
           <div className="bg-arc-card border border-amber-500/30 rounded-2xl p-5 text-center">
@@ -971,6 +1023,110 @@ export default function Challenges() {
                   className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
                 >
                   Done
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* How this works, in plain English */}
+      <AnimatePresence>
+        {showHow && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setShowHow(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[88vh] overflow-y-auto"
+            >
+              <div className="p-6 space-y-5 pb-safe">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <h2 className="text-xl font-black italic tracking-tighter">HOW CHALLENGES WORK</h2>
+
+                {[
+                  { n: '1', t: 'Tick your habits on the Habits tab',
+                    d: 'That\u2019s what a challenge counts. The challenge itself is the scoreboard \u2014 Habits is where the work gets logged.' },
+                  { n: '2', t: 'A day counts when everything is ticked',
+                    d: 'Tick every daily habit for that day and the day is banked. Miss one and the day doesn\u2019t count.' },
+                  { n: '3', t: 'Forgot a day? You get one more',
+                    d: 'Until the end of the next day you can still fill it in from the Catch up list. After that the day is settled.' },
+                  { n: '4', t: 'Standings rank on days done',
+                    d: 'Not on who joined first. Level pegging goes to whoever has needed the fewest restarts.' },
+                  { n: '5', t: 'Strict means strict',
+                    d: 'In a strict challenge, a day you never filled in sends you back to Day 1. Non-strict challenges just stop counting that day.' },
+                  { n: '6', t: 'One habit list, every challenge',
+                    d: 'Your habits are shared across all the challenges you\u2019re in, so ticking them once counts for all of them.' },
+                ].map(step => (
+                  <div key={step.n} className="flex gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-arc-accent/15 text-arc-accent text-[11px] font-black flex items-center justify-center">
+                      {step.n}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-bold text-white leading-snug">{step.t}</p>
+                      <p className="text-[11px] text-arc-muted leading-relaxed mt-0.5">{step.d}</p>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="bg-arc-surface border border-white/5 rounded-xl p-4">
+                  <p className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2">Badges</p>
+                  <p className="text-[11px] text-arc-muted leading-relaxed">
+                    Earned for real work \u2014 days actually completed, challenges finished, people called out.
+                    They\u2019re awarded by the app, not claimed, and once earned they\u2019re yours for good.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setShowHow(false)}
+                  className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
+                >
+                  GOT IT
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Something new earned */}
+      <AnimatePresence>
+        {justEarned.length > 0 && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setJustEarned([])}
+              className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60]"
+            />
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 20, stiffness: 260 }}
+              className="fixed inset-0 z-[60] flex items-center justify-center p-6 pointer-events-none"
+            >
+              <div className="bg-arc-card border border-arc-accent/40 rounded-[2rem] p-8 w-full max-w-sm text-center space-y-5 shadow-glow pointer-events-auto">
+                <p className="text-[10px] font-bold text-arc-accent uppercase tracking-widest">
+                  {justEarned.length === 1 ? 'Badge earned' : `${justEarned.length} badges earned`}
+                </p>
+                <div className="flex justify-center gap-4 flex-wrap">
+                  {justEarned.map(bg => (
+                    <div key={bg.key} className="flex flex-col items-center gap-2 w-24">
+                      <span className="w-16 h-16 rounded-full bg-arc-surface border border-arc-accent/40 flex items-center justify-center text-3xl">
+                        {bg.icon}
+                      </span>
+                      <span className="text-[12px] font-black italic text-white leading-tight">{bg.name}</span>
+                      <span className="text-[9px] text-arc-muted leading-snug">{bg.description}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setJustEarned([])}
+                  className="w-full bg-accent-gradient text-white font-black italic py-3.5 rounded-xl shadow-glow active:scale-95 transition-transform"
+                >
+                  NICE
                 </button>
               </div>
             </motion.div>
