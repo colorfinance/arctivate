@@ -169,7 +169,12 @@ export default function Challenges() {
       .gte('date', earliest)
 
     for (const { m, ch } of strictOnes) {
-      const missed = findFirstMissedDay({ dailyHabits, logs: logs || [], startDate: m.start_date })
+      // Someone who has completed the whole thing is done — the days after
+      // their finish line are not misses.
+      if (daysDone(m) >= ch.length_days) continue
+      const missed = findFirstMissedDay({
+        dailyHabits, logs: logs || [], startDate: m.start_date, lengthDays: ch.length_days,
+      })
       if (!missed) continue
       const today = todayStr()
       const { error } = await supabase
@@ -312,6 +317,17 @@ export default function Challenges() {
         inviter_id: userId,
         invitee_id: id,
       }))
+      // A declined invite blocks the unique key, and the invitee is the only
+      // one allowed to update it — so asking again means clearing the old
+      // answer first. Without this the toast said "Challenged" while the
+      // database quietly kept the decline.
+      const declined = invites
+        .filter(i => i.challenge_id === inviteFor.id && i.status === 'declined'
+          && invitePicked.includes(i.invitee_id))
+        .map(i => i.id)
+      if (declined.length) {
+        await supabase.from('challenge_invites').delete().in('id', declined)
+      }
       // Someone already invited shouldn't block the rest of the batch.
       const { error } = await supabase
         .from('challenge_invites')
@@ -335,16 +351,18 @@ export default function Challenges() {
     if (busy) return
     setBusy(invite.id)
     try {
+      // Join first. If the join fails the invite stays pending and the card
+      // stays on screen — the other order consumed the invite with nothing
+      // to show for it and no way to accept again.
+      if (accept) {
+        const ch = challenges.find(c => c.id === invite.challenge_id)
+        if (ch) await doJoin(ch)
+      }
       const { error } = await supabase
         .from('challenge_invites')
         .update({ status: accept ? 'accepted' : 'declined' })
         .eq('id', invite.id)
       if (error) throw error
-
-      if (accept) {
-        const ch = challenges.find(c => c.id === invite.challenge_id)
-        if (ch) await doJoin(ch)
-      }
       await fetchAll()
       showToast(accept ? "You're in" : 'Declined')
     } catch {
@@ -369,7 +387,7 @@ export default function Challenges() {
       invites.filter(i => i.challenge_id === inviteFor.id && i.status !== 'declined').map(i => i.invitee_id)
     )
     return people
-      .filter(p => p.id !== userId && !alreadyIn.has(p.id) && !alreadyAsked.has(p.id))
+      .filter(p => p.id !== userId && p.username && !alreadyIn.has(p.id) && !alreadyAsked.has(p.id))
       .filter(p => !q || String(p.username || '').toLowerCase().includes(q))
       .sort((a, b) => {
         const fa = myFriendIds.includes(a.id) ? 0 : 1
@@ -386,7 +404,7 @@ export default function Challenges() {
   // The faces on the hero: friends first, then your own gym, so the commonest
   // move — calling out someone you actually train with — is one tap.
   const quickTargets = people
-    .filter(p => p.id !== userId)
+    .filter(p => p.id !== userId && p.username)
     .filter(p => myFriendIds.includes(p.id) || (myGymId && p.gym_id === myGymId))
     .sort((a, b) => {
       const fa = myFriendIds.includes(a.id) ? 0 : 1
@@ -590,7 +608,7 @@ export default function Challenges() {
                       <span className="text-[9px] text-arc-muted shrink-0">{m.restarts}× restart</span>
                     )}
                     <span className="text-[11px] font-black text-arc-accent shrink-0">
-                      {m.status === 'completed' ? <TrophyIcon size={14} className="inline" /> : `D${m.day}`}
+                      {m.day >= ch.length_days ? <TrophyIcon size={14} className="inline" /> : `D${m.day}`}
                     </span>
                   </div>
                 ))}

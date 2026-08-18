@@ -66,10 +66,12 @@ export default function Friends() {
     const q = search.trim().toLowerCase()
     const handled = new Set([
       userId,
-      ...friendships.map(f => otherSide(f, userId)),
+      // Declined rows are deleted now, but any left over from before must
+      // not keep hiding people from each other.
+      ...friendships.filter(f => f.status !== 'declined').map(f => otherSide(f, userId)),
     ])
     return profiles
-      .filter(p => !handled.has(p.id))
+      .filter(p => !handled.has(p.id) && p.username)
       .filter(p => !q || String(p.username || '').toLowerCase().includes(q))
       .sort((a, b) => {
         // People from your own gym first: those are the ones you actually know.
@@ -87,6 +89,12 @@ export default function Friends() {
     try {
       const row = pairFor(userId, them.id)
       if (!row) return
+      // A declined row from before the delete-on-decline change still owns
+      // the unique pair; clear it or this insert bounces.
+      const { row: existing } = friendState(friendships, userId, them.id)
+      if (existing && existing.status === 'declined') {
+        await supabase.from('friendships').delete().eq('id', existing.id)
+      }
       const { error } = await supabase.from('friendships').insert(row)
       if (error) throw error
       await fetchAll()
@@ -102,10 +110,12 @@ export default function Friends() {
     if (busy) return
     setBusy(row.id)
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .update({ status: accept ? 'accepted' : 'declined' })
-        .eq('id', row.id)
+      // Declining removes the row rather than marking it. A kept 'declined'
+      // row occupied the unique pair forever: both people vanished from each
+      // other's Find list and neither could ever ask again.
+      const { error } = accept
+        ? await supabase.from('friendships').update({ status: 'accepted' }).eq('id', row.id)
+        : await supabase.from('friendships').delete().eq('id', row.id)
       if (error) throw error
       await fetchAll()
       showToast(accept ? "You're friends" : 'Declined')
