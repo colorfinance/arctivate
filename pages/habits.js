@@ -205,7 +205,12 @@ export default function Habits() {
       const weekSet = new Set()
       const pastSets = {}
       ;(logsData || []).forEach(l => {
-        if ((freqById.get(l.habit_id) || 'daily') === 'weekly') weekSet.add(l.habit_id)
+        // The query reaches before weekStart on Mondays to feed the catch-up
+        // list, so a weekly tick from last week can arrive here. It belongs
+        // to the old week and must not carry over.
+        if ((freqById.get(l.habit_id) || 'daily') === 'weekly') {
+          if (l.date >= weekStart) weekSet.add(l.habit_id)
+        }
         else if (l.date === today) todaySet.add(l.habit_id)
         else if (l.date >= openFrom) {
           ;(pastSets[l.date] || (pastSets[l.date] = new Set())).add(l.habit_id)
@@ -313,6 +318,15 @@ export default function Habits() {
       firstCheck.setDate(firstCheck.getDate() + 1) // day 1 is a grace day
       const firstStr = fmtLocal(firstCheck)
       if (firstStr >= settledBefore) return false // nothing settled yet to judge
+
+      // Someone who reached their goal is finished; resting afterwards is not
+      // a miss, and without this the congrats screen was followed days later
+      // by a reset to Day 1.
+      const goal = profile.challenge_days_goal || 75
+      const goalEnd = new Date(start)
+      goalEnd.setDate(goalEnd.getDate() + goal)
+      const goalEndStr = fmtLocal(goalEnd)
+      if (today >= goalEndStr) return false
 
       const { data: pastLogs, error } = await supabase
         .from('habit_logs')
@@ -489,6 +503,11 @@ export default function Habits() {
           setDone(snapshot)
           showToast('Failed to update habit')
         } else {
+          // Hand the points back, or tick/untick/tick farms them forever and
+          // the leaderboards rank on the total.
+          const back = habit?.points_reward || 10
+          await supabase.rpc('increment_points', { row_id: user.id, x: -back })
+          setTotalPoints(prev => Math.max(0, prev - back))
           showToast('Habit unchecked')
         }
       } else {
@@ -652,7 +671,14 @@ export default function Habits() {
           .delete()
           .eq('user_id', user.id).eq('challenge_id', challengeId).eq('date', today)
         if (error) { setChallengeLogs(snapshot); showToast('Failed to update') }
-        else showToast('Challenge unchecked')
+        else {
+          // Same as habits: unticking hands the points back.
+          const ch = challenges.find(c => c.id === challengeId)
+          const back = ch?.points_reward || 10
+          await supabase.rpc('increment_points', { row_id: user.id, x: -back })
+          setTotalPoints(prev => Math.max(0, prev - back))
+          showToast('Challenge unchecked')
+        }
       } else {
         next.add(challengeId)
         setChallengeLogs(next)

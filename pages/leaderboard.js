@@ -62,7 +62,9 @@ export default function Leaderboard() {
 
   const rows = useMemo(() => {
     if (tab === 'gyms') return []
-    let pool = profiles
+    // No username means they never finished onboarding — a board full of
+    // "Member" rows reads as broken, and you're still shown to yourself.
+    let pool = profiles.filter(p => p.username || p.id === userId)
     if (tab === 'friends') {
       // You're always on your own friends board, otherwise it reads as if you
       // aren't competing.
