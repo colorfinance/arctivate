@@ -14,6 +14,7 @@ const fireConfetti = async (opts) => {
   } catch {}
 }
 import { useRouter } from 'next/router'
+import { backfillFrom, BACKFILL_DAYS } from '../lib/challenges'
 import { LockIcon, UnlockIcon, FlagIcon, TrophyIcon, FlameIcon, RestartIcon, CheckIcon, StarIcon } from '../components/icons'
 
 // Helper for dates - use local date to avoid timezone issues
@@ -46,6 +47,9 @@ export default function Habits() {
   const [habits, setHabits] = useState([])
   const [logs, setLogs] = useState(new Set()) // Set of daily habit_ids completed today
   const [weeklyDone, setWeeklyDone] = useState(new Set()) // weekly habit_ids completed this week
+  // Days still open for backfill: 'YYYY-MM-DD' -> Set of habit_ids ticked on it
+  const [pastDone, setPastDone] = useState({})
+  const [backfilling, setBackfilling] = useState(null) // `${date}:${habitId}` in flight
   const [loading, setLoading] = useState(true)
   const [isAdding, setIsAdding] = useState(false)
   const [customHabit, setCustomHabit] = useState('')
@@ -187,24 +191,32 @@ export default function Habits() {
       // since Monday).
       const today = getTodayStr()
       const weekStart = getWeekStartStr()
+      // On a Monday the day you can still fix belongs to last week, so reach
+      // back to whichever is earlier.
+      const openFrom = backfillFrom(today)
       const { data: logsData } = await supabase
         .from('habit_logs')
         .select('habit_id, date')
         .eq('user_id', user.id)
-        .gte('date', weekStart)
+        .gte('date', openFrom < weekStart ? openFrom : weekStart)
 
       const freqById = new Map(habitsData.map(h => [h.id, h.frequency || 'daily']))
       const todaySet = new Set()
       const weekSet = new Set()
+      const pastSets = {}
       ;(logsData || []).forEach(l => {
         if ((freqById.get(l.habit_id) || 'daily') === 'weekly') weekSet.add(l.habit_id)
         else if (l.date === today) todaySet.add(l.habit_id)
+        else if (l.date >= openFrom) {
+          ;(pastSets[l.date] || (pastSets[l.date] = new Set())).add(l.habit_id)
+        }
       })
 
       // Set State
       setHabits(habitsData)
       setLogs(todaySet)
       setWeeklyDone(weekSet)
+      setPastDone(pastSets)
       setStrictMode(!!profile?.strict_challenge)
 
       // Strict mode: a missed day sends you back to Day 1.
@@ -284,26 +296,30 @@ export default function Habits() {
   // --- Strict challenge (75 Hard style) -------------------------------------
   // Walks the days since the challenge started and, if a day's daily habits
   // weren't all ticked, restarts at Day 1. Day 1 itself is a grace day (you
-  // may have started it at 11pm), and each day only requires the habits that
-  // already existed on it, so adding a habit today can't fail you yesterday.
+  // may have started it at 11pm), days still open for backfill are left alone,
+  // and each day only requires the habits that already existed on it, so adding
+  // a habit today can't fail you yesterday.
   async function enforceStrictChallenge(userId, profile, habitsData) {
     try {
       const dailyHabits = (habitsData || []).filter(h => (h.frequency || 'daily') !== 'weekly')
       if (dailyHabits.length === 0) return false
 
       const today = getTodayStr()
+      // Days still open for backfill aren't judged — otherwise opening the app
+      // would reset you before you could use the catch-up list.
+      const settledBefore = backfillFrom(today)
       const start = new Date(profile.challenge_start_date)
       const firstCheck = new Date(start)
       firstCheck.setDate(firstCheck.getDate() + 1) // day 1 is a grace day
       const firstStr = fmtLocal(firstCheck)
-      if (firstStr >= today) return false // nothing completed yet to judge
+      if (firstStr >= settledBefore) return false // nothing settled yet to judge
 
       const { data: pastLogs, error } = await supabase
         .from('habit_logs')
         .select('habit_id, date')
         .eq('user_id', userId)
         .gte('date', firstStr)
-        .lt('date', today)
+        .lt('date', settledBefore)
       if (error) return false
 
       const doneByDay = {}
@@ -313,7 +329,7 @@ export default function Habits() {
 
       // Walk each day that has already finished.
       let missed = null
-      for (let d = new Date(firstCheck); fmtLocal(d) < today; d.setDate(d.getDate() + 1)) {
+      for (let d = new Date(firstCheck); fmtLocal(d) < settledBefore; d.setDate(d.getDate() + 1)) {
         const key = fmtLocal(d)
         const endOfDay = new Date(`${key}T23:59:59`)
         const required = dailyHabits.filter(h => new Date(h.created_at) <= endOfDay)
@@ -531,6 +547,60 @@ export default function Habits() {
     } catch {
       setDone(snapshot)
       showToast('Something went wrong')
+    }
+  }
+
+  // Ticking a habit for a day you forgot.
+  //
+  // Kept separate from toggleHabit because it's deliberately one-way: you can
+  // fill a gap in a day that's gone, but not un-tick it and not re-open a day
+  // that has already settled. The window is what makes the strict rule fair
+  // rather than a trapdoor.
+  const backfillHabit = async (habitId, date) => {
+    const key = `${date}:${habitId}`
+    if (backfilling) return
+    if (date < backfillFrom(getTodayStr()) || date >= getTodayStr()) return
+
+    setBackfilling(key)
+    const snapshot = pastDone
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in to track habits'); return }
+
+      setPastDone(prev => {
+        const next = { ...prev }
+        next[date] = new Set(next[date] || [])
+        next[date].add(habitId)
+        return next
+      })
+
+      const row = {
+        user_id: user.id,
+        habit_id: habitId,
+        date,
+        completed_at: new Date().toISOString(),
+      }
+      let { error } = await supabase.from('habit_logs').insert(row)
+      if (error && error.code === '23505') {
+        // Already there — treat as done rather than an error.
+        error = null
+      }
+      if (error) {
+        setPastDone(snapshot)
+        showToast('Could not add that')
+        return
+      }
+
+      const habit = habits.find(h => h.id === habitId)
+      const pointsToAward = habit?.points_reward || 10
+      await supabase.rpc('increment_points', { row_id: user.id, x: pointsToAward })
+      setTotalPoints(prev => prev + pointsToAward)
+      showToast(`Caught up! +${pointsToAward} pts`)
+    } catch {
+      setPastDone(snapshot)
+      showToast('Something went wrong')
+    } finally {
+      setBackfilling(null)
     }
   }
 
@@ -948,6 +1018,32 @@ export default function Habits() {
   const dailyHabits = habits.filter(h => (h.frequency || 'daily') !== 'weekly')
   const weeklyHabits = habits.filter(h => (h.frequency || 'daily') === 'weekly')
 
+  // Days you can still put right, most recent first, with what's outstanding
+  // on each. A habit only counts against a day it already existed on, matching
+  // the strict rule — adding a habit today shouldn't create a gap in yesterday.
+  const catchUp = (() => {
+    const today = getTodayStr()
+    const from = backfillFrom(today)
+    const out = []
+    for (let d = new Date(`${from}T00:00:00`); fmtLocal(d) < today; d.setDate(d.getDate() + 1)) {
+      const date = fmtLocal(d)
+      const endOfDay = new Date(`${date}T23:59:59`)
+      const done = pastDone[date] || new Set()
+      const missing = dailyHabits.filter(h =>
+        (!h.created_at || new Date(h.created_at) <= endOfDay) && !done.has(h.id))
+      if (missing.length) out.push({ date, missing })
+    }
+    return out.reverse()
+  })()
+
+  const dayLabel = (date) => {
+    const today = getTodayStr()
+    const y = new Date(`${today}T00:00:00`)
+    y.setDate(y.getDate() - 1)
+    if (date === fmtLocal(y)) return 'Yesterday'
+    return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' })
+  }
+
   const dailyTotal = dailyHabits.length + challenges.length
   const dailyDoneCount = logs.size + challengeLogs.size
   const weeklyTotal = weeklyHabits.length
@@ -1144,6 +1240,45 @@ export default function Habits() {
                     )}
                 </div>
             </section>
+
+            {/* A day you forgot, while there's still time to put it right */}
+            {catchUp.length > 0 && (
+                <section className="space-y-3">
+                    <div className="flex items-center gap-2 px-1">
+                        <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Catch up</span>
+                        <span className="text-[9px] font-bold text-arc-muted uppercase tracking-wider bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                            {BACKFILL_DAYS === 1 ? 'Until end of today' : `${BACKFILL_DAYS} days to fix`}
+                        </span>
+                    </div>
+                    {catchUp.map(({ date, missing }) => (
+                        <div key={date} className="bg-arc-surface border border-amber-500/20 rounded-2xl p-4 space-y-2">
+                            <p className="text-[11px] text-arc-muted">
+                                <span className="font-bold text-white">{dayLabel(date)}</span>
+                                {' — '}{missing.length} not ticked. Add {missing.length === 1 ? 'it' : 'them'} before the day closes.
+                            </p>
+                            {missing.map(habit => {
+                                const busy = backfilling === `${date}:${habit.id}`
+                                return (
+                                    <button
+                                        key={habit.id}
+                                        onClick={() => backfillHabit(habit.id, date)}
+                                        disabled={!!backfilling}
+                                        className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-arc-card border border-white/5 hover:border-amber-500/40 transition-colors text-left disabled:opacity-50"
+                                    >
+                                        <span className="min-w-0">
+                                            <span className="block text-[13px] font-bold text-white truncate">{habit.title}</span>
+                                            <span className="block text-[9px] text-arc-muted">{habit.points_reward || 10} PTS</span>
+                                        </span>
+                                        <span className="shrink-0 w-6 h-6 rounded-full border border-amber-500/40 text-amber-400 flex items-center justify-center">
+                                            {busy ? '' : <CheckIcon size={13} />}
+                                        </span>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    ))}
+                </section>
+            )}
 
             {/* Admin Challenges */}
             {challenges.length > 0 && (
