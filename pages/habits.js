@@ -767,9 +767,13 @@ export default function Habits() {
     setConfirmDeleteId(null)
 
     try {
-      const { error } = await supabase.from('habits').delete().eq('id', id)
+      // .select() returns the rows actually removed. A delete that matches
+      // nothing reports no error, so without this the habit disappeared from
+      // the screen, we said "Habit removed", and it came back on the next load.
+      const { data: removed, error } = await supabase
+        .from('habits').delete().eq('id', id).select('id')
 
-      if (error) {
+      if (error || !removed || removed.length === 0) {
         setHabits(previousHabits)
         showToast('Failed to delete habit')
       } else {
