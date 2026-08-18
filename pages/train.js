@@ -1161,17 +1161,23 @@ export default function Train() {
       if (setsNum !== null && !isNaN(setsNum)) payload.sets = setsNum
       if (rpeNum !== null && !isNaN(rpeNum)) payload.rpe = rpeNum
 
-      let { error } = await supabase.from('workout_logs').update(payload).eq('id', editingLog.id)
+      // .select() so we can see how many rows actually changed. Without it a
+      // write that matches nothing looks identical to a successful one.
+      let { data: changed, error } = await supabase
+        .from('workout_logs').update(payload).eq('id', editingLog.id).select('id')
 
       // Strip unknown columns (older DBs) and retry.
       for (const field of ['reps', 'sets', 'rpe']) {
         if (error && error.message && payload[field] !== undefined && error.message.includes(field)) {
           delete payload[field]
-          const retry = await supabase.from('workout_logs').update(payload).eq('id', editingLog.id)
+          const retry = await supabase
+            .from('workout_logs').update(payload).eq('id', editingLog.id).select('id')
           error = retry.error
+          changed = retry.data
         }
       }
       if (error) throw error
+      if (!changed || changed.length === 0) throw new Error('no rows updated')
 
       setLogs((prev) => prev.map((l) => l.id === editingLog.id
         ? { ...l, val: valNum, reps: repsNum, sets: setsNum, rpe: rpeNum }
@@ -1195,8 +1201,10 @@ export default function Train() {
     setSavingEdit(true)
     const id = editingLog.id
     try {
-      const { error } = await supabase.from('workout_logs').delete().eq('id', id)
+      const { data: removed, error } = await supabase
+        .from('workout_logs').delete().eq('id', id).select('id')
       if (error) throw error
+      if (!removed || removed.length === 0) throw new Error('no rows deleted')
       setLogs((prev) => prev.filter((l) => l.id !== id))
       if (selectedExId) fetchPB(selectedExId)
       closeEditLog()
