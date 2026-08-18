@@ -10,7 +10,7 @@ import ProfileButton from '../components/ProfileButton'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart,
-  isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone,
+  isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom,
 } from '../lib/challenges'
 
 export default function Challenges() {
@@ -46,6 +46,19 @@ export default function Challenges() {
   const [prePicked, setPrePicked] = useState([])
   const [inviteSearch, setInviteSearch] = useState('')
   const [sendingInvites, setSendingInvites] = useState(false)
+
+  // Each challenge's own checklist
+  const [chTasks, setChTasks] = useState([])          // every task I'm allowed to see
+  const [myTicks, setMyTicks] = useState(new Set())   // `${task_id}:${date}` I've ticked
+  const [taskBusy, setTaskBusy] = useState(null)      // `${task_id}:${date}` in flight
+  // Editing a checklist after creation (creator or coach only)
+  const [editTasksFor, setEditTasksFor] = useState(null)  // the challenge being edited
+  const [editRows, setEditRows] = useState([])            // [{ id?, title }]
+  const [editDraft, setEditDraft] = useState('')
+  const [savingTasks, setSavingTasks] = useState(false)
+  // Tasks being drafted in the create sheet
+  const [taskList, setTaskList] = useState([])
+  const [taskDraft, setTaskDraft] = useState('')
 
   // Badges
   const [myBadges, setMyBadges] = useState([])       // everything earned so far
@@ -107,7 +120,19 @@ export default function Challenges() {
         .or(`invitee_id.eq.${user.id},inviter_id.eq.${user.id}`)
       setInvites(inv || [])
 
-      await enforceStrict(user.id, chData || [], memberData || [])
+      // The checklists, and my ticks on the days still open for editing.
+      const { data: taskData } = await supabase
+        .from('challenge_tasks').select('*').order('position')
+      setChTasks(taskData || [])
+
+      const { data: tickData } = await supabase
+        .from('challenge_task_logs')
+        .select('task_id, date')
+        .eq('user_id', user.id)
+        .gte('date', backfillFrom(todayStr()))
+      setMyTicks(new Set((tickData || []).map(t => `${t.task_id}:${t.date}`)))
+
+      await enforceStrict(user.id, chData || [], memberData || [], taskData || [])
 
       // The database counts completed days — a browser can only see its own
       // owner's ticks, so it is in no position to score anyone. Runs after the
@@ -147,7 +172,7 @@ export default function Challenges() {
 
   // Strict challenges send you back to your own Day 1 if you miss a day.
   // Checked here on load, using the same rule the personal challenge uses.
-  const enforceStrict = async (uid, chList, memberList) => {
+  const enforceStrict = async (uid, chList, memberList, taskData = []) => {
     const mine = memberList.filter(m => m.user_id === uid && m.status === 'active')
     const strictOnes = mine
       .map(m => ({ m, ch: chList.find(c => c.id === m.challenge_id) }))
@@ -159,7 +184,6 @@ export default function Challenges() {
       .select('id, created_at, frequency')
       .eq('user_id', uid)
     const dailyHabits = (habitsData || []).filter(h => (h.frequency || 'daily') !== 'weekly')
-    if (dailyHabits.length === 0) return
 
     const earliest = strictOnes.map(x => x.m.start_date).sort()[0]
     const { data: logs } = await supabase
@@ -168,12 +192,27 @@ export default function Challenges() {
       .eq('user_id', uid)
       .gte('date', earliest)
 
+    // A challenge with its own tasks is judged on those; findFirstMissedDay
+    // only needs {id, created_at} rows and {habit_id, date} logs, and tasks
+    // fit that shape exactly.
+    const { data: taskLogs } = await supabase
+      .from('challenge_task_logs')
+      .select('task_id, date')
+      .eq('user_id', uid)
+      .gte('date', earliest)
+    const taskLogRows = (taskLogs || []).map(l => ({ habit_id: l.task_id, date: l.date }))
+
     for (const { m, ch } of strictOnes) {
       // Someone who has completed the whole thing is done — the days after
       // their finish line are not misses.
       if (daysDone(m) >= ch.length_days) continue
+      const ownTasks = taskData.filter(t => t.challenge_id === ch.id)
+      const judge = ownTasks.length
+        ? { dailyHabits: ownTasks, logs: taskLogRows }
+        : { dailyHabits, logs: logs || [] }
+      if (judge.dailyHabits.length === 0) continue
       const missed = findFirstMissedDay({
-        dailyHabits, logs: logs || [], startDate: m.start_date, lengthDays: ch.length_days,
+        ...judge, startDate: m.start_date, lengthDays: ch.length_days,
       })
       if (!missed) continue
       const today = todayStr()
@@ -279,6 +318,14 @@ export default function Challenges() {
       }).select().single()
       if (error) throw error
 
+      // The checklist. If saving it fails the challenge still exists and
+      // simply runs on personal habits — worse than intended but not broken.
+      if (taskList.length) {
+        await supabase.from('challenge_tasks').insert(
+          taskList.map((title, i) => ({ challenge_id: ch.id, title, position: i }))
+        )
+      }
+
       // Whoever starts it is in it. A challenge with nobody in it, including
       // its owner, reads as broken.
       await supabase.from('group_challenge_members').insert({
@@ -293,6 +340,8 @@ export default function Challenges() {
         title: '', description: '', start_date: '', length_days: '30',
         strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
       })
+      setTaskList([])
+      setTaskDraft('')
       await fetchAll()
       showToast('Challenge created. Now pick who you’re up against.')
       // Straight into the picker, with anyone this was aimed at already ticked.
@@ -423,6 +472,109 @@ export default function Challenges() {
     )
   }
 
+  // Ticking one task on one day. Points move with the tick both ways, and
+  // when the last task of the day goes green the day is banked immediately —
+  // the recount runs so the card and standings agree without a reload.
+  const tickTask = async (task, date, tasksForDay) => {
+    const key = `${task.id}:${date}`
+    if (taskBusy) return
+    setTaskBusy(key)
+    const had = myTicks.has(key)
+    const next = new Set(myTicks)
+    had ? next.delete(key) : next.add(key)
+    setMyTicks(next)
+    try {
+      if (had) {
+        const { error } = await supabase
+          .from('challenge_task_logs')
+          .delete().eq('task_id', task.id).eq('user_id', userId).eq('date', date)
+        if (error) throw error
+        await supabase.rpc('increment_points', { row_id: userId, x: -10 })
+      } else {
+        const { error } = await supabase.from('challenge_task_logs').insert({
+          task_id: task.id, user_id: userId, date,
+        })
+        if (error && error.code !== '23505') throw error
+        await supabase.rpc('increment_points', { row_id: userId, x: 10 })
+      }
+
+      const dayComplete = !had && tasksForDay.every(t => next.has(`${t.id}:${date}`))
+      if (dayComplete) {
+        await supabase.rpc('recalc_my_challenge_progress')
+        const { data: scored } = await supabase.from('group_challenge_members').select('*')
+        if (scored) setMembers(scored)
+        const { data: fresh } = await supabase.rpc('award_my_badges')
+        if (fresh?.length) setJustEarned(fresh)
+        showToast(date === todayStr() ? 'Day banked 🔥' : 'Caught up — day banked')
+      }
+    } catch {
+      setMyTicks(myTicks)
+      showToast('Could not save that')
+    } finally {
+      setTaskBusy(null)
+    }
+  }
+
+  // --- Editing a checklist after creation ------------------------------------
+
+  const openTaskEditor = (ch) => {
+    setEditTasksFor(ch)
+    setEditRows(chTasks.filter(t => t.challenge_id === ch.id).map(t => ({ id: t.id, title: t.title })))
+    setEditDraft('')
+  }
+
+  // Applies the difference between what's on screen and what's stored.
+  // Renames are cosmetic. An added task only exists from now, so the
+  // created_at guard means it can't fail anyone's yesterday. Removing a task
+  // deletes its ticks with it, which only ever makes past days easier.
+  const saveTasks = async () => {
+    if (savingTasks || !editTasksFor) return
+    setSavingTasks(true)
+    try {
+      const chId = editTasksFor.id
+      const orig = chTasks.filter(t => t.challenge_id === chId)
+      const keep = editRows.map(r => ({ ...r, title: r.title.trim() })).filter(r => r.title)
+
+      const removed = orig.filter(o => !keep.some(k => k.id === o.id)).map(o => o.id)
+      if (removed.length) {
+        const { error } = await supabase.from('challenge_tasks').delete().in('id', removed)
+        if (error) throw error
+      }
+      for (let i = 0; i < keep.length; i++) {
+        const r = keep[i]
+        if (!r.id) continue
+        const was = orig.find(o => o.id === r.id)
+        if (was && (was.title !== r.title || was.position !== i)) {
+          const { error } = await supabase
+            .from('challenge_tasks').update({ title: r.title, position: i }).eq('id', r.id)
+          if (error) throw error
+        }
+      }
+      const added = keep.map((r, i) => ({ r, i })).filter(x => !x.r.id)
+      if (added.length) {
+        const { error } = await supabase.from('challenge_tasks').insert(
+          added.map(x => ({ challenge_id: chId, title: x.r.title, position: x.i }))
+        )
+        if (error) throw error
+      }
+
+      // The definition of "a day" just changed, so recount and refresh.
+      const { data: taskData } = await supabase
+        .from('challenge_tasks').select('*').order('position')
+      setChTasks(taskData || [])
+      await supabase.rpc('recalc_my_challenge_progress')
+      const { data: scored } = await supabase.from('group_challenge_members').select('*')
+      if (scored) setMembers(scored)
+
+      setEditTasksFor(null)
+      showToast('Checklist updated')
+    } catch {
+      showToast('Could not save the checklist')
+    } finally {
+      setSavingTasks(false)
+    }
+  }
+
   // The ones you're in lead the page; everything else is something to join.
   const amIn = (ch) => {
     const row = myRow(ch.id)
@@ -441,6 +593,8 @@ export default function Challenges() {
     const stats = cohortStats(all, ch, today)
     const started = hasStarted(ch.start_date, today)
     const day = joined ? daysDone(mine) : 0
+    const ownTasks = chTasks.filter(t => t.challenge_id === ch.id)
+    const yesterday = backfillFrom(today)
     const done = joined && isFinished(day, ch.length_days)
     const pct = challengeProgress(day, ch.length_days)
     const untilStart = daysUntilStart(ch.start_date, today)
@@ -522,6 +676,86 @@ export default function Challenges() {
                 {mine.restarts > 0 && ` · restarted ${mine.restarts}×`}
               </p>
             </>
+          )}
+
+          {/* The challenge's own checklist for today, and yesterday while it
+              can still be fixed */}
+          {joined && started && !done && ownTasks.length > 0 && (() => {
+            const doneToday = ownTasks.filter(t => myTicks.has(`${t.id}:${today}`)).length
+            const missedYesterday = ownTasks.filter(t => !myTicks.has(`${t.id}:${yesterday}`))
+            const showYesterday = yesterday >= String(mine.start_date).slice(0, 10)
+              && missedYesterday.length > 0
+            return (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[9px] font-bold text-arc-muted uppercase tracking-widest">
+                    Today
+                    {(ch.created_by === userId || isAdmin) && (
+                      <button
+                        onClick={() => openTaskEditor(ch)}
+                        className="ml-2 text-arc-accent hover:text-white normal-case tracking-normal font-bold transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </span>
+                  <span className={`text-[9px] font-bold uppercase tracking-widest ${doneToday === ownTasks.length ? 'text-green-400' : 'text-arc-muted'}`}>
+                    {doneToday === ownTasks.length ? 'Day banked' : `${doneToday}/${ownTasks.length}`}
+                  </span>
+                </div>
+                {ownTasks.map(t => {
+                  const ticked = myTicks.has(`${t.id}:${today}`)
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => tickTask(t, today, ownTasks)}
+                      disabled={!!taskBusy}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors text-left disabled:opacity-60 ${
+                        ticked ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/[0.05] hover:border-arc-accent/30'
+                      }`}
+                    >
+                      <span className={`shrink-0 w-5 h-5 rounded-md border flex items-center justify-center ${
+                        ticked ? 'bg-green-500 border-green-500 text-white' : 'border-white/20 text-transparent'
+                      }`}>
+                        <CheckIcon size={12} />
+                      </span>
+                      <span className={`text-[12px] font-bold truncate ${ticked ? 'text-green-300 line-through decoration-green-500/50' : 'text-white'}`}>
+                        {t.title}
+                      </span>
+                    </button>
+                  )
+                })}
+                {showYesterday && (
+                  <div className="pt-1 space-y-1.5">
+                    <span className="block px-1 text-[9px] font-bold text-amber-400 uppercase tracking-widest">
+                      Yesterday — fix it before today ends
+                    </span>
+                    {missedYesterday.map(t => (
+                      <button
+                        key={`${t.id}-y`}
+                        onClick={() => tickTask(t, yesterday, ownTasks)}
+                        disabled={!!taskBusy}
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/5 hover:border-amber-500/50 transition-colors text-left disabled:opacity-60"
+                      >
+                        <span className="shrink-0 w-5 h-5 rounded-md border border-amber-500/40 text-amber-400 flex items-center justify-center">
+                          <CheckIcon size={12} />
+                        </span>
+                        <span className="text-[12px] font-bold text-amber-200 truncate">{t.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {joined && !done && ownTasks.length === 0 && (ch.created_by === userId || isAdmin) && (
+            <button
+              onClick={() => openTaskEditor(ch)}
+              className="w-full border border-dashed border-white/15 hover:border-arc-accent/40 text-arc-muted hover:text-white text-[11px] font-bold py-2.5 rounded-xl transition-colors"
+            >
+              + Give it a daily checklist
+            </button>
           )}
 
           {done && (
@@ -838,6 +1072,58 @@ export default function Challenges() {
                   className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm resize-none"
                 />
 
+                {/* The daily checklist everyone in the challenge will tick */}
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">
+                    Daily tasks
+                  </label>
+                  {taskList.map((t, i) => (
+                    <div key={i} className="flex items-center gap-2 mb-1.5">
+                      <span className="flex-1 bg-arc-surface border border-white/[0.06] px-4 py-2.5 rounded-xl text-[13px] font-bold text-white truncate">
+                        {t}
+                      </span>
+                      <button
+                        onClick={() => setTaskList(prev => prev.filter((_, j) => j !== i))}
+                        aria-label={`Remove ${t}`}
+                        className="shrink-0 w-9 h-9 rounded-xl bg-white/5 text-arc-muted hover:text-red-400 flex items-center justify-center transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  {taskList.length < 10 && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={taskDraft}
+                        onChange={(e) => setTaskDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && taskDraft.trim()) {
+                            setTaskList(prev => [...prev, taskDraft.trim()])
+                            setTaskDraft('')
+                          }
+                        }}
+                        placeholder="e.g. 3L of water"
+                        className="flex-1 bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          if (!taskDraft.trim()) return
+                          setTaskList(prev => [...prev, taskDraft.trim()])
+                          setTaskDraft('')
+                        }}
+                        className="shrink-0 px-4 py-2.5 rounded-xl bg-arc-accent/15 text-arc-accent text-xs font-bold hover:bg-arc-accent/25 transition-colors"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-arc-muted mt-1.5">
+                    {taskList.length === 0
+                      ? 'Everyone ticks these off each day, right on the challenge. Leave empty and it counts their own daily habits instead.'
+                      : `Tick all ${taskList.length} in a day and the day is banked.`}
+                  </p>
+                </div>
+
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1 block">Starts</label>
@@ -1067,18 +1353,18 @@ export default function Challenges() {
                 <h2 className="text-xl font-black italic tracking-tighter">HOW CHALLENGES WORK</h2>
 
                 {[
-                  { n: '1', t: 'Tick your habits on the Habits tab',
-                    d: 'That\u2019s what a challenge counts. The challenge itself is the scoreboard \u2014 Habits is where the work gets logged.' },
-                  { n: '2', t: 'A day counts when everything is ticked',
-                    d: 'Tick every daily habit for that day and the day is banked. Miss one and the day doesn\u2019t count.' },
+                  { n: '1', t: 'Every challenge has its own checklist',
+                    d: 'The tasks live right on the challenge card, and everyone in it ticks the same list. A challenge without tasks counts your own daily habits from the Habits tab instead.' },
+                  { n: '2', t: 'Tick everything and the day is banked',
+                    d: 'Finish the whole list on a day and that day counts. Miss one and it doesn\u2019t.' },
                   { n: '3', t: 'Forgot a day? You get one more',
                     d: 'Until the end of the next day you can still fill it in from the Catch up list. After that the day is settled.' },
                   { n: '4', t: 'Standings rank on days done',
                     d: 'Not on who joined first. Level pegging goes to whoever has needed the fewest restarts.' },
                   { n: '5', t: 'Strict means strict',
                     d: 'In a strict challenge, a day you never filled in sends you back to Day 1. Non-strict challenges just stop counting that day.' },
-                  { n: '6', t: 'One habit list, every challenge',
-                    d: 'Your habits are shared across all the challenges you\u2019re in, so ticking them once counts for all of them.' },
+                  { n: '6', t: 'Challenges are separate, habits are yours',
+                    d: 'Each challenge scores its own checklist. Only challenges without tasks fall back to your personal habits \u2014 those share one list.' },
                 ].map(step => (
                   <div key={step.n} className="flex gap-3">
                     <span className="shrink-0 w-6 h-6 rounded-full bg-arc-accent/15 text-arc-accent text-[11px] font-black flex items-center justify-center">
@@ -1146,6 +1432,98 @@ export default function Challenges() {
                 >
                   NICE
                 </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Edit a challenge's checklist */}
+      <AnimatePresence>
+        {editTasksFor && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !savingTasks && setEditTasksFor(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[88vh] overflow-y-auto"
+            >
+              <div className="p-6 space-y-4 pb-safe">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <div>
+                  <h2 className="text-xl font-black italic tracking-tighter">DAILY TASKS</h2>
+                  <p className="text-[11px] text-arc-muted mt-0.5 truncate">{editTasksFor.title}</p>
+                </div>
+
+                {editRows.map((r, i) => (
+                  <div key={r.id || `new-${i}`} className="flex items-center gap-2">
+                    <input
+                      value={r.title}
+                      onChange={(e) => setEditRows(prev => prev.map((x, j) => j === i ? { ...x, title: e.target.value } : x))}
+                      className="flex-1 bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-[13px] font-bold"
+                    />
+                    <button
+                      onClick={() => setEditRows(prev => prev.filter((_, j) => j !== i))}
+                      aria-label={`Remove ${r.title}`}
+                      className="shrink-0 w-9 h-9 rounded-xl bg-white/5 text-arc-muted hover:text-red-400 flex items-center justify-center transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                {editRows.length < 10 && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && editDraft.trim()) {
+                          setEditRows(prev => [...prev, { title: editDraft.trim() }])
+                          setEditDraft('')
+                        }
+                      }}
+                      placeholder="Add a task"
+                      className="flex-1 bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
+                    />
+                    <button
+                      onClick={() => {
+                        if (!editDraft.trim()) return
+                        setEditRows(prev => [...prev, { title: editDraft.trim() }])
+                        setEditDraft('')
+                      }}
+                      className="shrink-0 px-4 py-2.5 rounded-xl bg-arc-accent/15 text-arc-accent text-xs font-bold hover:bg-arc-accent/25 transition-colors"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+
+                <p className="text-[10px] text-arc-muted leading-relaxed">
+                  Changes apply to everyone in the challenge. A task added today only
+                  counts from today — it can&apos;t fail anyone&apos;s yesterday. Removing a
+                  task deletes its ticks too.
+                  {editRows.length === 0 && ' With no tasks, the challenge counts each person\u2019s own daily habits.'}
+                </p>
+
+                <div className="space-y-2 pt-1">
+                  <button
+                    onClick={saveTasks} disabled={savingTasks}
+                    className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    {savingTasks ? 'SAVING…' : 'SAVE'}
+                  </button>
+                  <button
+                    onClick={() => setEditTasksFor(null)} disabled={savingTasks}
+                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </motion.div>
           </>
