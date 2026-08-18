@@ -51,6 +51,11 @@ export default function Challenges() {
   const [chTasks, setChTasks] = useState([])          // every task I'm allowed to see
   const [myTicks, setMyTicks] = useState(new Set())   // `${task_id}:${date}` I've ticked
   const [taskBusy, setTaskBusy] = useState(null)      // `${task_id}:${date}` in flight
+  // Editing a checklist after creation (creator or coach only)
+  const [editTasksFor, setEditTasksFor] = useState(null)  // the challenge being edited
+  const [editRows, setEditRows] = useState([])            // [{ id?, title }]
+  const [editDraft, setEditDraft] = useState('')
+  const [savingTasks, setSavingTasks] = useState(false)
   // Tasks being drafted in the create sheet
   const [taskList, setTaskList] = useState([])
   const [taskDraft, setTaskDraft] = useState('')
@@ -510,6 +515,66 @@ export default function Challenges() {
     }
   }
 
+  // --- Editing a checklist after creation ------------------------------------
+
+  const openTaskEditor = (ch) => {
+    setEditTasksFor(ch)
+    setEditRows(chTasks.filter(t => t.challenge_id === ch.id).map(t => ({ id: t.id, title: t.title })))
+    setEditDraft('')
+  }
+
+  // Applies the difference between what's on screen and what's stored.
+  // Renames are cosmetic. An added task only exists from now, so the
+  // created_at guard means it can't fail anyone's yesterday. Removing a task
+  // deletes its ticks with it, which only ever makes past days easier.
+  const saveTasks = async () => {
+    if (savingTasks || !editTasksFor) return
+    setSavingTasks(true)
+    try {
+      const chId = editTasksFor.id
+      const orig = chTasks.filter(t => t.challenge_id === chId)
+      const keep = editRows.map(r => ({ ...r, title: r.title.trim() })).filter(r => r.title)
+
+      const removed = orig.filter(o => !keep.some(k => k.id === o.id)).map(o => o.id)
+      if (removed.length) {
+        const { error } = await supabase.from('challenge_tasks').delete().in('id', removed)
+        if (error) throw error
+      }
+      for (let i = 0; i < keep.length; i++) {
+        const r = keep[i]
+        if (!r.id) continue
+        const was = orig.find(o => o.id === r.id)
+        if (was && (was.title !== r.title || was.position !== i)) {
+          const { error } = await supabase
+            .from('challenge_tasks').update({ title: r.title, position: i }).eq('id', r.id)
+          if (error) throw error
+        }
+      }
+      const added = keep.map((r, i) => ({ r, i })).filter(x => !x.r.id)
+      if (added.length) {
+        const { error } = await supabase.from('challenge_tasks').insert(
+          added.map(x => ({ challenge_id: chId, title: x.r.title, position: x.i }))
+        )
+        if (error) throw error
+      }
+
+      // The definition of "a day" just changed, so recount and refresh.
+      const { data: taskData } = await supabase
+        .from('challenge_tasks').select('*').order('position')
+      setChTasks(taskData || [])
+      await supabase.rpc('recalc_my_challenge_progress')
+      const { data: scored } = await supabase.from('group_challenge_members').select('*')
+      if (scored) setMembers(scored)
+
+      setEditTasksFor(null)
+      showToast('Checklist updated')
+    } catch {
+      showToast('Could not save the checklist')
+    } finally {
+      setSavingTasks(false)
+    }
+  }
+
   // The ones you're in lead the page; everything else is something to join.
   const amIn = (ch) => {
     const row = myRow(ch.id)
@@ -623,7 +688,17 @@ export default function Challenges() {
             return (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-[9px] font-bold text-arc-muted uppercase tracking-widest">Today</span>
+                  <span className="text-[9px] font-bold text-arc-muted uppercase tracking-widest">
+                    Today
+                    {(ch.created_by === userId || isAdmin) && (
+                      <button
+                        onClick={() => openTaskEditor(ch)}
+                        className="ml-2 text-arc-accent hover:text-white normal-case tracking-normal font-bold transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </span>
                   <span className={`text-[9px] font-bold uppercase tracking-widest ${doneToday === ownTasks.length ? 'text-green-400' : 'text-arc-muted'}`}>
                     {doneToday === ownTasks.length ? 'Day banked' : `${doneToday}/${ownTasks.length}`}
                   </span>
@@ -673,6 +748,15 @@ export default function Challenges() {
               </div>
             )
           })()}
+
+          {joined && !done && ownTasks.length === 0 && (ch.created_by === userId || isAdmin) && (
+            <button
+              onClick={() => openTaskEditor(ch)}
+              className="w-full border border-dashed border-white/15 hover:border-arc-accent/40 text-arc-muted hover:text-white text-[11px] font-bold py-2.5 rounded-xl transition-colors"
+            >
+              + Give it a daily checklist
+            </button>
+          )}
 
           {done && (
             <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center">
@@ -1348,6 +1432,98 @@ export default function Challenges() {
                 >
                   NICE
                 </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Edit a challenge's checklist */}
+      <AnimatePresence>
+        {editTasksFor && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !savingTasks && setEditTasksFor(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[88vh] overflow-y-auto"
+            >
+              <div className="p-6 space-y-4 pb-safe">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <div>
+                  <h2 className="text-xl font-black italic tracking-tighter">DAILY TASKS</h2>
+                  <p className="text-[11px] text-arc-muted mt-0.5 truncate">{editTasksFor.title}</p>
+                </div>
+
+                {editRows.map((r, i) => (
+                  <div key={r.id || `new-${i}`} className="flex items-center gap-2">
+                    <input
+                      value={r.title}
+                      onChange={(e) => setEditRows(prev => prev.map((x, j) => j === i ? { ...x, title: e.target.value } : x))}
+                      className="flex-1 bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-[13px] font-bold"
+                    />
+                    <button
+                      onClick={() => setEditRows(prev => prev.filter((_, j) => j !== i))}
+                      aria-label={`Remove ${r.title}`}
+                      className="shrink-0 w-9 h-9 rounded-xl bg-white/5 text-arc-muted hover:text-red-400 flex items-center justify-center transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                {editRows.length < 10 && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && editDraft.trim()) {
+                          setEditRows(prev => [...prev, { title: editDraft.trim() }])
+                          setEditDraft('')
+                        }
+                      }}
+                      placeholder="Add a task"
+                      className="flex-1 bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
+                    />
+                    <button
+                      onClick={() => {
+                        if (!editDraft.trim()) return
+                        setEditRows(prev => [...prev, { title: editDraft.trim() }])
+                        setEditDraft('')
+                      }}
+                      className="shrink-0 px-4 py-2.5 rounded-xl bg-arc-accent/15 text-arc-accent text-xs font-bold hover:bg-arc-accent/25 transition-colors"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+
+                <p className="text-[10px] text-arc-muted leading-relaxed">
+                  Changes apply to everyone in the challenge. A task added today only
+                  counts from today — it can&apos;t fail anyone&apos;s yesterday. Removing a
+                  task deletes its ticks too.
+                  {editRows.length === 0 && ' With no tasks, the challenge counts each person\u2019s own daily habits.'}
+                </p>
+
+                <div className="space-y-2 pt-1">
+                  <button
+                    onClick={saveTasks} disabled={savingTasks}
+                    className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    {savingTasks ? 'SAVING…' : 'SAVE'}
+                  </button>
+                  <button
+                    onClick={() => setEditTasksFor(null)} disabled={savingTasks}
+                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </motion.div>
           </>
