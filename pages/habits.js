@@ -5,7 +5,7 @@ import Nav from '../components/Nav'
 import ProfileButton from '../components/ProfileButton'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
-import { ensureReminderPermission, syncHabitReminders } from '../lib/reminders'
+import { ensureReminderPermission, syncHabitReminders, reminderPermissionState, syncDailyNudge } from '../lib/reminders'
 // Lazy-load confetti to keep initial bundle small
 const fireConfetti = async (opts) => {
   try {
@@ -165,23 +165,50 @@ export default function Habits() {
             new Date(profile.presets_seeded_for).getTime() === new Date(profile.challenge_start_date).getTime()
 
           if (!alreadySeeded) {
-            const have = new Set(habitsData.map(h => h.title.toLowerCase()))
-            const toAdd = PRESET_HABITS
-              .filter(p => !have.has(p.title.toLowerCase()))
-              .map(p => ({ user_id: user.id, title: p.title, frequency: p.frequency, points_reward: p.points_reward, is_preset: true }))
+            // Claim the seed before inserting, not after. Two loads racing each
+            // other (two tabs, a double tap, a slow first request) both used to
+            // read "not seeded yet" and both insert, leaving every preset habit
+            // in the list twice. The claim is a compare-and-swap on the value we
+            // just read, so only one load wins and the loser skips.
+            const claim = supabase.from('profiles')
+              .update({ presets_seeded_for: profile.challenge_start_date })
+              .eq('id', user.id)
+            const { data: claimed, error: claimErr } = await (
+              profile.presets_seeded_for
+                ? claim.eq('presets_seeded_for', profile.presets_seeded_for)
+                : claim.is('presets_seeded_for', null)
+            ).select('id')
 
-            let seedErr = null
-            if (toAdd.length) {
-              const { data: inserted, error } = await supabase.from('habits').insert(toAdd).select()
-              seedErr = error
-              if (inserted?.length) habitsData = [...habitsData, ...inserted]
-            }
-            // Mark done on success so it never re-seeds; if the column isn't
-            // there yet (028 not applied) this fails quietly and behaves as before.
-            if (!seedErr) {
-              await supabase.from('profiles')
-                .update({ presets_seeded_for: profile.challenge_start_date })
-                .eq('id', user.id)
+            // No row came back: another load is already seeding. A hard error
+            // means the column isn't there yet (028 not applied) — seed anyway,
+            // which is the old behaviour.
+            const weWon = claimErr ? true : (claimed?.length > 0)
+
+            if (!weWon) {
+              // The other load is seeding. Re-read so this tab shows the presets
+              // it just missed instead of an empty list until the next refresh.
+              const { data: reread } = await supabase
+                .from('habits')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: true })
+              if (reread?.length) habitsData = reread
+            } else {
+              const have = new Set(habitsData.map(h => h.title.toLowerCase()))
+              const toAdd = PRESET_HABITS
+                .filter(p => !have.has(p.title.toLowerCase()))
+                .map(p => ({ user_id: user.id, title: p.title, frequency: p.frequency, points_reward: p.points_reward, is_preset: true }))
+
+              if (toAdd.length) {
+                const { data: inserted, error } = await supabase.from('habits').insert(toAdd).select()
+                if (inserted?.length) habitsData = [...habitsData, ...inserted]
+                // Hand the claim back if the insert failed, so the next load retries.
+                if (error && !claimErr) {
+                  await supabase.from('profiles')
+                    .update({ presets_seeded_for: profile.presets_seeded_for ?? null })
+                    .eq('id', user.id)
+                }
+              }
             }
           }
         } catch {}
@@ -232,6 +259,20 @@ export default function Habits() {
 
       // (Re)schedule any habit reminders (real alarms on the native app).
       syncHabitReminders(habitsData)
+      // ...and the one daily nudge, which is the reminder most members will
+      // ever have. Scheduling is idempotent, so doing it on every load keeps it
+      // alive across reinstalls and time changes.
+      const nudge = profile?.daily_reminder_time ? profile.daily_reminder_time.slice(0, 5) : null
+      setNudgeTime(nudge)
+      setNudgeInput(nudge || '07:00')
+      syncDailyNudge(nudge)
+      // A reminder row saves fine whether or not the OS has granted us
+      // permission, so check separately -- otherwise members sit with alarms
+      // set that can never fire, which is exactly what was happening.
+      reminderPermissionState().then(setNotifyPermission).catch(() => {})
+      try {
+        setDismissedNotifyBanner(localStorage.getItem('arc_notify_banner_dismissed') === '1')
+      } catch {}
 
       // Fetch progress photos + weigh-in history
       await Promise.all([fetchProgressPhotos(user.id), fetchWeightLogs(user.id)])
@@ -264,6 +305,14 @@ export default function Habits() {
 
   // Habit reminder alarms
   const [reminderEditId, setReminderEditId] = useState(null)
+  // 'granted' | 'denied' | 'default' | 'unsupported' | null (not checked yet)
+  const [notifyPermission, setNotifyPermission] = useState(null)
+  const [dismissedNotifyBanner, setDismissedNotifyBanner] = useState(false)
+  // The single daily nudge: 'HH:MM' or null when switched off.
+  const [nudgeTime, setNudgeTime] = useState(null)
+  const [editingNudge, setEditingNudge] = useState(false)
+  const [nudgeInput, setNudgeInput] = useState('07:00')
+  const [savingNudge, setSavingNudge] = useState(false)
   const [reminderInput, setReminderInput] = useState('07:00')
   const [savingReminder, setSavingReminder] = useState(false)
 
@@ -1044,6 +1093,56 @@ export default function Habits() {
   const dailyHabits = habits.filter(h => (h.frequency || 'daily') !== 'weekly')
   const weeklyHabits = habits.filter(h => (h.frequency || 'daily') === 'weekly')
 
+  // The daily nudge counts too -- it is the reminder most members will have.
+  const remindersSetCount = habits.filter(h => h.reminder_time).length + (nudgeTime ? 1 : 0)
+  // Only worth saying anything if they actually have reminders waiting to fire.
+  const remindersBlocked =
+    remindersSetCount > 0 &&
+    !dismissedNotifyBanner &&
+    (notifyPermission === 'default' || notifyPermission === 'denied')
+
+  const enableNotifications = async () => {
+    const granted = await ensureReminderPermission()
+    setNotifyPermission(await reminderPermissionState())
+    if (granted) {
+      syncHabitReminders(habits)
+      showToast('Reminders on')
+    } else {
+      showToast('Notifications are blocked in your device settings')
+    }
+  }
+
+  const saveNudge = async (turnOff = false) => {
+    if (savingNudge) return
+    setSavingNudge(true)
+    const value = turnOff ? null : (nudgeInput || null)
+    try {
+      if (value) {
+        const granted = await ensureReminderPermission()
+        setNotifyPermission(await reminderPermissionState())
+        if (!granted) showToast('Saved — allow notifications to get it')
+      }
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      const { error } = await supabase.from('profiles')
+        .update({ daily_reminder_time: value }).eq('id', user.id)
+      if (error) { showToast('Could not save'); return }
+      setNudgeTime(value)
+      setEditingNudge(false)
+      syncDailyNudge(value)
+      showToast(turnOff ? 'Daily nudge off' : `Daily nudge set for ${fmtReminder(value)}`)
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setSavingNudge(false)
+    }
+  }
+
+  const dismissNotifyBanner = () => {
+    setDismissedNotifyBanner(true)
+    try { localStorage.setItem('arc_notify_banner_dismissed', '1') } catch {}
+  }
+
   // Days you can still put right, most recent first, with what's outstanding
   // on each. A habit only counts against a day it already existed on, matching
   // the strict rule — adding a habit today shouldn't create a gap in yesterday.
@@ -1126,7 +1225,66 @@ export default function Habits() {
         </header>
 
         <main className="pt-36 px-6 space-y-8 max-w-lg mx-auto">
-            
+
+            {/* Reminders are set but the OS will not let them through. Without
+                this prompt a member never finds out their alarms are silent. */}
+            {remindersBlocked && (
+                <motion.div
+                    initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+                    className="flex items-start gap-3 rounded-2xl border border-arc-accent/30 bg-arc-accent/10 p-4"
+                >
+                    <span className="shrink-0 mt-0.5 text-arc-accent">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    </span>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-bold text-white leading-snug">
+                            {notifyPermission === 'denied'
+                                ? 'Reminders are switched off'
+                                : 'Turn on reminders'}
+                        </p>
+                        <p className="text-[11px] text-arc-muted leading-snug mt-0.5">
+                            {notifyPermission === 'denied'
+                                ? 'You have reminders set, but notifications are blocked. Turn them back on in your device settings.'
+                                : `You have ${remindersSetCount} reminder${remindersSetCount === 1 ? '' : 's'} set. Allow notifications and we will nudge you.`}
+                        </p>
+                        {notifyPermission !== 'denied' && (
+                            <button
+                                onClick={enableNotifications}
+                                className="mt-2 px-4 py-2 rounded-xl bg-arc-accent text-white text-[12px] font-bold active:scale-95 transition-transform"
+                            >
+                                Allow notifications
+                            </button>
+                        )}
+                    </div>
+                    <button
+                        onClick={dismissNotifyBanner}
+                        aria-label="Dismiss reminder notice"
+                        className="shrink-0 text-arc-muted hover:text-white transition-colors p-1"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                </motion.div>
+            )}
+
+            {/* The one reminder that matters. Kept visible rather than hidden
+                behind a per-habit icon, because the icon is exactly what nobody
+                ever found. */}
+            <button
+                onClick={() => { setNudgeInput(nudgeTime || '07:00'); setEditingNudge(true) }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-arc-card border border-white/[0.06] hover:border-arc-accent/30 transition-colors text-left"
+            >
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${nudgeTime ? 'bg-arc-accent/15 text-arc-accent' : 'bg-white/5 text-arc-muted'}`}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </span>
+                <span className="flex-1 min-w-0">
+                    <span className="block text-[12px] font-bold text-white">Daily nudge</span>
+                    <span className="block text-[10px] text-arc-muted leading-snug">
+                        {nudgeTime ? `Once a day at ${fmtReminder(nudgeTime)}` : 'Off — tap to get a daily reminder'}
+                    </span>
+                </span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+
             {/* Challenge Progress */}
             <section className="relative pt-2">
                  <div className="flex justify-between items-end mb-2 px-1">
@@ -1354,7 +1512,12 @@ export default function Habits() {
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 onClick={() => toggleHabit(habit.id)}
-                                className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 ${isDone ? 'bg-arc-cyan/10 border-arc-cyan/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
+                                role="checkbox"
+                                aria-checked={isDone}
+                                tabIndex={0}
+                                aria-label={habit.title}
+                                className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-arc-cyan/10 border-arc-cyan/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
                             >
                                 <div className="flex items-center gap-4 z-10">
                                     <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-arc-cyan border-arc-cyan' : 'border-white/20 group-hover:border-white/40'}`}>
@@ -1368,14 +1531,17 @@ export default function Habits() {
                                 <div className="flex items-center gap-1 z-10">
                                     <button
                                         onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
-                                        className={`transition-colors p-2 flex items-center gap-1 ${habit.reminder_time ? 'text-arc-accent' : 'text-white/20 hover:text-arc-accent'}`}
-                                        title="Set reminder"
+                                        className={`transition-colors p-2 flex items-center gap-1 ${habit.reminder_time ? 'text-arc-accent' : 'text-arc-muted hover:text-arc-accent'}`}
+                                        aria-label={habit.reminder_time ? `Reminder at ${fmtReminder(habit.reminder_time)} for ${habit.title}` : `Set a reminder for ${habit.title}`}
+                                        title={habit.reminder_time ? 'Change reminder' : 'Set reminder'}
                                     >
                                         {habit.reminder_time && <span className="text-[9px] font-bold tracking-wide">{fmtReminder(habit.reminder_time)}</span>}
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                                     </button>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
+                                        aria-label={`Delete ${habit.title}`}
+                                        title="Delete habit"
                                         className="text-white/20 hover:text-red-500 transition-colors p-2"
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -1398,7 +1564,12 @@ export default function Habits() {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             onClick={() => toggleHabit(habit.id)}
-                            className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 ${isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
+                            role="checkbox"
+                            aria-checked={isDone}
+                            tabIndex={0}
+                            aria-label={habit.title}
+                            className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
                         >
                             <div className="flex items-center gap-4 z-10">
                                 <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-white/20 group-hover:border-white/40'}`}>
@@ -1410,12 +1581,29 @@ export default function Habits() {
                                 </div>
                             </div>
 
+                            <div className="z-10 flex items-center shrink-0">
+                            {/* Daily habits are the ones you are meant to tick every single
+                                day, and until now they were the only rows with no way to set
+                                a reminder -- which is why not one habit in the database had
+                                one. */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
+                                aria-label={habit.reminder_time ? `Reminder at ${fmtReminder(habit.reminder_time)} for ${habit.title}` : `Set a reminder for ${habit.title}`}
+                                title={habit.reminder_time ? 'Change reminder' : 'Set reminder'}
+                                className={`transition-colors p-2 flex items-center gap-1 ${habit.reminder_time ? 'text-arc-accent' : 'text-arc-muted hover:text-arc-accent'}`}
+                            >
+                                {habit.reminder_time && <span className="text-[9px] font-bold tracking-wide">{fmtReminder(habit.reminder_time)}</span>}
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                            </button>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
-                                className="z-10 text-white/20 hover:text-red-500 transition-colors p-2"
+                                aria-label={`Delete ${habit.title}`}
+                                title="Delete habit"
+                                className="text-white/20 hover:text-red-500 transition-colors p-2"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                             </button>
+                            </div>
                         </motion.div>
                     )
                 })}
@@ -1965,6 +2153,59 @@ export default function Habits() {
                             >
                                 Skip — just tick it off
                             </button>
+                        </div>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+
+        {/* Daily Nudge Sheet */}
+        <AnimatePresence>
+            {editingNudge && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => !savingNudge && setEditingNudge(false)}
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+                    />
+                    <motion.div
+                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
+                    >
+                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                        <div className="text-center">
+                            <h2 className="text-xl font-black italic tracking-tighter">DAILY NUDGE</h2>
+                            <p className="text-xs text-arc-muted mt-1">One reminder a day to tick today off. Just one.</p>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Nudge me at</label>
+                            <input
+                                type="time"
+                                value={nudgeInput}
+                                onChange={(e) => setNudgeInput(e.target.value)}
+                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl [color-scheme:dark]"
+                            />
+                        </div>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => saveNudge(false)}
+                                disabled={savingNudge}
+                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                            >
+                                {savingNudge ? 'SAVING…' : 'SAVE'}
+                            </button>
+                            {nudgeTime && (
+                                <button
+                                    onClick={() => saveNudge(true)}
+                                    disabled={savingNudge}
+                                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                                >
+                                    Turn it off
+                                </button>
+                            )}
                         </div>
                     </motion.div>
                 </>
