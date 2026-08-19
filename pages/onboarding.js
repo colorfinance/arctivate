@@ -19,6 +19,7 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [checkingUser, setCheckingUser] = useState(true)
+  const [checkingName, setCheckingName] = useState(false)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -50,7 +51,31 @@ export default function Onboarding() {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  const nextStep = () => {
+  // Postgres 23505 on the profiles.username unique index. Checked by code
+  // rather than message text so a Supabase wording change can't break it.
+  const isNameTaken = (err) =>
+    err?.code === '23505' && /username/i.test(err?.message || '')
+
+  // Catch the clash on the step that owns the name field, so nobody fills in
+  // three more screens before being told to change it.
+  const checkNameFree = async (name) => {
+    const { data, error: qErr } = await supabase
+      .from('profiles').select('id').eq('username', name).limit(1)
+    if (qErr) return true // can't tell — let the save be the judge
+    return !data?.length
+  }
+
+  const nextStep = async () => {
+    if (step === STEPS.PROFILE) {
+      setCheckingName(true)
+      const free = await checkNameFree(formData.name)
+      setCheckingName(false)
+      if (!free) {
+        setError(`"${formData.name}" is already taken. Pick another name.`)
+        return
+      }
+    }
+    setError('')
     if (step < STEPS.COMPLETE) setStep(prev => prev + 1)
   }
 
@@ -135,7 +160,15 @@ export default function Onboarding() {
       }
 
       if (saveError) {
-        setError('Failed to save profile. Please try again.')
+        // A taken name is the one failure "try again" can never fix. Say so and
+        // put them back on the step with the name field, or they are stuck on
+        // this screen for good and never reach the app.
+        if (isNameTaken(saveError)) {
+          setError(`"${formData.name}" is already taken. Pick another name.`)
+          setStep(STEPS.PROFILE)
+        } else {
+          setError('Failed to save profile. Please try again.')
+        }
         setLoading(false)
         return
       }
@@ -204,6 +237,10 @@ export default function Onboarding() {
           animate={{ opacity: 1, x: 0 }}
           className="bg-arc-card border border-white/10 rounded-[2rem] p-8 shadow-2xl"
         >
+          {error && step !== STEPS.CONFIRM && (
+            <p className="text-red-400 text-sm text-center font-bold mb-4">{error}</p>
+          )}
+
           {step === STEPS.WELCOME && (
             <div className="text-center space-y-6">
               <h1 className="text-3xl font-black italic tracking-tighter">WELCOME TO ARCTIVATE</h1>
@@ -220,7 +257,7 @@ export default function Onboarding() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Name</label>
-                  <input type="text" value={formData.name} onChange={(e) => updateFormData('name', e.target.value)}
+                  <input type="text" value={formData.name} onChange={(e) => { setError(''); updateFormData('name', e.target.value) }}
                     className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white font-bold outline-none focus:border-arc-accent" placeholder="Alex Smith"
                     autoCapitalize="words" autoCorrect="off" />
                 </div>
@@ -250,7 +287,7 @@ export default function Onboarding() {
               </div>
               <div className="flex gap-4 pt-4">
                 <button onClick={prevStep} className="flex-1 py-3 rounded-xl border border-white/10 text-arc-muted font-bold">Back</button>
-                <button onClick={nextStep} disabled={!formData.name || !formData.age} className="flex-[2] bg-arc-accent text-white font-bold py-3 rounded-xl shadow-glow disabled:opacity-50">Next</button>
+                <button onClick={nextStep} disabled={!formData.name || !formData.age || checkingName} className="flex-[2] bg-arc-accent text-white font-bold py-3 rounded-xl shadow-glow disabled:opacity-50">{checkingName ? 'Checking…' : 'Next'}</button>
               </div>
             </div>
           )}

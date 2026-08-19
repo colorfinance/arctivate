@@ -717,9 +717,14 @@ end;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.add_points(p_user_id uuid, p_points integer)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 BEGIN
+  -- A signed-in caller may only top up their own total. auth.uid() is null for
+  -- the service role, which is trusted server-side code.
+  IF auth.uid() IS NOT NULL AND p_user_id <> auth.uid() THEN
+    RAISE EXCEPTION 'You can only change your own points';
+  END IF;
   UPDATE public.profiles SET total_points = COALESCE(total_points, 0) + p_points WHERE id = p_user_id;
 END;
 $function$;
@@ -1076,11 +1081,15 @@ begin
 end; $function$;
 
 CREATE OR REPLACE FUNCTION public.redeem_code(p_code text, p_user_id uuid)
-RETURNS json LANGUAGE plpgsql SECURITY DEFINER
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 declare v_reward record; v_partner record; v_points int;
 begin
   if p_code is null or p_user_id is null then return json_build_object('success', false, 'error', 'Invalid parameters'); end if;
+  -- Redeem for yourself, or be the server.
+  if auth.uid() is not null and p_user_id <> auth.uid() then
+    return json_build_object('success', false, 'error', 'You can only redeem for yourself');
+  end if;
   select * into v_reward from public.rewards_ledger where code = p_code;
   if v_reward is null then
     select * into v_partner from public.partners where qr_uuid::text = p_code;
@@ -1454,19 +1463,16 @@ CREATE POLICY "Users can delete own replies" ON public.message_replies FOR DELET
 
 DROP POLICY IF EXISTS "Anyone can view partners" ON public.partners;
 CREATE POLICY "Anyone can view partners" ON public.partners FOR SELECT TO public USING (true);
-DROP POLICY IF EXISTS "Enable read access for authenticated users" ON public.partners;
-CREATE POLICY "Enable read access for authenticated users" ON public.partners FOR SELECT TO public USING ((auth.role() = 'authenticated'::text));
-DROP POLICY IF EXISTS "Authenticated users can create partners" ON public.partners;
-CREATE POLICY "Authenticated users can create partners" ON public.partners FOR INSERT TO authenticated WITH CHECK (true);
-DROP POLICY IF EXISTS "Enable insert for authenticated users" ON public.partners;
-CREATE POLICY "Enable insert for authenticated users" ON public.partners FOR INSERT TO public WITH CHECK ((auth.role() = 'authenticated'::text));
-DROP POLICY IF EXISTS "Enable update for authenticated users" ON public.partners;
-CREATE POLICY "Enable update for authenticated users" ON public.partners FOR UPDATE TO public USING ((auth.role() = 'authenticated'::text));
+-- Creating a venue mints a 150-point check-in code, so it is an admin action.
+DROP POLICY IF EXISTS "Admins create partners" ON public.partners;
+CREATE POLICY "Admins create partners" ON public.partners FOR INSERT TO authenticated
+  WITH CHECK (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = auth.uid()) AND (p.is_admin = true))));
+DROP POLICY IF EXISTS "Admins update partners" ON public.partners;
+CREATE POLICY "Admins update partners" ON public.partners FOR UPDATE TO authenticated
+  USING (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = auth.uid()) AND (p.is_admin = true))));
 DROP POLICY IF EXISTS "Admins can manage partners" ON public.partners;
 CREATE POLICY "Admins can manage partners" ON public.partners FOR ALL TO authenticated
   USING ((EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = auth.uid()) AND (profiles.is_admin = true)))));
-DROP POLICY IF EXISTS "Enable delete for authenticated users" ON public.partners;
-CREATE POLICY "Enable delete for authenticated users" ON public.partners FOR DELETE TO public USING ((auth.role() = 'authenticated'::text));
 DROP POLICY IF EXISTS "Users can delete own partners" ON public.partners;
 CREATE POLICY "Users can delete own partners" ON public.partners FOR DELETE TO authenticated
   USING (((owner_id = auth.uid()) OR (EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = auth.uid()) AND (profiles.is_admin = true))))));
@@ -1499,24 +1505,19 @@ DROP POLICY IF EXISTS "Users can delete own feed posts" ON public.public_feed;
 CREATE POLICY "Users can delete own feed posts" ON public.public_feed FOR DELETE TO public USING ((auth.uid() = user_id));
 
 DROP POLICY IF EXISTS "Anyone can view reward codes" ON public.rewards_ledger;
-CREATE POLICY "Anyone can view reward codes" ON public.rewards_ledger FOR SELECT TO authenticated USING (true);
-DROP POLICY IF EXISTS "Enable read access for authenticated users" ON public.rewards_ledger;
-CREATE POLICY "Enable read access for authenticated users" ON public.rewards_ledger FOR SELECT TO public USING ((auth.role() = 'authenticated'::text));
+-- An unredeemed code is a bearer token: whoever can read it can spend it.
+DROP POLICY IF EXISTS "See own redemptions or all as admin" ON public.rewards_ledger;
+CREATE POLICY "See own redemptions or all as admin" ON public.rewards_ledger FOR SELECT TO authenticated
+  USING ((used_by = auth.uid()) OR (EXISTS ( SELECT 1 FROM profiles p WHERE ((p.id = auth.uid()) AND (p.is_admin = true)))));
 DROP POLICY IF EXISTS "Admins can create reward codes" ON public.rewards_ledger;
 CREATE POLICY "Admins can create reward codes" ON public.rewards_ledger FOR INSERT TO authenticated
   WITH CHECK ((EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = auth.uid()) AND (profiles.is_admin = true)))));
-DROP POLICY IF EXISTS "Enable insert for authenticated users" ON public.rewards_ledger;
-CREATE POLICY "Enable insert for authenticated users" ON public.rewards_ledger FOR INSERT TO public WITH CHECK ((auth.role() = 'authenticated'::text));
 DROP POLICY IF EXISTS "Admins can update reward codes" ON public.rewards_ledger;
 CREATE POLICY "Admins can update reward codes" ON public.rewards_ledger FOR UPDATE TO authenticated
   USING ((EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = auth.uid()) AND (profiles.is_admin = true)))));
-DROP POLICY IF EXISTS "Enable update for authenticated users" ON public.rewards_ledger;
-CREATE POLICY "Enable update for authenticated users" ON public.rewards_ledger FOR UPDATE TO public USING ((auth.role() = 'authenticated'::text));
 DROP POLICY IF EXISTS "Admins can delete reward codes" ON public.rewards_ledger;
 CREATE POLICY "Admins can delete reward codes" ON public.rewards_ledger FOR DELETE TO authenticated
   USING ((EXISTS ( SELECT 1 FROM profiles WHERE ((profiles.id = auth.uid()) AND (profiles.is_admin = true)))));
-DROP POLICY IF EXISTS "Enable delete for authenticated users" ON public.rewards_ledger;
-CREATE POLICY "Enable delete for authenticated users" ON public.rewards_ledger FOR DELETE TO public USING ((auth.role() = 'authenticated'::text));
 
 DROP POLICY IF EXISTS "Users manage own training notes" ON public.training_notes;
 CREATE POLICY "Users manage own training notes" ON public.training_notes FOR ALL TO authenticated
@@ -1572,10 +1573,33 @@ CREATE POLICY "Users manage own workout photos" ON public.workout_photos FOR ALL
 REVOKE UPDATE ON public.group_challenge_members FROM authenticated;
 GRANT UPDATE (status, start_date, last_checked, restarts) ON public.group_challenge_members TO authenticated;
 
-REVOKE ALL ON FUNCTION public.completed_days_for(uuid, date) FROM public, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.recalc_my_challenge_progress() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.award_my_badges() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.increment_points(uuid, int) TO authenticated;
+-- Postgres grants EXECUTE on new functions to PUBLIC, and `anon` inherits it.
+-- Left alone, every SECURITY DEFINER function here would be callable by anyone
+-- holding the publishable key — which ships in the JavaScript bundle. Take it
+-- off PUBLIC and hand it back only to the roles that should have it.
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.prokind = 'f' AND p.prosecdef
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon', f.sig);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated, service_role', f.sig);
+  END LOOP;
+END $$;
+
+-- Internal to recalc_my_challenge_progress; nobody else should call it.
+REVOKE EXECUTE ON FUNCTION public.completed_days_for(uuid, date) FROM PUBLIC, anon, authenticated;
+
+-- Trigger functions are not RPCs and should not be in the exposed API surface.
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.friendship_guard() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.gcm_validate_start_date() FROM PUBLIC, anon, authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.increment_points(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.increment_points(uuid, integer) TO authenticated, service_role;
 
 -- --- Storage ----------------------------------------------------------------
 -- Buckets and their policies. workout-photos is private ("only you will see

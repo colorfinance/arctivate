@@ -165,23 +165,50 @@ export default function Habits() {
             new Date(profile.presets_seeded_for).getTime() === new Date(profile.challenge_start_date).getTime()
 
           if (!alreadySeeded) {
-            const have = new Set(habitsData.map(h => h.title.toLowerCase()))
-            const toAdd = PRESET_HABITS
-              .filter(p => !have.has(p.title.toLowerCase()))
-              .map(p => ({ user_id: user.id, title: p.title, frequency: p.frequency, points_reward: p.points_reward, is_preset: true }))
+            // Claim the seed before inserting, not after. Two loads racing each
+            // other (two tabs, a double tap, a slow first request) both used to
+            // read "not seeded yet" and both insert, leaving every preset habit
+            // in the list twice. The claim is a compare-and-swap on the value we
+            // just read, so only one load wins and the loser skips.
+            const claim = supabase.from('profiles')
+              .update({ presets_seeded_for: profile.challenge_start_date })
+              .eq('id', user.id)
+            const { data: claimed, error: claimErr } = await (
+              profile.presets_seeded_for
+                ? claim.eq('presets_seeded_for', profile.presets_seeded_for)
+                : claim.is('presets_seeded_for', null)
+            ).select('id')
 
-            let seedErr = null
-            if (toAdd.length) {
-              const { data: inserted, error } = await supabase.from('habits').insert(toAdd).select()
-              seedErr = error
-              if (inserted?.length) habitsData = [...habitsData, ...inserted]
-            }
-            // Mark done on success so it never re-seeds; if the column isn't
-            // there yet (028 not applied) this fails quietly and behaves as before.
-            if (!seedErr) {
-              await supabase.from('profiles')
-                .update({ presets_seeded_for: profile.challenge_start_date })
-                .eq('id', user.id)
+            // No row came back: another load is already seeding. A hard error
+            // means the column isn't there yet (028 not applied) — seed anyway,
+            // which is the old behaviour.
+            const weWon = claimErr ? true : (claimed?.length > 0)
+
+            if (!weWon) {
+              // The other load is seeding. Re-read so this tab shows the presets
+              // it just missed instead of an empty list until the next refresh.
+              const { data: reread } = await supabase
+                .from('habits')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: true })
+              if (reread?.length) habitsData = reread
+            } else {
+              const have = new Set(habitsData.map(h => h.title.toLowerCase()))
+              const toAdd = PRESET_HABITS
+                .filter(p => !have.has(p.title.toLowerCase()))
+                .map(p => ({ user_id: user.id, title: p.title, frequency: p.frequency, points_reward: p.points_reward, is_preset: true }))
+
+              if (toAdd.length) {
+                const { data: inserted, error } = await supabase.from('habits').insert(toAdd).select()
+                if (inserted?.length) habitsData = [...habitsData, ...inserted]
+                // Hand the claim back if the insert failed, so the next load retries.
+                if (error && !claimErr) {
+                  await supabase.from('profiles')
+                    .update({ presets_seeded_for: profile.presets_seeded_for ?? null })
+                    .eq('id', user.id)
+                }
+              }
             }
           }
         } catch {}
@@ -1354,7 +1381,12 @@ export default function Habits() {
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 onClick={() => toggleHabit(habit.id)}
-                                className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 ${isDone ? 'bg-arc-cyan/10 border-arc-cyan/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
+                                role="checkbox"
+                                aria-checked={isDone}
+                                tabIndex={0}
+                                aria-label={habit.title}
+                                className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-arc-cyan/10 border-arc-cyan/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
                             >
                                 <div className="flex items-center gap-4 z-10">
                                     <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-arc-cyan border-arc-cyan' : 'border-white/20 group-hover:border-white/40'}`}>
@@ -1376,6 +1408,8 @@ export default function Habits() {
                                     </button>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
+                                        aria-label={`Delete ${habit.title}`}
+                                        title="Delete habit"
                                         className="text-white/20 hover:text-red-500 transition-colors p-2"
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -1398,7 +1432,12 @@ export default function Habits() {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             onClick={() => toggleHabit(habit.id)}
-                            className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 ${isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
+                            role="checkbox"
+                            aria-checked={isDone}
+                            tabIndex={0}
+                            aria-label={habit.title}
+                            className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
                         >
                             <div className="flex items-center gap-4 z-10">
                                 <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-white/20 group-hover:border-white/40'}`}>
@@ -1412,6 +1451,8 @@ export default function Habits() {
 
                             <button
                                 onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
+                                aria-label={`Delete ${habit.title}`}
+                                title="Delete habit"
                                 className="z-10 text-white/20 hover:text-red-500 transition-colors p-2"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
