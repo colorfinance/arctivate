@@ -370,13 +370,18 @@ export default function CalendarPage() {
             </button>
           )}
 
-          {/* Quick add */}
+          {/* Quick add. The food button used to drop you on today whatever day
+              you had selected, so picking the 20th and tapping "Log food" quietly
+              logged your steak to the 24th. It now carries the day with it. */}
           <div className="grid grid-cols-2 gap-3 pt-2">
             <button onClick={() => router.push('/train')} className="bg-arc-surface border border-white/[0.06] text-white font-bold py-3 rounded-xl text-sm hover:border-arc-accent/30 transition-colors">
               Log a workout
             </button>
-            <button onClick={() => router.push('/food')} className="bg-arc-surface border border-white/[0.06] text-white font-bold py-3 rounded-xl text-sm hover:border-arc-cyan/30 transition-colors">
-              Log food
+            <button
+              onClick={() => router.push(`/food?date=${selected}`)}
+              className="bg-arc-surface border border-white/[0.06] text-white font-bold py-3 rounded-xl text-sm hover:border-arc-cyan/30 transition-colors"
+            >
+              {selected === todayKey() ? 'Log food' : 'Log food for this day'}
             </button>
           </div>
         </section>
