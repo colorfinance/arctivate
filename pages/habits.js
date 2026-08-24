@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
@@ -14,7 +14,7 @@ const fireConfetti = async (opts) => {
   } catch {}
 }
 import { useRouter } from 'next/router'
-import { backfillFrom, BACKFILL_DAYS } from '../lib/challenges'
+import { backfillFrom, BACKFILL_DAYS, STRICT_SAVES_PER_RUN, LAST_CHANCE_MAX_DAYS } from '../lib/challenges'
 import { LockIcon, UnlockIcon, FlagIcon, TrophyIcon, FlameIcon, RestartIcon, CheckIcon, StarIcon } from '../components/icons'
 
 // Helper for dates - use local date to avoid timezone issues
@@ -164,7 +164,17 @@ export default function Habits() {
           const alreadySeeded = profile.presets_seeded_for &&
             new Date(profile.presets_seeded_for).getTime() === new Date(profile.challenge_start_date).getTime()
 
-          if (!alreadySeeded) {
+          // A member who already has habits has been seeded, whatever the flag
+          // says. Without this, anyone whose flag went missing gets every
+          // preset they deliberately deleted handed back on the next load --
+          // which reads exactly like "my habits won't delete". Adopt their list
+          // and just record the flag.
+          const flagLost = !profile.presets_seeded_for && habitsData.length > 0
+          if (flagLost) {
+            await supabase.from('profiles')
+              .update({ presets_seeded_for: profile.challenge_start_date })
+              .eq('id', user.id)
+          } else if (!alreadySeeded) {
             // Claim the seed before inserting, not after. Two loads racing each
             // other (two tabs, a double tap, a slow first request) both used to
             // read "not seeded yet" and both insert, leaving every preset habit
@@ -250,6 +260,7 @@ export default function Habits() {
       setWeeklyDone(weekSet)
       setPastDone(pastSets)
       setStrictMode(!!profile?.strict_challenge)
+      profileRef.current = profile
 
       // Strict mode: a missed day sends you back to Day 1.
       if (profile?.strict_challenge && profile?.challenge_start_date) {
@@ -313,6 +324,10 @@ export default function Habits() {
   const [editingNudge, setEditingNudge] = useState(false)
   const [nudgeInput, setNudgeInput] = useState('07:00')
   const [savingNudge, setSavingNudge] = useState(false)
+  // Strict mode's one "did you really miss it, or just forget?" prompt.
+  const [lastChance, setLastChance] = useState(null)
+  const [savingLastChance, setSavingLastChance] = useState(false)
+  const profileRef = useRef(null)
   const [reminderInput, setReminderInput] = useState('07:00')
   const [savingReminder, setSavingReminder] = useState(false)
 
@@ -333,11 +348,14 @@ export default function Habits() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { showToast('Please log in'); return }
-      const { error } = await supabase.from('profiles')
-        .update({ strict_challenge: on, strict_last_checked: getTodayStr() })
-        .eq('id', user.id)
+      // Switching strict mode on is the start of a fresh strict run, so the
+      // last chance comes back with it.
+      const patch = { strict_challenge: on, strict_last_checked: getTodayStr() }
+      if (on) patch.strict_saves_used = 0
+      const { error } = await supabase.from('profiles').update(patch).eq('id', user.id)
       if (error) { showToast('Could not update (run migration 030)'); return }
       setStrictMode(on)
+      if (!on) setLastChance(null) // turning it off should not leave the prompt up
       setShowStrictConfirm(false)
       showToast(on ? 'Strict mode on — no missed days 🔒' : 'Strict mode off')
     } catch {
@@ -390,29 +408,103 @@ export default function Habits() {
         ;(doneByDay[l.date] || (doneByDay[l.date] = new Set())).add(l.habit_id)
       })
 
-      // Walk each day that has already finished.
-      let missed = null
+      // Walk every day that has already finished, collecting all the
+      // incomplete ones. Stopping at the first was what made the last chance
+      // useless: saving one day just moved the reset to the next day.
+      const gaps = []
       for (let d = new Date(firstCheck); fmtLocal(d) < settledBefore; d.setDate(d.getDate() + 1)) {
         const key = fmtLocal(d)
         const endOfDay = new Date(`${key}T23:59:59`)
         const required = dailyHabits.filter(h => new Date(h.created_at) <= endOfDay)
         if (required.length === 0) continue
         const done = doneByDay[key] || new Set()
-        const allDone = required.every(h => done.has(h.id))
-        if (!allDone) { missed = key; break }
+        const undone = required.filter(h => !done.has(h.id))
+        if (undone.length) {
+          gaps.push({ date: key, missing: undone.map(h => ({ id: h.id, title: h.title })) })
+        }
       }
-      if (!missed) return false
+      if (gaps.length === 0) return false
+      const missed = gaps[0].date
 
-      const startedAt = new Date().toISOString()
-      const { error: upErr } = await supabase.from('profiles')
-        .update({ challenge_start_date: startedAt, presets_seeded_for: startedAt, strict_last_checked: today })
-        .eq('id', userId)
-      if (upErr) return false
+      // Before wiping the run: was it a miss, or did they just forget to tick?
+      // The app has no way to know, and guessing wrong costs someone weeks of
+      // work. So once per run it stops and asks. Everything after the first
+      // save resets as before.
+      const savesUsed = profile.strict_saves_used || 0
+      if (savesUsed < STRICT_SAVES_PER_RUN && gaps.length <= LAST_CHANCE_MAX_DAYS) {
+        setLastChance({ days: gaps })
+        return false
+      }
 
-      setStrictReset(missed)
-      return true
+      return await applyStrictReset(userId, missed, today)
     } catch {
       return false
+    }
+  }
+
+  // The reset itself, so the automatic path and the "I missed it" button in the
+  // last-chance sheet cannot drift apart.
+  async function applyStrictReset(userId, missed, today = getTodayStr()) {
+    const startedAt = new Date().toISOString()
+    const { error } = await supabase.from('profiles')
+      .update({
+        challenge_start_date: startedAt,
+        presets_seeded_for: startedAt,
+        strict_last_checked: today,
+        // A fresh run gets a fresh last chance.
+        strict_saves_used: 0,
+      })
+      .eq('id', userId)
+    if (error) return false
+    setLastChance(null)
+    setStrictReset(missed)
+    setChallengeDay(1)
+    return true
+  }
+
+  // "I did these" — tick the day off retroactively and spend the one save.
+  // Deliberately only the habits from that one day: this is a correction, not
+  // an open door to backfilling anything.
+  const takeLastChance = async () => {
+    if (!lastChance || savingLastChance) return
+    setSavingLastChance(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+
+      const rows = lastChance.days.flatMap(d =>
+        d.missing.map(h => ({ user_id: user.id, habit_id: h.id, date: d.date }))
+      )
+      if (rows.length) {
+        const { error } = await supabase.from('habit_logs')
+          .upsert(rows, { onConflict: 'user_id,habit_id,date', ignoreDuplicates: true })
+        if (error) { showToast('Could not save those'); return }
+      }
+
+      const { error: pErr } = await supabase.from('profiles')
+        .update({ strict_saves_used: (profileRef.current?.strict_saves_used || 0) + 1 })
+        .eq('id', user.id)
+      if (pErr) { showToast('Could not save that'); return }
+
+      setLastChance(null)
+      showToast('Saved. Your run keeps going — that was your one.')
+      fetchData()
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setSavingLastChance(false)
+    }
+  }
+
+  const declineLastChance = async () => {
+    if (!lastChance || savingLastChance) return
+    setSavingLastChance(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { showToast('Please log in'); return }
+      await applyStrictReset(user.id, lastChance.days[0].date)
+    } finally {
+      setSavingLastChance(false)
     }
   }
 
@@ -430,7 +522,7 @@ export default function Habits() {
       // presets_seeded_for moves with it, so habits they deliberately deleted
       // don't reappear just because they restarted.
       let { error } = await supabase.from('profiles')
-        .update({ challenge_start_date: startedAt, presets_seeded_for: startedAt })
+        .update({ challenge_start_date: startedAt, presets_seeded_for: startedAt, strict_saves_used: 0 })
         .eq('id', user.id)
       if (error) {
         // Column may not exist yet (migration 028) — retry without it.
@@ -483,6 +575,8 @@ export default function Habits() {
         const startedAt = new Date().toISOString()
         updates.challenge_start_date = startedAt
         updates.presets_seeded_for = startedAt
+        // A fresh run gets a fresh last chance.
+        updates.strict_saves_used = 0
       }
 
       let { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
@@ -1947,6 +2041,73 @@ export default function Habits() {
 
         {/* Strict mode was triggered — you missed a day */}
         <AnimatePresence>
+            {/* Strict mode's one question. Shown instead of a reset, once per run. */}
+            {lastChance && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/85 backdrop-blur-md z-[60]"
+                    />
+                    <motion.div
+                        initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
+                        className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+                    >
+                        <div className="bg-arc-card border border-amber-500/30 rounded-2xl p-6 w-full max-w-sm space-y-4">
+                            <div className="text-center space-y-1">
+                                <span className="inline-flex w-12 h-12 rounded-full bg-amber-500/15 text-amber-400 items-center justify-center mx-auto">
+                                    <LockIcon size={20} />
+                                </span>
+                                <h3 className="text-xl font-black italic tracking-tighter pt-2">LAST CHANCE</h3>
+                                <p className="text-[13px] text-arc-muted leading-snug">
+                                    {lastChance.days.length === 1
+                                        ? 'This never got ticked. Did you actually do it?'
+                                        : `These ${lastChance.days.length} days never got fully ticked. Did you actually do them?`}
+                                </p>
+                            </div>
+
+                            <div className="bg-arc-surface rounded-xl p-3 space-y-3 max-h-52 overflow-y-auto">
+                                {lastChance.days.map(d => (
+                                    <div key={d.date}>
+                                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-1">
+                                            {new Date(`${d.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                        </p>
+                                        <ul className="space-y-1">
+                                            {d.missing.map(h => (
+                                                <li key={h.id} className="text-[12px] font-bold text-white flex items-start gap-2">
+                                                    <span className="text-arc-muted shrink-0">•</span>
+                                                    <span className="min-w-0">{h.title}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <p className="text-[10px] text-arc-muted text-center leading-snug">
+                                You get one of these per run. After this, a missed day sends you back to Day 1.
+                            </p>
+
+                            <div className="space-y-2">
+                                <button
+                                    onClick={takeLastChance}
+                                    disabled={savingLastChance}
+                                    className="w-full bg-amber-500 text-black font-black italic py-3.5 rounded-xl active:scale-95 transition-transform disabled:opacity-50"
+                                >
+                                    {savingLastChance ? 'SAVING…' : 'I DID THESE — KEEP MY RUN'}
+                                </button>
+                                <button
+                                    onClick={declineLastChance}
+                                    disabled={savingLastChance}
+                                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                                >
+                                    I missed it — back to Day 1
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                </>
+            )}
+
             {strictReset && (
                 <>
                     <motion.div
