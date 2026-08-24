@@ -39,7 +39,26 @@ export default async function handler(req, res) {
 
     const ai = new GoogleGenAI({ apiKey });
 
+    // A member reported the coach insisting it was Sunday every single day.
+    // The date was in the context JSON all along, but nothing told the model to
+    // use it, so it filled the gap with a guess and kept landing on the same
+    // one. State it plainly, in words, above the data blob.
+    const todayLine = (() => {
+      const t = context?.today
+      if (t?.dayOfWeek && t?.date) return `${t.dayOfWeek}, ${t.date}`
+      if (t?.date) return t.date
+      // The client always sends it; if it somehow did not, say nothing rather
+      // than substituting the server's own clock, which is UTC and may be a
+      // different day from the member's.
+      return null
+    })()
+
     const systemPrompt = `You are "Arc Coach", the user's personal AI fitness coach in the Arctivate app. You are their accountability partner: motivating, warm, and data-driven. Talk to them like a coach who genuinely wants them to show up every day.
+
+${todayLine ? `TODAY IS ${todayLine}.
+That line is the only correct source for the current date. You have no other
+way to know it, so never state or imply a different day, and never guess one.
+If the date is genuinely relevant, use exactly what is written above.` : `You have NOT been told today's date. Do not state or imply what day it is.`}
 
 You have access to the user's data below (recent workouts, whether they've trained today, habits done today, streak, recovery metrics, goals). Use it to personalise every reply.
 

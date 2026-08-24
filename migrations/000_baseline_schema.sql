@@ -429,6 +429,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   presets_seeded_for timestamp with time zone,
   strict_challenge boolean NOT NULL DEFAULT false,
   strict_last_checked date,
+  strict_saves_used integer NOT NULL DEFAULT 0,
+  daily_reminder_time time without time zone DEFAULT '07:00:00'::time without time zone,
   gym_id uuid,
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_username_key UNIQUE (username)

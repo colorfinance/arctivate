@@ -204,6 +204,7 @@ export default function Food() {
   const [importing, setImporting] = useState(false)
   const [importDone, setImportDone] = useState(null)
   const csvInputRef = useRef(null)
+  const [showImportHelp, setShowImportHelp] = useState(false)
   const [manualFood, setManualFood] = useState({ name: '', cals: '', p: '', c: '', f: '', meal_type: 'snack', servings: 1 })
   const [todayLogs, setTodayLogs] = useState([])
   const [toast, setToast] = useState(null)
@@ -1521,6 +1522,87 @@ export default function Food() {
           className="hidden"
           onChange={(e) => { handleCsvFile(e.target.files?.[0]); e.target.value = '' }}
         />
+
+        {/* A member asked how to sync MyFitnessPal and there was nowhere in the
+            app that answered. The importer only ever showed a file picker, so
+            "import a diary" was a dead end unless you already knew where the
+            file came from. */}
+        <button
+          onClick={() => setShowImportHelp(true)}
+          className="mt-2 w-full text-center text-[11px] text-arc-muted hover:text-white transition-colors underline underline-offset-2"
+        >
+          Where do I get the file?
+        </button>
+
+        <AnimatePresence>
+          {showImportHelp && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => setShowImportHelp(false)}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+              />
+              <motion.div
+                initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[85vh] overflow-y-auto"
+              >
+                <div className="p-6 space-y-4 pb-safe">
+                  <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                  <h2 className="text-xl font-black italic tracking-tighter">BRINGING A DIARY ACROSS</h2>
+                  <p className="text-[12px] text-arc-muted leading-relaxed">
+                    There is no live sync with other food apps. What there is: export your
+                    diary from them, then import the file here. It reads the columns and
+                    lets you check everything before a single row is saved.
+                  </p>
+
+                  <div className="space-y-3">
+                    <div className="bg-arc-surface rounded-xl p-4 space-y-1.5">
+                      <p className="text-[11px] font-bold text-white uppercase tracking-widest">MyFitnessPal</p>
+                      <p className="text-[12px] text-arc-muted leading-relaxed">
+                        On the website (not the phone app): <span className="text-white font-bold">My Home → Reports → Export Data</span>, or Settings.
+                      </p>
+                      <p className="text-[12px] text-amber-400/90 leading-relaxed">
+                        Heads up: CSV export is a Premium feature. On a free account you can
+                        usually still print or save the diary as a PDF — send it to us and
+                        we&apos;ll sort it out rather than have you retype a month of meals.
+                      </p>
+                    </div>
+
+                    <div className="bg-arc-surface rounded-xl p-4 space-y-1.5">
+                      <p className="text-[11px] font-bold text-white uppercase tracking-widest">Cronometer</p>
+                      <p className="text-[12px] text-arc-muted leading-relaxed">
+                        Settings → Account → Export Data. Free accounts can export.
+                      </p>
+                    </div>
+
+                    <div className="bg-arc-surface rounded-xl p-4 space-y-1.5">
+                      <p className="text-[11px] font-bold text-white uppercase tracking-widest">Anything else</p>
+                      <p className="text-[12px] text-arc-muted leading-relaxed">
+                        Any CSV works, including one you keep yourself. A date column and a
+                        calories column are enough; protein, carbs and fat come across too
+                        if they are there. Commas, semicolons and tabs are all fine.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => { setShowImportHelp(false); csvInputRef.current?.click() }}
+                    className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow active:scale-95 transition-transform"
+                  >
+                    PICK A FILE
+                  </button>
+                  <button
+                    onClick={() => setShowImportHelp(false)}
+                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
         {/* Check the diary before anything is saved */}
         <AnimatePresence>
