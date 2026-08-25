@@ -7,6 +7,7 @@ import ProfileButton from '../components/ProfileButton'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { resizeToBlob } from '../lib/imageResize'
+import { currentSession, finishSession, setSessionVisibility, VISIBILITY } from '../lib/sessions'
 import { useRouter } from 'next/router'
 // Static import so the parent can call its picker via ref
 import WorkoutPhotos from '../components/train/WorkoutPhotos'
@@ -189,6 +190,13 @@ export default function Train() {
   const [sessionDuration, setSessionDuration] = useState('')
   const [sessionNotes, setSessionNotes] = useState('')
   const [savingSession, setSavingSession] = useState(false)
+  // The session every lift logged today joins, so a workout is one thing other
+  // members can see rather than a handful of invisible rows.
+  const [session, setSession] = useState(null)
+  const [myGymId, setMyGymId] = useState(null)
+  const [finishing, setFinishing] = useState(false)
+  const [showFinish, setShowFinish] = useState(false)
+  const [finishVisibility, setFinishVisibility] = useState('gym')
 
   // Private workout photos (add-photo trigger lives in the logger header)
   const photosRef = useRef(null)
@@ -288,7 +296,7 @@ export default function Train() {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('total_points, current_streak')
+        .select('total_points, current_streak, gym_id')
         .eq('id', user.id)
         .single()
 
@@ -296,9 +304,37 @@ export default function Train() {
 
       if (data) {
         setPoints(data.total_points || 0)
+        setMyGymId(data.gym_id || null)
         // Streak is computed from actual workout history in fetchWorkoutHistory.
       }
+
+      // Pick up a session already open from earlier today, so closing the app
+      // mid-workout and coming back does not start a second one.
+      try {
+        const { data: open } = await supabase
+          .from('workout_sessions')
+          .select('*')
+          .eq('user_id', user.id)
+          .is('ended_at', null)
+          .order('started_at', { ascending: false })
+          .limit(1)
+        if (open?.length) setSession(open[0])
+      } catch {}
     } catch {}
+  }
+
+  const endSession = async () => {
+    if (!session || finishing) return
+    setFinishing(true)
+    try {
+      const done = await finishSession(supabase, session.id, { visibility: finishVisibility })
+      if (!done) { showToast('Could not finish that'); return }
+      setSession(null)
+      setShowFinish(false)
+      showToast(finishVisibility === 'gym' ? 'Session shared with your gym 💪' : 'Session saved, private')
+    } finally {
+      setFinishing(false)
+    }
   }
 
   async function fetchExercises() {
@@ -861,6 +897,16 @@ export default function Train() {
       const isPB = isBodyweight ? false : (isTime ? (valNum < pb || pb === 0) : (valNum > pb))
       const points = 50 + (isPB ? 100 : 0)
 
+      // Every lift joins the session for this workout. Falls back to no
+      // session on an older database, which is the previous behaviour.
+      const sess = await currentSession(supabase, {
+        userId: user.id,
+        gymId: myGymId,
+        dailyWorkoutId: dwe.daily_workout_id,
+        dailyWorkoutTitle: dwe.daily_workout_title || null,
+      })
+      if (sess) setSession(sess)
+
       const payload = {
         user_id: user.id,
         exercise_id: ex.id,
@@ -870,6 +916,7 @@ export default function Train() {
         daily_workout_id: dwe.daily_workout_id,
         daily_workout_exercise_id: dwe.id,
       }
+      if (sess) payload.session_id = sess.id
       // Fall back to the prescribed target when the field is left blank.
       const repsNum = vals.reps ? parseInt(vals.reps, 10) : (dwe.target_reps != null ? Number(dwe.target_reps) : null)
       const setsNum = vals.sets ? parseInt(vals.sets, 10) : (dwe.target_sets != null ? Number(dwe.target_sets) : null)
@@ -879,7 +926,7 @@ export default function Train() {
       if (rpeNum) payload.rpe = rpeNum
 
       let { error: logError, data: inserted } = await supabase.from('workout_logs').insert(payload).select('id').single()
-      for (const field of ['reps', 'sets', 'rpe', 'daily_workout_id', 'daily_workout_exercise_id']) {
+      for (const field of ['session_id', 'reps', 'sets', 'rpe', 'daily_workout_id', 'daily_workout_exercise_id']) {
         if (logError && logError.message && payload[field] !== undefined && logError.message.includes(field)) {
           delete payload[field]
           const retry = await supabase.from('workout_logs').insert(payload).select('id').single()
@@ -1021,6 +1068,11 @@ export default function Train() {
       const now = new Date()
       const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+      // The main logger (LOG SET / LOG PB) -- every lift joins the day's
+      // session so the workout is one thing the gym can see.
+      const sess = await currentSession(supabase, { userId: user.id, gymId: myGymId })
+      if (sess) setSession(sess)
+
       const logPayload = {
         user_id: user.id,
         exercise_id: selectedExId,
@@ -1028,6 +1080,7 @@ export default function Train() {
         is_new_pb: isPB,
         points_awarded: pointsEarned,
       }
+      if (sess) logPayload.session_id = sess.id
       if (reps) {
         const parsed = parseInt(reps, 10)
         if (!isNaN(parsed)) logPayload.reps = parsed
@@ -1041,7 +1094,7 @@ export default function Train() {
         if (!isNaN(parsed)) logPayload.rpe = parsed
       }
 
-      const optionalFields = ['rpe', 'reps', 'sets', 'daily_workout_id', 'daily_workout_exercise_id']
+      const optionalFields = ['session_id', 'rpe', 'reps', 'sets', 'daily_workout_id', 'daily_workout_exercise_id']
       let { error: logError, data: insertedLog } = await supabase
         .from('workout_logs')
         .insert(logPayload)
@@ -1245,6 +1298,9 @@ export default function Train() {
       }
 
       const points = 100
+      const sess = await currentSession(supabase, { userId: user.id, gymId: myGymId })
+      if (sess) setSession(sess)
+
       const payload = {
         user_id: user.id,
         exercise_id: ex.id,
@@ -1252,13 +1308,16 @@ export default function Train() {
         is_new_pb: false,
         points_awarded: points,
       }
+      if (sess) payload.session_id = sess.id
       if (sessionNotes.trim()) payload.notes = sessionNotes.trim()
 
       let { error: logError, data: inserted } = await supabase.from('workout_logs').insert(payload).select('id').single()
-      if (logError && logError.message && payload.notes !== undefined && logError.message.includes('notes')) {
-        delete payload.notes
-        const retry = await supabase.from('workout_logs').insert(payload).select('id').single()
-        logError = retry.error; inserted = retry.data
+      for (const field of ['session_id', 'notes']) {
+        if (logError && logError.message && payload[field] !== undefined && logError.message.includes(field)) {
+          delete payload[field]
+          const retry = await supabase.from('workout_logs').insert(payload).select('id').single()
+          logError = retry.error; inserted = retry.data
+        }
       }
       if (logError) { showToast('Failed to save session'); setSavingSession(false); return }
 
@@ -1384,6 +1443,94 @@ export default function Train() {
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans selection:bg-arc-accent/30 selection:text-white">
         <AnimatePresence>
             {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+        </AnimatePresence>
+
+        {/* An open session, and the one tap that puts it in front of the gym. */}
+        {session && (
+          <div className="fixed bottom-[4.5rem] inset-x-0 z-30 px-4 pointer-events-none">
+            <div className="max-w-lg mx-auto pointer-events-auto">
+              <button
+                onClick={() => { setFinishVisibility(session.visibility || 'gym'); setShowFinish(true) }}
+                className="w-full flex items-center gap-3 rounded-2xl border border-arc-accent/30 bg-arc-card/95 backdrop-blur-xl px-4 py-3 shadow-2xl active:scale-[0.99] transition-transform"
+              >
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-arc-accent opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-arc-accent" />
+                </span>
+                <span className="flex-1 min-w-0 text-left">
+                  <span className="block text-[12px] font-bold text-white truncate">{session.title || 'Session'} in progress</span>
+                  <span className="block text-[10px] text-arc-muted">
+                    {session.visibility === 'private' ? 'Private' : 'Will be shared with your gym'}
+                  </span>
+                </span>
+                <span className="shrink-0 text-[11px] font-black italic text-arc-accent uppercase tracking-wider">Finish</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        <AnimatePresence>
+          {showFinish && session && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => !finishing && setShowFinish(false)}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+              />
+              <motion.div
+                initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50"
+              >
+                <div className="p-6 space-y-5 pb-safe max-w-lg mx-auto">
+                  <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                  <div className="text-center space-y-1">
+                    <h2 className="text-xl font-black italic tracking-tighter">FINISH SESSION</h2>
+                    <p className="text-[12px] text-arc-muted leading-snug">
+                      {session.title || 'Session'} · {logs.length} {logs.length === 1 ? 'entry' : 'entries'} logged
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Who sees it</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.entries(VISIBILITY).map(([key, v]) => (
+                        <button
+                          key={key}
+                          onClick={() => setFinishVisibility(key)}
+                          className={`py-3 px-3 rounded-xl text-left transition-all border ${
+                            finishVisibility === key
+                              ? 'bg-accent-gradient text-white border-transparent'
+                              : 'bg-arc-surface text-arc-muted border-white/[0.06] hover:text-white'
+                          }`}
+                        >
+                          <span className="block text-[12px] font-bold">{v.label}</span>
+                          <span className="block text-[9px] leading-snug opacity-80">{v.hint}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <button
+                      onClick={endSession}
+                      disabled={finishing}
+                      className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+                    >
+                      {finishing ? 'FINISHING…' : 'FINISH'}
+                    </button>
+                    <button
+                      onClick={() => setShowFinish(false)}
+                      disabled={finishing}
+                      className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
+                    >
+                      Keep going
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
         </AnimatePresence>
 
         {/* Success/Share Modal */}

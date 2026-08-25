@@ -20,7 +20,11 @@ in yourself.
 `001`–`036` are **history**. They record how the schema got here and are kept
 for the record. Do not replay them on top of the baseline.
 
-Anything new goes in `037_*.sql` onwards, applied on top of the baseline.
+`037` onwards are applied on top of the baseline, and their objects are also
+folded into `000` so a fresh rebuild still matches production. `041` is the
+exception worth knowing about: the baseline carries its tables and policies but
+deliberately not its history backfill, because a new database has no logs to
+convert.
 
 ## After changing the schema
 
@@ -33,3 +37,6 @@ indexes nor table constraints:
 
 - partial UNIQUE indexes (`idx_training_notes_day`, `idx_training_notes_workout`)
 - the `on_auth_user_created` trigger on `auth.users`, which lives outside `public`
+- the member-facing foreign keys point at `public.profiles`, not `auth.users`.
+  PostgREST resolves embeds like `profiles:user_id (...)` from the foreign key,
+  so one pointing at `auth.users` silently fails the whole query.

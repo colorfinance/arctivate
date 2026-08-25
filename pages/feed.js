@@ -4,6 +4,8 @@ import Nav from '../components/Nav'
 import ProfileButton from '../components/ProfileButton'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import SessionCard from '../components/feed/SessionCard'
+import { toggleKudos, addComment } from '../lib/sessions'
 import { filterContent } from '../lib/contentFilter'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -94,6 +96,11 @@ export default function Feed() {
   const [isLoading, setIsLoading] = useState(true)
   const [currentUserId, setCurrentUserId] = useState(null)
   const [activeTab, setActiveTab] = useState('workouts')
+  // Gym sessions -- the thing the feed is actually about now. The old
+  // public_feed posts still render underneath so nobody's history vanishes.
+  const [sessions, setSessions] = useState([])
+  const [myKudos, setMyKudos] = useState(new Set())
+  const [commentsBySession, setCommentsBySession] = useState({})
   const [newMessage, setNewMessage] = useState('')
   const [isPosting, setIsPosting] = useState(false)
   const [showComposer, setShowComposer] = useState(false)
@@ -141,7 +148,7 @@ export default function Feed() {
       }
 
       setCurrentUserId(user.id)
-      await Promise.all([fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id), fetchBlockedUsers(user.id)])
+      await Promise.all([fetchSessions(user.id), fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id), fetchBlockedUsers(user.id)])
       setIsLoading(false)
     }
     load()
@@ -185,6 +192,87 @@ export default function Feed() {
     if (type === 'feed') setPosts(prev => prev.filter(p => p.id !== postId))
     else setMessages(prev => prev.filter(m => m.id !== postId))
     showToast('Post deleted')
+  }
+
+  // RLS decides what comes back: your own sessions, plus gym-visible ones from
+  // your gym. Nothing here filters on visibility, because the database already
+  // has and a client-side filter would be the wrong place to enforce it.
+  async function fetchSessions(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('workout_sessions')
+        .select(`
+          id, user_id, title, notes, started_at, ended_at, visibility,
+          kudos_count, comments_count,
+          profiles:user_id (username, avatar_url),
+          logs:workout_logs (id, value, sets, reps, is_new_pb, exercise:exercise_id (name, metric_type))
+        `)
+        .not('ended_at', 'is', null)
+        .order('started_at', { ascending: false })
+        .limit(50)
+      // Swallowing this silently is how a broken embed looked like an empty
+      // feed for far too long. It still must not break the page.
+      if (error) { console.error('[Arctivate] session feed failed:', error); return }
+      setSessions(data || [])
+
+      const ids = (data || []).map(d => d.id)
+      if (ids.length) {
+        const { data: mine } = await supabase
+          .from('session_kudos').select('session_id').eq('user_id', userId).in('session_id', ids)
+        setMyKudos(new Set((mine || []).map(k => k.session_id)))
+      }
+    } catch {}
+  }
+
+  const loadComments = async (sessionId) => {
+    const { data } = await supabase
+      .from('session_comments')
+      .select('*, profiles:user_id (username, avatar_url)')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true })
+    setCommentsBySession(prev => ({ ...prev, [sessionId]: data || [] }))
+  }
+
+  const handleKudos = async (sessionId, already) => {
+    // Optimistic: a high five that waits on the network feels broken.
+    setMyKudos(prev => {
+      const next = new Set(prev)
+      if (already) next.delete(sessionId); else next.add(sessionId)
+      return next
+    })
+    setSessions(prev => prev.map(s => s.id === sessionId
+      ? { ...s, kudos_count: Math.max(0, (s.kudos_count || 0) + (already ? -1 : 1)) }
+      : s))
+
+    const ok = await toggleKudos(supabase, sessionId, currentUserId, already)
+    if (!ok) {
+      setMyKudos(prev => {
+        const next = new Set(prev)
+        if (already) next.add(sessionId); else next.delete(sessionId)
+        return next
+      })
+      setSessions(prev => prev.map(s => s.id === sessionId
+        ? { ...s, kudos_count: Math.max(0, (s.kudos_count || 0) + (already ? 1 : -1)) }
+        : s))
+      showToast('Could not do that')
+    }
+  }
+
+  const handleComment = async (sessionId, body) => {
+    const row = await addComment(supabase, sessionId, currentUserId, body)
+    if (!row) { showToast('Could not post that'); return false }
+    setCommentsBySession(prev => ({ ...prev, [sessionId]: [...(prev[sessionId] || []), row] }))
+    setSessions(prev => prev.map(s => s.id === sessionId
+      ? { ...s, comments_count: (s.comments_count || 0) + 1 } : s))
+    return true
+  }
+
+  const deleteSession = async (sessionId) => {
+    const snapshot = sessions
+    setSessions(prev => prev.filter(s => s.id !== sessionId))
+    const { error } = await supabase.from('workout_sessions').delete().eq('id', sessionId)
+    if (error) { setSessions(snapshot); showToast('Could not delete that'); return }
+    showToast('Session deleted')
   }
 
   async function fetchWorkoutFeed() {
@@ -728,13 +816,32 @@ export default function Feed() {
             {/* Workouts Tab */}
             {activeTab === 'workouts' && (
               <>
-                {posts.length === 0 ? (
+                {/* Sessions: whole workouts, shared automatically when finished. */}
+                <div className="space-y-4 mb-4">
+                  {sessions.filter(s => !blockedUsers.has(s.user_id)).map((s) => (
+                    <SessionCard
+                      key={s.id}
+                      session={s}
+                      currentUserId={currentUserId}
+                      hasKudos={myKudos.has(s.id)}
+                      onKudos={handleKudos}
+                      onComment={handleComment}
+                      onDelete={deleteSession}
+                      comments={commentsBySession[s.id] || []}
+                      onLoadComments={loadComments}
+                    />
+                  ))}
+                </div>
+
+                {sessions.length === 0 && posts.length === 0 ? (
                   <div className="text-center py-20">
                     <div className="w-16 h-16 bg-arc-surface rounded-full flex items-center justify-center mx-auto mb-4 text-arc-muted">
                       <HighFiveIcon />
                     </div>
-                    <h3 className="text-lg font-bold text-white mb-2">No Workouts Yet</h3>
-                    <p className="text-arc-muted text-sm">Be the first to share your workout!</p>
+                    <h3 className="text-lg font-bold text-white mb-2">No workouts yet</h3>
+                    <p className="text-arc-muted text-sm max-w-xs mx-auto">
+                      Finish a session on the Train screen and it shows up here for your gym.
+                    </p>
                   </div>
                 ) : (
                   <AnimatePresence initial={false}>
