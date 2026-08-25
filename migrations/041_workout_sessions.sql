@@ -202,6 +202,13 @@ BEGIN
 END;
 $function$;
 
+-- A trigger function has no business being an RPC, and Postgres grants EXECUTE
+-- on a new function to PUBLIC -- which put this on the REST API callable by
+-- anon. Calling it outside a trigger errors on the missing NEW/OLD/TG_OP, so
+-- nothing was exploitable, but this is the same mistake migration 037 cleaned up.
+REVOKE EXECUTE ON FUNCTION public.bump_session_counts() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.bump_session_counts() TO service_role;
+
 DROP TRIGGER IF EXISTS trg_session_kudos_count ON public.session_kudos;
 CREATE TRIGGER trg_session_kudos_count
   AFTER INSERT OR DELETE ON public.session_kudos
