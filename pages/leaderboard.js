@@ -5,13 +5,29 @@ import Nav from '../components/Nav'
 import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
 import { ArrowLeftIcon, TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
-import { friendIds, rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
+import { rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
+import { fetchMyFollowing } from '../lib/follows'
 
 const TABS = [
-  { key: 'friends', label: 'Friends' },
+  { key: 'friends', label: 'Following' },
   { key: 'gym', label: 'My gym' },
-  { key: 'gyms', label: 'Gym vs gym' },
+  { key: 'gyms', label: 'Gyms' },
+  // Segments, for a gym. Ranked on actual lifts rather than points.
+  { key: 'lifts', label: 'Lifts' },
 ]
+
+// A lift's value with its unit. Time is minutes and lower is better; the rest
+// read as a plain number with a unit.
+const fmtLift = (v, metricType) => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  const num = Number.isInteger(n) ? String(n) : n.toFixed(1)
+  if (metricType === 'time') return `${num} min`
+  if (metricType === 'distance') return `${num} km`
+  if (metricType === 'distance_m') return `${num} m`
+  if (metricType === 'reps') return `${num} reps`
+  return `${num} kg`
+}
 
 const medal = (rank) => (rank === 1 ? 'text-yellow-400' : rank === 2 ? 'text-slate-300' : rank === 3 ? 'text-amber-600' : 'text-arc-muted')
 
@@ -21,10 +37,46 @@ export default function Leaderboard() {
   const [myGymId, setMyGymId] = useState(null)
   const [profiles, setProfiles] = useState([])
   const [gyms, setGyms] = useState([])
-  const [friendships, setFriendships] = useState([])
+  const [friendships, setFriendships] = useState(new Set())
   const [tab, setTab] = useState('gym')
   const [metric, setMetric] = useState('points')
   const [notReady, setNotReady] = useState(false)
+  // Per-lift boards. Sourced only from sessions members chose to share, so a
+  // private training history never turns up on a leaderboard.
+  const [boards, setBoards] = useState([])
+  const [myBests, setMyBests] = useState([])
+  const [openBoard, setOpenBoard] = useState(null)   // { lift, display_name, metric_type }
+  const [boardRows, setBoardRows] = useState([])
+  const [loadingLifts, setLoadingLifts] = useState(false)
+
+  const loadLifts = useCallback(async () => {
+    setLoadingLifts(true)
+    try {
+      const [b, m] = await Promise.all([
+        supabase.rpc('gym_lift_boards'),
+        supabase.rpc('my_lift_bests'),
+      ])
+      // Migration 042 not applied yet -- show nothing rather than break.
+      if (!b.error) setBoards(b.data || [])
+      if (!m.error) setMyBests(m.data || [])
+    } finally {
+      setLoadingLifts(false)
+    }
+  }, [])
+
+  const openLiftBoard = useCallback(async (board) => {
+    setOpenBoard(board)
+    setBoardRows([])
+    const { data } = await supabase.rpc('gym_lift_board', {
+      p_lift: board.lift, p_metric: board.metric_type, p_limit: 25,
+    })
+    setBoardRows(data || [])
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'lifts' && boards.length === 0 && myBests.length === 0) loadLifts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   const fetchAll = useCallback(async () => {
     try {
@@ -45,10 +97,10 @@ export default function Leaderboard() {
       if (gymErr) setNotReady(true)
       setGyms(gymRows || [])
 
-      const { data: fr } = await supabase
-        .from('friendships').select('*')
-        .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
-      setFriendships(fr || [])
+      // Following, not friendships. The mutual model needed both sides to
+      // agree and ended the year with zero rows, so this board was always
+      // empty except for you.
+      setFriendships(await fetchMyFollowing(supabase, user.id))
     } catch {
       setNotReady(true)
     } finally {
@@ -58,7 +110,7 @@ export default function Leaderboard() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const myFriendIds = useMemo(() => friendIds(friendships, userId), [friendships, userId])
+  const myFriendIds = useMemo(() => [...friendships], [friendships])
 
   const rows = useMemo(() => {
     if (tab === 'gyms') return []
@@ -66,7 +118,7 @@ export default function Leaderboard() {
     // "Member" rows reads as broken, and you're still shown to yourself.
     let pool = profiles.filter(p => p.username || p.id === userId)
     if (tab === 'friends') {
-      // You're always on your own friends board, otherwise it reads as if you
+      // You're always on your own board, otherwise it reads as if you
       // aren't competing.
       const ids = new Set([...myFriendIds, userId])
       pool = profiles.filter(p => ids.has(p.id))
@@ -127,13 +179,14 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Who you're up against */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Who you're up against. Four across since Lifts joined -- at three
+            columns the fourth dropped onto a row of its own. */}
+        <div className="grid grid-cols-4 gap-2">
           {TABS.map(t => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`py-2.5 rounded-xl text-[11px] font-bold transition-all border ${
+              className={`py-2.5 px-1 rounded-xl text-[11px] font-bold transition-all border truncate ${
                 tab === t.key
                   ? 'bg-accent-gradient text-white border-transparent shadow-glow-accent'
                   : 'bg-arc-card text-arc-muted border-white/[0.06] hover:text-white'
@@ -144,7 +197,9 @@ export default function Leaderboard() {
           ))}
         </div>
 
-        {/* What you're ranked on */}
+        {/* What you're ranked on. Meaningless on Lifts, where the metric is
+            the lift itself. */}
+        {tab !== 'lifts' && (
         <div className="flex gap-2">
           {Object.entries(METRICS).map(([key, m]) => (
             <button
@@ -159,9 +214,84 @@ export default function Leaderboard() {
             </button>
           ))}
         </div>
+        )}
+
+        {tab === 'lifts' && (
+          <div className="space-y-4">
+            {loadingLifts ? (
+              <div className="py-10 flex justify-center">
+                <div className="w-6 h-6 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <>
+                {boards.length === 0 ? (
+                  <div className="bg-arc-card border border-white/[0.06] rounded-2xl p-6 text-center space-y-2">
+                    <h3 className="text-lg font-black italic tracking-tighter">NO BOARDS YET</h3>
+                    <p className="text-[12px] text-arc-muted leading-relaxed max-w-xs mx-auto">
+                      Boards are built from sessions people share with the gym. Nothing you
+                      logged privately shows up here. Finish a session on the Train screen
+                      and share it, and your lifts land on the board.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1">Gym records</span>
+                    {boards.map((b) => (
+                      <button
+                        key={`${b.lift}|${b.metric_type}`}
+                        onClick={() => openLiftBoard(b)}
+                        className="w-full flex items-center gap-3 bg-arc-card border border-white/[0.06] rounded-2xl p-4 hover:border-arc-accent/30 transition-colors text-left"
+                      >
+                        <span className="shrink-0 text-lg" aria-hidden="true">👑</span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[13px] font-bold text-white truncate">{b.display_name}</span>
+                          <span className="block text-[11px] text-arc-muted truncate">
+                            {b.leader_name || 'Member'} · {fmtLift(b.leader_value, b.metric_type)}
+                            {' · '}{b.entrants} {b.entrants === 1 ? 'entrant' : 'entrants'}
+                          </span>
+                        </span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {myBests.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1">Your bests</span>
+                    {myBests.slice(0, 30).map((m) => (
+                      <div
+                        key={`${m.lift}|${m.metric_type}`}
+                        className="flex items-center gap-3 bg-arc-card border border-white/[0.06] rounded-2xl px-4 py-3"
+                      >
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[13px] font-bold text-white truncate">{m.display_name}</span>
+                          {!m.on_board && (
+                            <span className="block text-[10px] text-amber-400/90 leading-snug">
+                              Private — share that session to get on the board
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0 font-mono font-black text-arc-accent text-sm">
+                          {fmtLift(m.best, m.metric_type)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {boards.length === 0 && myBests.length === 0 && (
+                  <p className="text-center text-[12px] text-arc-muted">
+                    Log a lift on the Train screen and it shows up here.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Where you sit, without scrolling for it */}
-        {tab !== 'gyms' && myRank && rows.length > 0 && (
+        {tab !== 'gyms' && tab !== 'lifts' && myRank && rows.length > 0 && (
           <div className="bg-arc-card border border-arc-accent/30 rounded-2xl p-4 flex items-center gap-4">
             <div className="text-center shrink-0">
               <div className={`text-2xl font-black italic leading-none ${medal(myRank)}`}>#{myRank}</div>
@@ -170,7 +300,7 @@ export default function Leaderboard() {
             <div className="min-w-0 flex-1">
               <p className="text-[11px] text-arc-muted">
                 {myRank === 1
-                  ? `Top of the ${tab === 'friends' ? 'friends' : 'gym'} board. Keep it.`
+                  ? `Top of the ${tab === 'friends' ? 'following' : 'gym'} board. Keep it.`
                   : gapAhead === 0
                     ? 'Level with the person above you. One session decides it.'
                     : `${gapAhead?.toLocaleString()} ${unit} behind the person above you.`}
@@ -180,13 +310,13 @@ export default function Leaderboard() {
         )}
 
         {/* People */}
-        {tab !== 'gyms' && (
+        {tab !== 'gyms' && tab !== 'lifts' && (
           <div className="space-y-1.5">
             {rows.length === 0 && (
               <div className="bg-arc-card border border-white/5 rounded-2xl p-8 text-center space-y-2">
                 <div className="flex justify-center text-arc-muted"><UsersIcon size={36} /></div>
                 <h2 className="text-lg font-black italic tracking-tighter">
-                  {tab === 'friends' ? 'NO FRIENDS YET' : 'NOBODY HERE YET'}
+                  {tab === 'friends' ? 'NOT FOLLOWING ANYONE YET' : 'NOBODY HERE YET'}
                 </h2>
                 <p className="text-sm text-arc-muted">
                   {tab === 'friends'
@@ -264,6 +394,64 @@ export default function Leaderboard() {
           </div>
         )}
       </main>
+
+      <AnimatePresence>
+        {openBoard && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setOpenBoard(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[85vh] flex flex-col"
+            >
+              <div className="p-6 pb-3 shrink-0">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
+                <h2 className="text-xl font-black italic tracking-tighter">{openBoard.display_name}</h2>
+                <p className="text-[11px] text-arc-muted mt-0.5">
+                  {openBoard.metric_type === 'time' ? 'Fastest first' : 'Heaviest first'} · your gym · shared sessions only
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 pb-2 space-y-1.5">
+                {boardRows.length === 0 ? (
+                  <p className="text-center text-[12px] text-arc-muted py-6">Loading…</p>
+                ) : boardRows.map((r) => (
+                  <div
+                    key={r.user_id}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${
+                      r.is_me ? 'bg-arc-accent/10 border-arc-accent/30' : 'bg-arc-surface border-white/[0.04]'
+                    }`}
+                  >
+                    <span className={`shrink-0 w-6 text-center font-black font-mono text-sm ${medal(r.board_position)}`}>
+                      {r.board_position}
+                    </span>
+                    <Avatar src={r.avatar_url} name={r.username} size={30} />
+                    <span className="flex-1 min-w-0 text-[13px] font-bold text-white truncate">
+                      {r.username || 'Member'}{r.is_me ? ' (you)' : ''}
+                    </span>
+                    <span className="shrink-0 font-mono font-black text-sm text-arc-accent">
+                      {fmtLift(r.best, openBoard.metric_type)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-6 pt-3 shrink-0 border-t border-white/5">
+                <button
+                  onClick={() => setOpenBoard(null)}
+                  className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       <Nav />
     </div>

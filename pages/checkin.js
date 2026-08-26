@@ -53,6 +53,11 @@ const StoreIcon = () => (
   </svg>
 )
 
+// Everything about a partner except the one thing that is a token. `qr_uuid`
+// is worth a check-in to whoever holds it, so it is no longer readable from the
+// table -- owners and admins fetch their own through my_partner_qr().
+const PARTNER_COLUMNS = 'id, name, description, discount_text, points_value, location_lat, location_long, owner_id'
+
 export default function CheckIn() {
   const router = useRouter()
   const [isScanning, setIsScanning] = useState(false)
@@ -84,6 +89,8 @@ export default function CheckIn() {
   const [newBusiness, setNewBusiness] = useState({ name: '', discount: '', description: '', points: '150' })
   const [selectedQR, setSelectedQR] = useState(null)
   const [myBusinesses, setMyBusinesses] = useState([])
+  // partner id -> qr_uuid, for the venues this member is allowed to see a code for
+  const [qrByPartner, setQrByPartner] = useState({})
 
   // Scanner refs
   const html5QrCodeRef = useRef(null)
@@ -144,25 +151,33 @@ export default function CheckIn() {
   }
 
   async function fetchBusinesses() {
-    try {
-      const { data } = await supabase
-        .from('partners')
-        .select('*')
-        .order('created_at', { ascending: false })
-      if (data) setBusinesses(data)
-    } catch {}
+    // partners has no created_at, so the old order() failed the whole request
+    // and the directory quietly rendered "No businesses listed yet".
+    const { data, error } = await supabase
+      .from('partners')
+      .select(PARTNER_COLUMNS)
+      .order('name')
+    if (error) {
+      console.error('Could not load partner businesses', error)
+      return
+    }
+    if (data) setBusinesses(data)
   }
 
   async function fetchMyBusinesses(userId) {
-    try {
-      const { data } = await supabase
-        .from('partners')
-        .select('*')
-        .eq('owner_id', userId)
-        .order('created_at', { ascending: false })
-      if (data) setMyBusinesses(data)
-    } catch (err) {
-      // owner_id column may not exist yet
+    const { data } = await supabase
+      .from('partners')
+      .select(PARTNER_COLUMNS)
+      .eq('owner_id', userId)
+      .order('name')
+    if (data) setMyBusinesses(data)
+
+    // The codes come back separately, and only for venues you own -- or all of
+    // them, if you are an admin. An older database without the function just
+    // means no QR to show, which is better than showing everyone's.
+    const { data: codes } = await supabase.rpc('my_partner_qr')
+    if (codes) {
+      setQrByPartner(Object.fromEntries(codes.map(c => [c.partner_id, c.qr_uuid])))
     }
   }
 
@@ -191,37 +206,21 @@ export default function CheckIn() {
         insertData.owner_id = currentUser.id
       }
 
-      let result
-      try {
-        result = await supabase.from('partners').insert(insertData).select().single()
-      } catch {
-        // owner_id column might not exist, try without it
-        delete insertData.owner_id
-        result = await supabase.from('partners').insert(insertData).select().single()
-      }
+      const { data, error } = await supabase
+        .from('partners')
+        .insert(insertData)
+        .select(PARTNER_COLUMNS)
+        .single()
+      if (error) throw error
 
-      const { data, error } = result
-
-      if (error) {
-        // If owner_id column doesn't exist, retry without it
-        if (error.message?.includes('owner_id')) {
-          delete insertData.owner_id
-          const retry = await supabase.from('partners').insert(insertData).select().single()
-          if (retry.error) throw retry.error
-          if (retry.data) {
-            setBusinesses(prev => [retry.data, ...prev])
-            setMyBusinesses(prev => [retry.data, ...prev])
-            showToast('Business listed! QR code ready.')
-            setSelectedQR(retry.data)
-          }
-        } else {
-          throw error
-        }
-      } else if (data) {
+      if (data) {
         setBusinesses(prev => [data, ...prev])
         setMyBusinesses(prev => [data, ...prev])
+        // We generated the code, so we already have it -- no need to read it
+        // back out of a column we can no longer select.
+        setQrByPartner(prev => ({ ...prev, [data.id]: qrUuid }))
         showToast('Business listed! QR code ready.')
-        setSelectedQR(data)
+        setSelectedQR({ ...data, qr_uuid: qrUuid })
       }
 
       setNewBusiness({ name: '', discount: '', description: '', points: '150' })
@@ -239,6 +238,7 @@ export default function CheckIn() {
       if (error) throw error
       setBusinesses(prev => prev.filter(b => b.id !== id))
       setMyBusinesses(prev => prev.filter(b => b.id !== id))
+      setQrByPartner(prev => { const next = { ...prev }; delete next[id]; return next })
       showToast('Business removed')
     } catch {
       showToast('Failed to delete')
@@ -305,57 +305,14 @@ export default function CheckIn() {
         return
       }
 
-      // Try partner QR first — look up partner by qr_uuid
-      const { data: partner } = await supabase
-        .from('partners')
-        .select('*')
-        .eq('qr_uuid', code)
-        .single()
+      // A check-in is one server-side call now. It used to be a lookup, an
+      // insert and an add_points, all with numbers this page chose -- which
+      // meant the points were whatever the client said they were.
+      const { data: checkIn } = await supabase.rpc('check_in_with_qr', { p_qr: code })
 
-      if (partner) {
-        // Check if already checked in today
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-        const { data: existing } = await supabase
-          .from('check_ins')
-          .select('id')
-          .eq('user_id', currentUser.id)
-          .eq('partner_id', partner.id)
-          .gte('checked_in_at', today.toISOString())
-          .limit(1)
-
-        if (existing && existing.length > 0) {
-          setError('You already checked in here today! Come back tomorrow.')
-          setIsRedeeming(false)
-          return
-        }
-
-        // Create check-in
-        const pointsAwarded = partner.points_value || 150
-        const { error: checkInError } = await supabase.from('check_ins').insert({
-          user_id: currentUser.id,
-          partner_id: partner.id,
-          awarded_points: pointsAwarded,
-        })
-
-        if (checkInError) throw checkInError
-
-        // Update user points
-        await supabase.rpc('add_points', { p_user_id: currentUser.id, p_points: pointsAwarded }).catch(() => {
-          // Fallback: direct update if RPC doesn't exist
-          supabase.from('profiles').update({ total_points: totalPoints + pointsAwarded }).eq('id', currentUser.id)
-        })
-
-        setTotalPoints(prev => prev + pointsAwarded)
-
-        setScanResult({
-          success: true,
-          type: 'checkin',
-          points_awarded: pointsAwarded,
-          partner_name: partner.name,
-          discount_text: partner.discount_text,
-          description: partner.description || `Checked in at ${partner.name}`,
-        })
+      if (checkIn?.success) {
+        setTotalPoints(prev => prev + (checkIn.points_awarded || 0))
+        setScanResult(checkIn)
 
         confetti({
           particleCount: 150,
@@ -365,6 +322,14 @@ export default function CheckIn() {
         })
 
         loadData()
+        return
+      }
+
+      // Anything other than "this is not a partner QR" is a real answer about a
+      // real venue -- already checked in today, most often.
+      if (checkIn && checkIn.error !== 'not_a_partner') {
+        setError(checkIn.error)
+        setIsRedeeming(false)
         return
       }
 
@@ -710,7 +675,7 @@ export default function CheckIn() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => setSelectedQR(biz)}
+                            onClick={() => setSelectedQR({ ...biz, qr_uuid: qrByPartner[biz.id] })}
                             className="p-2 bg-arc-accent/10 rounded-lg text-arc-accent hover:text-white transition-colors"
                             title="Show QR Code"
                           >
@@ -845,7 +810,7 @@ export default function CheckIn() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => setSelectedQR(biz)}
+                            onClick={() => setSelectedQR({ ...biz, qr_uuid: qrByPartner[biz.id] })}
                             className="p-2 text-arc-accent hover:text-white transition-colors"
                           >
                             <QRIcon />
@@ -1056,22 +1021,30 @@ export default function CheckIn() {
                   <p className="text-green-400 font-bold text-sm">{selectedQR.discount_text}</p>
                 )}
 
-                <div className="bg-white rounded-2xl p-6 mx-auto w-fit">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(selectedQR.qr_uuid)}`}
-                    alt="QR Code"
-                    className="w-48 h-48"
-                  />
-                </div>
+                {selectedQR.qr_uuid ? (
+                  <>
+                    <div className="bg-white rounded-2xl p-6 mx-auto w-fit">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(selectedQR.qr_uuid)}`}
+                        alt="QR Code"
+                        className="w-48 h-48"
+                      />
+                    </div>
 
-                <div className="space-y-1">
-                  <p className="text-[10px] text-arc-muted font-bold uppercase tracking-widest">QR UUID</p>
-                  <p className="text-xs font-mono text-white/60 break-all">{selectedQR.qr_uuid}</p>
-                </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-arc-muted font-bold uppercase tracking-widest">QR UUID</p>
+                      <p className="text-xs font-mono text-white/60 break-all">{selectedQR.qr_uuid}</p>
+                    </div>
 
-                <p className="text-xs text-arc-muted">
-                  Print this QR code and display it at your business. Users scan it to earn {selectedQR.points_value || 150} points and claim their discount.
-                </p>
+                    <p className="text-xs text-arc-muted">
+                      Print this QR code and display it at your business. Users scan it to earn {selectedQR.points_value || 150} points and claim their discount.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-arc-muted py-8">
+                    Only the owner of this venue can see its QR code.
+                  </p>
+                )}
 
                 <button
                   onClick={() => setSelectedQR(null)}
