@@ -5,10 +5,11 @@ import Nav from '../components/Nav'
 import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
 import { ArrowLeftIcon, TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
-import { friendIds, rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
+import { rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
+import { fetchMyFollowing } from '../lib/follows'
 
 const TABS = [
-  { key: 'friends', label: 'Friends' },
+  { key: 'friends', label: 'Following' },
   { key: 'gym', label: 'My gym' },
   { key: 'gyms', label: 'Gyms' },
   // Segments, for a gym. Ranked on actual lifts rather than points.
@@ -36,7 +37,7 @@ export default function Leaderboard() {
   const [myGymId, setMyGymId] = useState(null)
   const [profiles, setProfiles] = useState([])
   const [gyms, setGyms] = useState([])
-  const [friendships, setFriendships] = useState([])
+  const [friendships, setFriendships] = useState(new Set())
   const [tab, setTab] = useState('gym')
   const [metric, setMetric] = useState('points')
   const [notReady, setNotReady] = useState(false)
@@ -96,10 +97,10 @@ export default function Leaderboard() {
       if (gymErr) setNotReady(true)
       setGyms(gymRows || [])
 
-      const { data: fr } = await supabase
-        .from('friendships').select('*')
-        .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
-      setFriendships(fr || [])
+      // Following, not friendships. The mutual model needed both sides to
+      // agree and ended the year with zero rows, so this board was always
+      // empty except for you.
+      setFriendships(await fetchMyFollowing(supabase, user.id))
     } catch {
       setNotReady(true)
     } finally {
@@ -109,7 +110,7 @@ export default function Leaderboard() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const myFriendIds = useMemo(() => friendIds(friendships, userId), [friendships, userId])
+  const myFriendIds = useMemo(() => [...friendships], [friendships])
 
   const rows = useMemo(() => {
     if (tab === 'gyms') return []
@@ -117,7 +118,7 @@ export default function Leaderboard() {
     // "Member" rows reads as broken, and you're still shown to yourself.
     let pool = profiles.filter(p => p.username || p.id === userId)
     if (tab === 'friends') {
-      // You're always on your own friends board, otherwise it reads as if you
+      // You're always on your own board, otherwise it reads as if you
       // aren't competing.
       const ids = new Set([...myFriendIds, userId])
       pool = profiles.filter(p => ids.has(p.id))
@@ -299,7 +300,7 @@ export default function Leaderboard() {
             <div className="min-w-0 flex-1">
               <p className="text-[11px] text-arc-muted">
                 {myRank === 1
-                  ? `Top of the ${tab === 'friends' ? 'friends' : 'gym'} board. Keep it.`
+                  ? `Top of the ${tab === 'friends' ? 'following' : 'gym'} board. Keep it.`
                   : gapAhead === 0
                     ? 'Level with the person above you. One session decides it.'
                     : `${gapAhead?.toLocaleString()} ${unit} behind the person above you.`}
@@ -315,7 +316,7 @@ export default function Leaderboard() {
               <div className="bg-arc-card border border-white/5 rounded-2xl p-8 text-center space-y-2">
                 <div className="flex justify-center text-arc-muted"><UsersIcon size={36} /></div>
                 <h2 className="text-lg font-black italic tracking-tighter">
-                  {tab === 'friends' ? 'NO FRIENDS YET' : 'NOBODY HERE YET'}
+                  {tab === 'friends' ? 'NOT FOLLOWING ANYONE YET' : 'NOBODY HERE YET'}
                 </h2>
                 <p className="text-sm text-arc-muted">
                   {tab === 'friends'

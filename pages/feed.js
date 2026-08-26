@@ -6,6 +6,7 @@ import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import SessionCard from '../components/feed/SessionCard'
 import { toggleKudos, addComment } from '../lib/sessions'
+import { fetchMyFollowing, toggleFollow } from '../lib/follows'
 import { filterContent } from '../lib/contentFilter'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -101,6 +102,10 @@ export default function Feed() {
   const [sessions, setSessions] = useState([])
   const [myKudos, setMyKudos] = useState(new Set())
   const [commentsBySession, setCommentsBySession] = useState({})
+  // Who you follow, and whether the feed is showing everyone at the gym or
+  // only them. A filter, not a permission -- what you may see is unchanged.
+  const [following, setFollowing] = useState(new Set())
+  const [feedScope, setFeedScope] = useState('gym')
   const [newMessage, setNewMessage] = useState('')
   const [isPosting, setIsPosting] = useState(false)
   const [showComposer, setShowComposer] = useState(false)
@@ -148,7 +153,7 @@ export default function Feed() {
       }
 
       setCurrentUserId(user.id)
-      await Promise.all([fetchSessions(user.id), fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id), fetchBlockedUsers(user.id)])
+      await Promise.all([fetchSessions(user.id), fetchFollowing(user.id), fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id), fetchBlockedUsers(user.id)])
       setIsLoading(false)
     }
     load()
@@ -223,6 +228,36 @@ export default function Feed() {
       }
     } catch {}
   }
+
+  async function fetchFollowing(userId) {
+    setFollowing(await fetchMyFollowing(supabase, userId))
+  }
+
+  const handleFollow = async (targetId, already) => {
+    // Optimistic, and reverted if the write fails.
+    setFollowing(prev => {
+      const next = new Set(prev)
+      if (already) next.delete(targetId); else next.add(targetId)
+      return next
+    })
+    const ok = await toggleFollow(supabase, currentUserId, targetId, already)
+    if (!ok) {
+      setFollowing(prev => {
+        const next = new Set(prev)
+        if (already) next.add(targetId); else next.delete(targetId)
+        return next
+      })
+      showToast('Could not do that')
+      return
+    }
+    showToast(already ? 'Unfollowed' : 'Following')
+  }
+
+  // Your own sessions always show: a feed that hides your workout from you
+  // reads as the app having lost it.
+  const visibleSessions = sessions
+    .filter(s => !blockedUsers.has(s.user_id))
+    .filter(s => feedScope === 'gym' || s.user_id === currentUserId || following.has(s.user_id))
 
   const loadComments = async (sessionId) => {
     const { data } = await supabase
@@ -816,9 +851,44 @@ export default function Feed() {
             {/* Workouts Tab */}
             {activeTab === 'workouts' && (
               <>
+                {/* Everyone at the gym, or only the people you follow. */}
+                {sessions.length > 0 && (
+                  <div className="flex gap-2 mb-4">
+                    {[
+                      { key: 'gym', label: 'My gym' },
+                      { key: 'following', label: `Following${following.size ? ` (${following.size})` : ''}` },
+                    ].map(o => (
+                      <button
+                        key={o.key}
+                        onClick={() => setFeedScope(o.key)}
+                        className={`flex-1 py-2 rounded-lg text-[11px] font-bold transition-colors border ${
+                          feedScope === o.key
+                            ? 'bg-arc-surface text-white border-white/10'
+                            : 'text-arc-muted border-transparent hover:text-white'
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {feedScope === 'following' && visibleSessions.length === 0 && (
+                  <div className="bg-arc-card border border-white/[0.06] rounded-2xl p-6 text-center space-y-1 mb-4">
+                    <h3 className="text-base font-black italic tracking-tighter">
+                      {following.size === 0 ? 'NOT FOLLOWING ANYONE YET' : 'NOTHING FROM THEM YET'}
+                    </h3>
+                    <p className="text-[12px] text-arc-muted leading-relaxed max-w-xs mx-auto">
+                      {following.size === 0
+                        ? 'Tap Follow on anyone’s workout and their sessions show up here.'
+                        : 'Nobody you follow has shared a session yet.'}
+                    </p>
+                  </div>
+                )}
+
                 {/* Sessions: whole workouts, shared automatically when finished. */}
                 <div className="space-y-4 mb-4">
-                  {sessions.filter(s => !blockedUsers.has(s.user_id)).map((s) => (
+                  {visibleSessions.map((s) => (
                     <SessionCard
                       key={s.id}
                       session={s}
@@ -829,6 +899,8 @@ export default function Feed() {
                       onDelete={deleteSession}
                       comments={commentsBySession[s.id] || []}
                       onLoadComments={loadComments}
+                      isFollowing={following.has(s.user_id)}
+                      onToggleFollow={handleFollow}
                     />
                   ))}
                 </div>

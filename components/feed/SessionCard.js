@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Avatar from '../Avatar'
+import FollowButton from '../FollowButton'
 import { summariseLogs, sessionStats, sessionDuration, unitFor } from '../../lib/sessions'
 
 // A gym session as other people see it: what you did, what was a PB, and two
@@ -34,6 +35,8 @@ export default function SessionCard({
   onDelete,
   comments = [],
   onLoadComments,
+  isFollowing,
+  onToggleFollow,
 }) {
   const [showComments, setShowComments] = useState(false)
   const [draft, setDraft] = useState('')
@@ -76,6 +79,16 @@ export default function SessionCard({
           <span className="shrink-0 flex items-center gap-1 text-[10px] bg-arc-accent/20 text-arc-accent px-2.5 py-1 rounded-full font-black">
             {stats.pbs} PB{stats.pbs > 1 ? 's' : ''}
           </span>
+        )}
+        {/* Following someone from the workout that made you want to is the
+            whole point -- it is a worse feature behind a search box. */}
+        {onToggleFollow && (
+          <FollowButton
+            targetId={session.user_id}
+            currentUserId={currentUserId}
+            isFollowing={isFollowing}
+            onToggle={onToggleFollow}
+          />
         )}
       </div>
 

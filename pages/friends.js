@@ -4,8 +4,10 @@ import Link from 'next/link'
 import Nav from '../components/Nav'
 import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
+import FollowButton from '../components/FollowButton'
+import { fetchMyFollowing, toggleFollow } from '../lib/follows'
 import { ArrowLeftIcon, CheckIcon, CloseIcon, UsersIcon, FlameIcon } from '../components/icons'
-import { pairFor, otherSide, friendIds, incomingRequests, outgoingRequests, friendState } from '../lib/social'
+import { otherSide, incomingRequests, outgoingRequests } from '../lib/social'
 
 export default function Friends() {
   const [loading, setLoading] = useState(true)
@@ -14,6 +16,9 @@ export default function Friends() {
   const [profiles, setProfiles] = useState([])
   const [friendships, setFriendships] = useState([])
   const [search, setSearch] = useState('')
+  // Following sits alongside the older friend request. One is a tap; the other
+  // needs the other person to agree, which after a year nobody ever did.
+  const [following, setFollowing] = useState(new Set())
   const [busy, setBusy] = useState(null)
   const [toast, setToast] = useState(null)
   const [notReady, setNotReady] = useState(false)
@@ -39,6 +44,7 @@ export default function Friends() {
         .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
       if (error) setNotReady(true)
       setFriendships(fr || [])
+      setFollowing(await fetchMyFollowing(supabase, user.id))
     } catch {
       setNotReady(true)
     } finally {
@@ -54,14 +60,31 @@ export default function Friends() {
     return m
   }, [profiles])
 
-  const myFriends = useMemo(
-    () => friendIds(friendships, userId).map(id => byId[id]).filter(Boolean),
-    [friendships, userId, byId]
-  )
   const incoming = useMemo(() => incomingRequests(friendships, userId), [friendships, userId])
   const outgoing = useMemo(() => outgoingRequests(friendships, userId), [friendships, userId])
 
   // Everyone else, with the people already sorted out of the way.
+  const handleFollow = async (targetId, already) => {
+    setFollowing(prev => {
+      const next = new Set(prev)
+      if (already) next.delete(targetId); else next.add(targetId)
+      return next
+    })
+    const ok = await toggleFollow(supabase, userId, targetId, already)
+    if (!ok) {
+      setFollowing(prev => {
+        const next = new Set(prev)
+        if (already) next.add(targetId); else next.delete(targetId)
+        return next
+      })
+    }
+  }
+
+  const followedPeople = useMemo(
+    () => profiles.filter(p => following.has(p.id)),
+    [profiles, following]
+  )
+
   const findable = useMemo(() => {
     const q = search.trim().toLowerCase()
     const handled = new Set([
@@ -83,28 +106,6 @@ export default function Friends() {
       .slice(0, 30)
   }, [profiles, friendships, userId, search, myGymId])
 
-  const addFriend = async (them) => {
-    if (busy) return
-    setBusy(them.id)
-    try {
-      const row = pairFor(userId, them.id)
-      if (!row) return
-      // A declined row from before the delete-on-decline change still owns
-      // the unique pair; clear it or this insert bounces.
-      const { row: existing } = friendState(friendships, userId, them.id)
-      if (existing && existing.status === 'declined') {
-        await supabase.from('friendships').delete().eq('id', existing.id)
-      }
-      const { error } = await supabase.from('friendships').insert(row)
-      if (error) throw error
-      await fetchAll()
-      showToast(`Request sent to ${them.username || 'them'}`)
-    } catch {
-      showToast('Could not send that (run migration 032)')
-    } finally {
-      setBusy(null)
-    }
-  }
 
   const respond = async (row, accept) => {
     if (busy) return
@@ -126,22 +127,6 @@ export default function Friends() {
     }
   }
 
-  const removeFriend = async (them) => {
-    if (busy) return
-    const { row } = friendState(friendships, userId, them.id)
-    if (!row) return
-    setBusy(them.id)
-    try {
-      const { error } = await supabase.from('friendships').delete().eq('id', row.id)
-      if (error) throw error
-      await fetchAll()
-      showToast(`Removed ${them.username || 'them'}`)
-    } catch {
-      showToast('Could not remove')
-    } finally {
-      setBusy(null)
-    }
-  }
 
   if (loading) {
     return (
@@ -236,28 +221,29 @@ export default function Friends() {
           </section>
         )}
 
-        {/* Your people */}
+        {/* Who you follow. Replaces the accepted-friends list: following needs
+            no approval, which is why that list was empty for a year. */}
         <section className="space-y-2">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">
-              Your friends {myFriends.length > 0 && `(${myFriends.length})`}
+              Following {followedPeople.length > 0 && `(${followedPeople.length})`}
             </h2>
-            {myFriends.length > 0 && (
+            {followedPeople.length > 0 && (
               <Link href="/leaderboard" className="text-[9px] font-bold text-arc-accent uppercase tracking-wider">
                 See the board
               </Link>
             )}
           </div>
 
-          {myFriends.length === 0 ? (
+          {followedPeople.length === 0 ? (
             <div className="bg-arc-card border border-white/5 rounded-2xl p-6 text-center space-y-2">
               <div className="flex justify-center text-arc-muted"><UsersIcon size={32} /></div>
               <p className="text-sm text-arc-muted">
-                No friends yet. Add someone below and you&apos;ll both show up on each other&apos;s board.
+                Not following anyone yet. Follow someone below and their workouts show up in your feed.
               </p>
             </div>
           ) : (
-            myFriends.map(p => (
+            followedPeople.map(p => (
               <Row key={p.id} p={p}>
                 {/* Straight into the create sheet with them already lined up */}
                 <Link
@@ -266,12 +252,12 @@ export default function Friends() {
                 >
                   Challenge
                 </Link>
-                <button
-                  onClick={() => removeFriend(p)} disabled={busy === p.id}
-                  className="shrink-0 text-[10px] font-bold text-arc-muted hover:text-red-400 px-2 py-1.5 transition-colors disabled:opacity-50"
-                >
-                  Remove
-                </button>
+                <FollowButton
+                  targetId={p.id}
+                  currentUserId={userId}
+                  isFollowing
+                  onToggle={handleFollow}
+                />
               </Row>
             ))
           )}
@@ -308,12 +294,12 @@ export default function Friends() {
           ) : (
             findable.map(p => (
               <Row key={p.id} p={p}>
-                <button
-                  onClick={() => addFriend(p)} disabled={busy === p.id}
-                  className="shrink-0 bg-arc-surface border border-white/10 text-white text-[11px] font-bold px-3 py-2 rounded-lg hover:border-arc-accent/40 transition-colors disabled:opacity-50"
-                >
-                  {busy === p.id ? '…' : 'Add'}
-                </button>
+                <FollowButton
+                  targetId={p.id}
+                  currentUserId={userId}
+                  isFollowing={following.has(p.id)}
+                  onToggle={handleFollow}
+                />
               </Row>
             ))
           )}
