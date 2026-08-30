@@ -8,6 +8,7 @@ import FollowButton from '../components/FollowButton'
 import { fetchMyFollowing, toggleFollow } from '../lib/follows'
 import { ArrowLeftIcon, CheckIcon, CloseIcon, UsersIcon, FlameIcon } from '../components/icons'
 import { otherSide, incomingRequests, outgoingRequests } from '../lib/social'
+import { fetchStreaks, streakFor } from '../lib/streaks'
 
 export default function Friends() {
   const [loading, setLoading] = useState(true)
@@ -37,7 +38,9 @@ export default function Friends() {
       const { data: profs } = await supabase
         .from('profiles')
         .select('id, username, avatar_url, total_points, current_streak, gym_id')
-      setProfiles(profs || [])
+      // The column is never written, so the flame never appeared for anyone.
+      const streaks = await fetchStreaks(supabase)
+      setProfiles((profs || []).map(p => ({ ...p, current_streak: streakFor(streaks, p.id).current })))
 
       const { data: fr, error } = await supabase
         .from('friendships').select('*')
