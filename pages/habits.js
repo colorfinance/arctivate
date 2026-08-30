@@ -1412,57 +1412,6 @@ export default function Habits() {
                     />
                  </div>
 
-                 {/* Strict mode — opt in to a real, no-missed-days challenge */}
-                 <button
-                    onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
-                    disabled={savingStrict}
-                    className={`w-full mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 transition-colors disabled:opacity-50 ${
-                        strictMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-arc-surface border-white/5 hover:border-white/15'
-                    }`}
-                 >
-                    <span className="flex items-center gap-2 min-w-0">
-                        <span className={strictMode ? 'text-amber-400' : 'text-arc-muted'}>{strictMode ? <LockIcon size={15} /> : <UnlockIcon size={15} />}</span>
-                        <span className="text-left min-w-0">
-                            <span className={`block text-[11px] font-bold ${strictMode ? 'text-amber-400' : 'text-white'}`}>Strict mode</span>
-                            <span className="block text-[9px] text-arc-muted leading-snug">
-                                {strictMode ? 'Miss a day and you go back to Day 1' : 'Off — a missed day won’t reset you'}
-                            </span>
-                        </span>
-                    </span>
-                    <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${strictMode ? 'bg-amber-500 justify-end' : 'bg-white/10 justify-start'}`}>
-                        <span className="w-4 h-4 rounded-full bg-white" />
-                    </span>
-                 </button>
-
-                 {/* Challenges you can join, on top of your own run */}
-                 <Link
-                    href="/challenges"
-                    className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
-                 >
-                    <span className="flex items-center gap-2 min-w-0">
-                        <span className="text-arc-muted"><FlagIcon size={15} /></span>
-                        <span className="text-left min-w-0">
-                            <span className="block text-[11px] font-bold text-white">Challenges</span>
-                            <span className="block text-[9px] text-arc-muted leading-snug">Join one, or start your own</span>
-                        </span>
-                    </span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-                 </Link>
-
-                 {/* Where you stand against your friends and the rest of the gym */}
-                 <Link
-                    href="/leaderboard"
-                    className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
-                 >
-                    <span className="flex items-center gap-2 min-w-0">
-                        <span className="text-arc-muted"><TrophyIcon size={15} /></span>
-                        <span className="text-left min-w-0">
-                            <span className="block text-[11px] font-bold text-white">Leaderboard</span>
-                            <span className="block text-[9px] text-arc-muted leading-snug">You vs your friends, your gym, other gyms</span>
-                        </span>
-                    </span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-                 </Link>
             </section>
 
             {/* Daily Grind Circle — closes when daily tasks are done, turns gold when weekly are too */}
@@ -1710,6 +1659,64 @@ export default function Habits() {
                 <button onClick={() => setIsAdding(true)} className="w-full mt-1 border border-dashed border-white/10 rounded-xl py-3 text-xs font-bold text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors">
                     + Add your own personal habit
                 </button>
+            </section>
+
+            {/* Strict mode, and where to go next. These used to sit directly
+                under the day counter, which put three rows of settings and
+                signposting above the five things people open this page to
+                tick. */}
+            <section className="space-y-2">
+                 {/* Strict mode — opt in to a real, no-missed-days challenge */}
+                <button
+                   onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
+                   disabled={savingStrict}
+                   className={`w-full mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 transition-colors disabled:opacity-50 ${
+                       strictMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-arc-surface border-white/5 hover:border-white/15'
+                   }`}
+                >
+                   <span className="flex items-center gap-2 min-w-0">
+                       <span className={strictMode ? 'text-amber-400' : 'text-arc-muted'}>{strictMode ? <LockIcon size={15} /> : <UnlockIcon size={15} />}</span>
+                       <span className="text-left min-w-0">
+                           <span className={`block text-[11px] font-bold ${strictMode ? 'text-amber-400' : 'text-white'}`}>Strict mode</span>
+                           <span className="block text-[9px] text-arc-muted leading-snug">
+                               {strictMode ? 'Miss a day and you go back to Day 1' : 'Off — a missed day won’t reset you'}
+                           </span>
+                       </span>
+                   </span>
+                   <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${strictMode ? 'bg-amber-500 justify-end' : 'bg-white/10 justify-start'}`}>
+                       <span className="w-4 h-4 rounded-full bg-white" />
+                   </span>
+                </button>
+
+                {/* Challenges you can join, on top of your own run */}
+                <Link
+                   href="/challenges"
+                   className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
+                >
+                   <span className="flex items-center gap-2 min-w-0">
+                       <span className="text-arc-muted"><FlagIcon size={15} /></span>
+                       <span className="text-left min-w-0">
+                           <span className="block text-[11px] font-bold text-white">Challenges</span>
+                           <span className="block text-[9px] text-arc-muted leading-snug">Join one, or start your own</span>
+                       </span>
+                   </span>
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                </Link>
+
+                {/* Where you stand against your friends and the rest of the gym */}
+                <Link
+                   href="/leaderboard"
+                   className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
+                >
+                   <span className="flex items-center gap-2 min-w-0">
+                       <span className="text-arc-muted"><TrophyIcon size={15} /></span>
+                       <span className="text-left min-w-0">
+                           <span className="block text-[11px] font-bold text-white">Leaderboard</span>
+                           <span className="block text-[9px] text-arc-muted leading-snug">You vs your friends, your gym, other gyms</span>
+                       </span>
+                   </span>
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                </Link>
             </section>
 
             {/* Weigh-in trend — only once there's something to show */}

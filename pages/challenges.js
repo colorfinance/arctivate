@@ -12,6 +12,7 @@ import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart,
   isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom,
 } from '../lib/challenges'
+import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_PRESETS, WAGER_MAX } from '../lib/newChallenge'
 
 export default function Challenges() {
   const [loading, setLoading] = useState(true)
@@ -38,7 +39,28 @@ export default function Challenges() {
   const [form, setForm] = useState({
     title: '', description: '', start_date: '', length_days: '30',
     strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
+    wager: '',
   })
+  // Searching the gym from inside the create sheet, so picking who you're up
+  // against happens on the same screen as everything else.
+  const [createSearch, setCreateSearch] = useState('')
+  // Opening the create sheet fills in every answer that has an obvious one.
+  // The old sheet asked for nine decisions before anything existed, which is
+  // why, across 49 members, only the admin account ever made one.
+  const openCreate = (targets = []) => {
+    setPrePicked(targets)
+    setForm({
+      title: '', description: '', start_date: '', length_days: '30',
+      strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
+      wager: '',
+    })
+    setTaskList([...STARTER_TASKS])
+    setTaskDraft('')
+    setShowAdvanced(false)
+    setCreateSearch('')
+    setShowCreate(true)
+  }
+
   const [inviteFor, setInviteFor] = useState(null) // challenge being invited to
   const [invitePicked, setInvitePicked] = useState([])
   // Who the new challenge is aimed at, carried from the hero or from a
@@ -64,6 +86,11 @@ export default function Challenges() {
   const [myBadges, setMyBadges] = useState([])       // everything earned so far
   const [justEarned, setJustEarned] = useState([])   // earned on this load, worth a cheer
   const [showHow, setShowHow] = useState(false)      // "how this works" sheet
+  // challenge id -> { members, done_today, ticked_today }. How the rest of the
+  // gym is doing today, which is the part a browser cannot work out for itself.
+  const [gymToday, setGymToday] = useState({})
+  // The create sheet asks one question by default; the rest is behind this.
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
 
@@ -72,6 +99,12 @@ export default function Challenges() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
       setUserId(user.id)
+
+      // Every gym has one challenge that is always running, made the first
+      // time somebody from that gym opens this page. Before it, a member's
+      // first tab read "nothing running yet" and the only way forward was to
+      // start one yourself — which is why, across 49 members, nobody had.
+      await supabase.rpc('ensure_gym_challenge').then(() => {}, () => {})
 
       const { data: chData, error: chErr } = await supabase
         .from('group_challenges')
@@ -144,6 +177,8 @@ export default function Challenges() {
       const { data: fresh } = await supabase.rpc('award_my_badges')
       if (fresh?.length) setJustEarned(fresh)
 
+      await refreshGymToday(user.id, chData || [], memberData || [])
+
       const { data: mine } = await supabase
         .from('user_badges')
         .select('badge_key, earned_at, badges(key, name, description, icon, sort_order)')
@@ -165,10 +200,26 @@ export default function Challenges() {
   useEffect(() => {
     const target = router.query.invite
     if (!target || loading) return
-    setPrePicked([target])
-    setShowCreate(true)
+    openCreate([target])
     router.replace('/challenges', undefined, { shallow: true })
   }, [router, loading])
+
+  // How many people at your gym have ticked today, per challenge you're in.
+  // Nobody comes back for a checklist; they come back to see whether the rest
+  // of the gym did it too.
+  const refreshGymToday = async (uid, chList, memberList) => {
+    const mineIds = (memberList || [])
+      .filter(m => m.user_id === uid && m.status !== 'left')
+      .map(m => m.challenge_id)
+    const wanted = (chList || []).filter(c => mineIds.includes(c.id))
+    if (!wanted.length) { setGymToday({}); return }
+    const pairs = await Promise.all(wanted.map(async (c) => {
+      const { data } = await supabase.rpc('challenge_today', { p_challenge_id: c.id })
+      const row = Array.isArray(data) ? data[0] : data
+      return [c.id, row || null]
+    }))
+    setGymToday(Object.fromEntries(pairs.filter(([, v]) => v)))
+  }
 
   // Strict challenges send you back to your own Day 1 if you miss a day.
   // Checked here on load, using the same rule the personal challenge uses.
@@ -295,67 +346,60 @@ export default function Challenges() {
 
   const createChallenge = async () => {
     if (creating) return
-    const title = form.title.trim()
-    if (!title) { showToast('Give it a name'); return }
+    // A name is the one thing worth asking for, and even that has an answer
+    // if they'd rather just start.
+    const title = form.title.trim() || defaultChallengeTitle()
     const length = parseInt(form.length_days, 10)
     if (!length || length < 1 || length > 400) { showToast('Length must be 1 to 400 days'); return }
 
     setCreating(true)
     try {
-      const start = form.start_date || todayStr()
-      const { data: ch, error } = await supabase.from('group_challenges').insert({
+      // One operation: the challenge, its checklist, you in it, and the
+      // invites. Tapping someone's face used to create a challenge and then
+      // ask again who it was for, which is the same question twice.
+      const { challenge, invited } = await startChallengeWith(supabase, {
+        userId,
+        gymId: myGymId,
         title,
         description: form.description.trim() || null,
-        start_date: start,
-        length_days: length,
-        strict: form.strict,
+        lengthDays: length,
+        startDate: form.start_date || todayStr(),
+        taskTitles: taskList,
+        opponentIds: prePicked,
         visibility: form.visibility,
-        gym_vs_gym: form.gym_vs_gym,
-        is_official: isAdmin ? form.is_official : false,
-        gym_id: myGymId,
-        is_active: true,
-        created_by: userId,
-      }).select().single()
-      if (error) throw error
-
-      // The checklist. If saving it fails the challenge still exists and
-      // simply runs on personal habits — worse than intended but not broken.
-      if (taskList.length) {
-        await supabase.from('challenge_tasks').insert(
-          taskList.map((title, i) => ({ challenge_id: ch.id, title, position: i }))
-        )
-      }
-
-      // Whoever starts it is in it. A challenge with nobody in it, including
-      // its owner, reads as broken.
-      await supabase.from('group_challenge_members').insert({
-        challenge_id: ch.id,
-        user_id: userId,
-        start_date: hasStarted(start) ? todayStr() : start,
-        last_checked: todayStr(),
+        strict: form.strict,
+        wager: form.wager,
+        gymVsGym: form.gym_vs_gym,
+        isOfficial: isAdmin ? form.is_official : false,
       })
 
       setShowCreate(false)
       setForm({
         title: '', description: '', start_date: '', length_days: '30',
         strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
+        wager: '',
       })
       setTaskList([])
       setTaskDraft('')
-      await fetchAll()
-      showToast('Challenge created. Now pick who you’re up against.')
-      // Straight into the picker, with anyone this was aimed at already ticked.
-      setInviteFor(ch)
-      setInvitePicked(prePicked)
+      setCreateSearch('')
       setPrePicked([])
+      await fetchAll()
+
+      if (invited > 0) {
+        showToast(invited === 1 ? 'Challenge sent 🥊' : `Challenge sent to ${invited} people 🥊`)
+      } else {
+        // Nobody named yet, so the picker is the obvious next thing rather
+        // than an interruption.
+        showToast('Started. Now pick who you\u2019re up against.')
+        setInviteFor(challenge)
+        setInvitePicked([])
+      }
     } catch {
       showToast('Could not create (run migration 032)')
     } finally {
       setCreating(false)
     }
   }
-
-  // --- Challenging people ----------------------------------------------------
 
   const sendInvites = async () => {
     if (sendingInvites || !inviteFor || invitePicked.length === 0) return
@@ -426,6 +470,30 @@ export default function Challenges() {
   const pendingForMe = invites.filter(i => i.invitee_id === userId && i.status === 'pending')
 
   // The invite picker puts friends first, then people from your own gym.
+  // Who a brand new challenge can be aimed at. Same ordering as the invite
+  // picker -- friends, then your gym, then everyone -- because "who would I
+  // call out" has the same answer in both places.
+  const createTargets = (() => {
+    const q = createSearch.trim().toLowerCase()
+    return people
+      .filter(p => p.id !== userId && p.username)
+      .filter(p => !q || String(p.username || '').toLowerCase().includes(q))
+      .sort((a, b) => {
+        const fa = myFriendIds.includes(a.id) ? 0 : 1
+        const fb = myFriendIds.includes(b.id) ? 0 : 1
+        if (fa !== fb) return fa - fb
+        const ga = a.gym_id === myGymId ? 0 : 1
+        const gb = b.gym_id === myGymId ? 0 : 1
+        if (ga !== gb) return ga - gb
+        return (Number(b.total_points) || 0) - (Number(a.total_points) || 0)
+      })
+      .slice(0, 30)
+  })()
+
+  const togglePrePicked = (id) => {
+    setPrePicked(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
   const invitable = (() => {
     if (!inviteFor) return []
     const q = inviteSearch.trim().toLowerCase()
@@ -581,7 +649,28 @@ export default function Challenges() {
     return !!row && row.status !== 'left'
   }
   const joinedChallenges = challenges.filter(amIn)
-  const openChallenges = challenges.filter(ch => !amIn(ch))
+
+  // Your gym's own challenge, when you haven't joined it. One tap, no form,
+  // nobody to call out.
+  const gymChallenge = challenges.find(ch => ch.is_official && ch.gym_id && ch.gym_id === myGymId)
+  const gymChallengeToJoin = gymChallenge && !amIn(gymChallenge) ? gymChallenge : null
+
+  // It leads the page in its own card, so listing it again under "open to
+  // join" would offer the same thing twice.
+  const openChallenges = challenges.filter(ch => !amIn(ch) && ch.id !== gymChallengeToJoin?.id)
+
+  // Everything you have to tick today, across everything you're in. Usually
+  // one challenge with three lines on it — which is the point.
+  const todayRows = joinedChallenges.map(ch => {
+    const mine = myRow(ch.id)
+    if (!mine || !hasStarted(ch.start_date, today)) return null
+    const day = daysDone(mine)
+    if (isFinished(day, ch.length_days)) return null
+    const tasks = chTasks.filter(t => t.challenge_id === ch.id)
+    if (!tasks.length) return null
+    const doneToday = tasks.filter(t => myTicks.has(`${t.id}:${today}`)).length
+    return { ch, mine, day, tasks, doneToday }
+  }).filter(Boolean)
 
   // One challenge card. Lifted out of the list so the page can show the
   // ones you are in separately from the ones you could join, without
@@ -594,7 +683,6 @@ export default function Challenges() {
     const started = hasStarted(ch.start_date, today)
     const day = joined ? daysDone(mine) : 0
     const ownTasks = chTasks.filter(t => t.challenge_id === ch.id)
-    const yesterday = backfillFrom(today)
     const done = joined && isFinished(day, ch.length_days)
     const pct = challengeProgress(day, ch.length_days)
     const untilStart = daysUntilStart(ch.start_date, today)
@@ -663,6 +751,18 @@ export default function Challenges() {
             <p className="text-[13px] text-arc-muted leading-relaxed">{ch.description}</p>
           )}
 
+          {/* The stake, stated. Half the point of agreeing one is that it is
+              written down where both of you can see it. */}
+          {ch.wager && (
+            <div className="flex items-center gap-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/25 px-3 py-2.5">
+              <span aria-hidden className="text-base leading-none">🤝</span>
+              <span className="min-w-0">
+                <span className="block text-[9px] font-bold text-amber-400/80 uppercase tracking-widest">On the line</span>
+                <span className="block text-[12px] font-bold text-amber-200 leading-snug">{ch.wager}</span>
+              </span>
+            </div>
+          )}
+
           {joined && started && !done && (
             <>
               <div className="h-2 bg-white/5 rounded-full overflow-hidden">
@@ -678,77 +778,9 @@ export default function Challenges() {
             </>
           )}
 
-          {/* The challenge's own checklist for today, and yesterday while it
-              can still be fixed */}
-          {joined && started && !done && ownTasks.length > 0 && (() => {
-            const doneToday = ownTasks.filter(t => myTicks.has(`${t.id}:${today}`)).length
-            const missedYesterday = ownTasks.filter(t => !myTicks.has(`${t.id}:${yesterday}`))
-            const showYesterday = yesterday >= String(mine.start_date).slice(0, 10)
-              && missedYesterday.length > 0
-            return (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-[9px] font-bold text-arc-muted uppercase tracking-widest">
-                    Today
-                    {(ch.created_by === userId || isAdmin) && (
-                      <button
-                        onClick={() => openTaskEditor(ch)}
-                        className="ml-2 text-arc-accent hover:text-white normal-case tracking-normal font-bold transition-colors"
-                      >
-                        Edit
-                      </button>
-                    )}
-                  </span>
-                  <span className={`text-[9px] font-bold uppercase tracking-widest ${doneToday === ownTasks.length ? 'text-green-400' : 'text-arc-muted'}`}>
-                    {doneToday === ownTasks.length ? 'Day banked' : `${doneToday}/${ownTasks.length}`}
-                  </span>
-                </div>
-                {ownTasks.map(t => {
-                  const ticked = myTicks.has(`${t.id}:${today}`)
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => tickTask(t, today, ownTasks)}
-                      disabled={!!taskBusy}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors text-left disabled:opacity-60 ${
-                        ticked ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/[0.05] hover:border-arc-accent/30'
-                      }`}
-                    >
-                      <span className={`shrink-0 w-5 h-5 rounded-md border flex items-center justify-center ${
-                        ticked ? 'bg-green-500 border-green-500 text-white' : 'border-white/20 text-transparent'
-                      }`}>
-                        <CheckIcon size={12} />
-                      </span>
-                      <span className={`text-[12px] font-bold truncate ${ticked ? 'text-green-300 line-through decoration-green-500/50' : 'text-white'}`}>
-                        {t.title}
-                      </span>
-                    </button>
-                  )
-                })}
-                {showYesterday && (
-                  <div className="pt-1 space-y-1.5">
-                    <span className="block px-1 text-[9px] font-bold text-amber-400 uppercase tracking-widest">
-                      Yesterday — fix it before today ends
-                    </span>
-                    {missedYesterday.map(t => (
-                      <button
-                        key={`${t.id}-y`}
-                        onClick={() => tickTask(t, yesterday, ownTasks)}
-                        disabled={!!taskBusy}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/5 hover:border-amber-500/50 transition-colors text-left disabled:opacity-60"
-                      >
-                        <span className="shrink-0 w-5 h-5 rounded-md border border-amber-500/40 text-amber-400 flex items-center justify-center">
-                          <CheckIcon size={12} />
-                        </span>
-                        <span className="text-[12px] font-bold text-amber-200 truncate">{t.title}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-
+          {/* The checklist itself lives in TODAY at the top of the page, where
+              it is the first thing a member sees rather than something behind
+              an expander. This card is the standings and the shape of the run. */}
           {joined && !done && ownTasks.length === 0 && (ch.created_by === userId || isAdmin) && (
             <button
               onClick={() => openTaskEditor(ch)}
@@ -759,8 +791,15 @@ export default function Challenges() {
           )}
 
           {done && (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center">
+            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center space-y-1">
               <p className="text-sm font-bold text-green-400 flex items-center justify-center gap-2"><TrophyIcon size={16} /> Finished — all {ch.length_days} days</p>
+              {ch.wager && (
+                <p className="text-[11px] text-amber-300 font-bold">
+                  {standings[0]?.user_id === userId
+                    ? `You won. They owe you: ${ch.wager}`
+                    : `${names[standings[0]?.user_id]?.name || 'The winner'} takes it: ${ch.wager}`}
+                </p>
+              )}
             </div>
           )}
 
@@ -894,6 +933,133 @@ export default function Challenges() {
       </header>
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
+        {/* The reason to open this tab tomorrow. Three lines, tickable where
+            you land, and what the rest of the gym did with the same three. */}
+        {todayRows.map(({ ch, mine, day, tasks, doneToday }) => {
+          const all = tasks.length
+          const banked = doneToday === all
+          const gym = gymToday[ch.id]
+          const yesterday = backfillFrom(today)
+          const missedYesterday = tasks.filter(t => !myTicks.has(`${t.id}:${yesterday}`))
+          const canFixYesterday = yesterday >= String(mine.start_date).slice(0, 10)
+            && missedYesterday.length > 0
+
+          return (
+            <section
+              key={`today-${ch.id}`}
+              className={`relative overflow-hidden rounded-2xl border p-5 space-y-3 ${
+                banked ? 'bg-green-500/[0.07] border-green-500/30' : 'bg-arc-card border-arc-accent/25'
+              }`}
+            >
+              <div className="flex items-end justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-2xl font-black italic tracking-tighter leading-none">
+                    {banked ? 'DAY BANKED' : 'TODAY'}
+                  </h2>
+                  <p className="text-[11px] text-arc-muted mt-1 truncate">
+                    {ch.title}
+                    {todayRows.length === 1 && day > 0 ? ` · day ${day} done` : ''}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-[11px] font-black tabular-nums ${banked ? 'text-green-400' : 'text-arc-accent'}`}>
+                  {doneToday}/{all}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                {tasks.map(t => {
+                  const ticked = myTicks.has(`${t.id}:${today}`)
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => tickTask(t, today, tasks)}
+                      disabled={!!taskBusy}
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border transition-colors text-left disabled:opacity-60 ${
+                        ticked ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/[0.06] hover:border-arc-accent/40'
+                      }`}
+                    >
+                      <span className={`shrink-0 w-5 h-5 rounded-md border flex items-center justify-center ${
+                        ticked ? 'bg-green-500 border-green-500 text-white' : 'border-white/25 text-transparent'
+                      }`}>
+                        <CheckIcon size={12} />
+                      </span>
+                      <span className={`text-[13px] font-bold truncate ${
+                        ticked ? 'text-green-300 line-through decoration-green-500/50' : 'text-white'
+                      }`}>
+                        {t.title}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {canFixYesterday && (
+                <div className="space-y-1.5 pt-0.5">
+                  <span className="block px-1 text-[9px] font-bold text-amber-400 uppercase tracking-widest">
+                    Yesterday — fix it before today ends
+                  </span>
+                  {missedYesterday.map(t => (
+                    <button
+                      key={`${t.id}-y`}
+                      onClick={() => tickTask(t, yesterday, tasks)}
+                      disabled={!!taskBusy}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/5 hover:border-amber-500/50 transition-colors text-left disabled:opacity-60"
+                    >
+                      <span className="shrink-0 w-5 h-5 rounded-md border border-amber-500/40 text-amber-400 flex items-center justify-center">
+                        <CheckIcon size={12} />
+                      </span>
+                      <span className="text-[12px] font-bold text-amber-200 truncate">{t.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Nobody comes back for a checklist. They come back to see
+                  whether everyone else did it too. */}
+              {gym && gym.members > 1 && (
+                <p className="text-[11px] text-arc-muted leading-snug">
+                  {banked
+                    ? `${gym.done_today} of ${gym.members} at your gym have finished today.`
+                    : gym.done_today > 0
+                      ? `${gym.done_today} of ${gym.members} at your gym have already finished today.`
+                      : `${gym.members} people at your gym are on this. Nobody's finished today yet.`}
+                </p>
+              )}
+            </section>
+          )
+        })}
+
+        {/* Your gym's challenge, when you're not in it yet. One tap. */}
+        {gymChallengeToJoin && (
+          <section className="relative overflow-hidden bg-arc-card border border-arc-accent/25 rounded-2xl p-5 space-y-3">
+            <div className="absolute -top-16 -right-12 w-40 h-40 rounded-full bg-arc-accent/10 blur-2xl pointer-events-none" />
+            <div className="relative space-y-1">
+              <span className="text-[9px] font-bold text-arc-accent uppercase tracking-widest">Your gym is doing this</span>
+              <h2 className="text-2xl font-black italic tracking-tighter leading-none">{gymChallengeToJoin.title.toUpperCase()}</h2>
+              <p className="text-[12px] text-arc-muted leading-relaxed">
+                {gymChallengeToJoin.description}
+              </p>
+            </div>
+            <div className="relative flex flex-wrap gap-1.5">
+              {chTasks.filter(t => t.challenge_id === gymChallengeToJoin.id).map(t => (
+                <span key={t.id} className="text-[10px] font-bold text-white bg-arc-surface border border-white/[0.06] px-2.5 py-1 rounded-full">
+                  {t.title}
+                </span>
+              ))}
+            </div>
+            <button
+              onClick={() => join(gymChallengeToJoin)}
+              disabled={busy === gymChallengeToJoin.id}
+              className="relative w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
+            >
+              {busy === gymChallengeToJoin.id ? 'JOINING…' : "I'M IN"}
+            </button>
+            <p className="relative text-[10px] text-arc-muted text-center">
+              Your thirty days start today. No start line to miss.
+            </p>
+          </section>
+        )}
+
         {/* Somebody has challenged you */}
         {pendingForMe.length > 0 && (
           <section className="space-y-2">
@@ -914,6 +1080,9 @@ export default function Challenges() {
                       <p className="text-[11px] text-arc-muted truncate">
                         {ch ? `${ch.title} · ${ch.length_days} days${ch.strict ? ' · strict' : ''}` : 'A challenge'}
                       </p>
+                      {ch?.wager && (
+                        <p className="text-[11px] font-bold text-amber-300 truncate">🤝 {ch.wager}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -947,7 +1116,7 @@ export default function Challenges() {
           </div>
 
           <button
-            onClick={() => { setPrePicked([]); setShowCreate(true) }}
+            onClick={() => openCreate([])}
             className="relative w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
           >
             CHALLENGE SOMEONE
@@ -961,7 +1130,7 @@ export default function Challenges() {
                 {quickTargets.map(p => (
                   <button
                     key={p.id}
-                    onClick={() => { setPrePicked([p.id]); setShowCreate(true) }}
+                    onClick={() => openCreate([p.id])}
                     className="shrink-0 w-14 flex flex-col items-center gap-1.5 group"
                   >
                     <span className="rounded-full ring-2 ring-transparent group-hover:ring-arc-accent/50 transition-all">
@@ -1017,7 +1186,13 @@ export default function Challenges() {
           <div className="bg-arc-card border border-white/5 rounded-2xl p-8 text-center space-y-2">
             <div className="flex justify-center text-arc-muted"><FlagIcon size={40} /></div>
             <h2 className="text-lg font-black italic tracking-tighter">NOTHING RUNNING YET</h2>
-            <p className="text-sm text-arc-muted">Be the one who starts it — call someone out above.</p>
+            {/* With a gym you always have your gym's challenge, so this is now
+                only reached by a member who isn't in one yet. */}
+            <p className="text-sm text-arc-muted">
+              {myGymId
+                ? 'Start one above and call someone out.'
+                : 'Join a gym in your profile and your gym\u2019s challenge shows up here.'}
+            </p>
           </div>
         )}
 
@@ -1061,9 +1236,125 @@ export default function Challenges() {
                 <input
                   value={form.title}
                   onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="e.g. October Grind"
+                  placeholder={defaultChallengeTitle()}
                   className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold"
                 />
+
+                {/* Who you're up against, on the same screen. This used to be
+                    a second sheet after the challenge already existed, so
+                    tapping someone's face asked who it was for twice. */}
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">
+                    Who are you up against?
+                  </label>
+                  {prePicked.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {prePicked.map(id => {
+                        const person = people.find(x => x.id === id)
+                        return (
+                          <button
+                            key={id}
+                            onClick={() => togglePrePicked(id)}
+                            className="flex items-center gap-1.5 bg-arc-accent/15 border border-arc-accent/30 text-arc-accent pl-1 pr-2.5 py-1 rounded-full text-[11px] font-bold"
+                          >
+                            <Avatar src={person?.avatar_url} name={person?.username} size={18} />
+                            {person?.username || 'Member'}
+                            <span aria-hidden className="opacity-70">✕</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <input
+                    value={createSearch}
+                    onChange={(e) => setCreateSearch(e.target.value)}
+                    placeholder="Search your gym"
+                    className="w-full bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm mb-2"
+                  />
+                  <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+                    {createTargets.map(person => {
+                      const picked = prePicked.includes(person.id)
+                      return (
+                        <button
+                          key={person.id}
+                          onClick={() => togglePrePicked(person.id)}
+                          className="shrink-0 w-14 flex flex-col items-center gap-1.5"
+                        >
+                          <span className={`rounded-full ring-2 transition-all ${picked ? 'ring-arc-accent' : 'ring-transparent'}`}>
+                            <Avatar src={person.avatar_url} name={person.username} size={44} />
+                          </span>
+                          <span className={`text-[9px] truncate w-full text-center ${picked ? 'text-arc-accent font-bold' : 'text-arc-muted'}`}>
+                            {person.username}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[10px] text-arc-muted mt-1.5">
+                    {prePicked.length
+                      ? `${prePicked.length} ${prePicked.length === 1 ? 'person gets' : 'people get'} the callout the moment you start it.`
+                      : 'Leave it empty and anyone at your gym can join.'}
+                  </p>
+                </div>
+
+                {/* What you're actually playing for. You two settle it -- the
+                    app records it and names the winner, nothing more. */}
+                <div>
+                  <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">
+                    What&apos;s on the line?
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {WAGER_PRESETS.map(w => (
+                      <button
+                        key={w}
+                        onClick={() => setForm(f => ({ ...f, wager: f.wager === w ? '' : w }))}
+                        className={`px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors ${
+                          form.wager === w
+                            ? 'bg-arc-accent/15 border-arc-accent/40 text-arc-accent'
+                            : 'bg-arc-surface border-white/[0.06] text-arc-muted hover:text-white'
+                        }`}
+                      >
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    value={form.wager}
+                    onChange={(e) => setForm(f => ({ ...f, wager: e.target.value.slice(0, WAGER_MAX) }))}
+                    placeholder="Or write your own"
+                    maxLength={WAGER_MAX}
+                    className="w-full bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
+                  />
+                  <p className="text-[10px] text-arc-muted mt-1.5">
+                    Between you and them. Arctivate writes it down and says who won — it doesn&apos;t hold or move anything.
+                  </p>
+                </div>
+
+                {/* Everything below is already answered. It is here to be
+                    changed, not to be filled in. */}
+                <div className="rounded-xl bg-arc-surface/60 border border-white/[0.06] px-4 py-3 space-y-1">
+                  <p className="text-[11px] text-white font-bold">
+                    {taskList.length
+                      ? `${taskList.length} things a day, 30 days, your gym can join.`
+                      : 'Their own daily habits, 30 days, your gym can join.'}
+                  </p>
+                  <p className="text-[10px] text-arc-muted leading-snug">
+                    Everyone&apos;s thirty days start the day they join.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setShowAdvanced(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-arc-muted hover:text-white transition-colors"
+                >
+                  <span className="text-[11px] font-bold">{showAdvanced ? 'Hide options' : 'Change the details'}</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+
+                {showAdvanced && (
+                <div className="space-y-4">
                 <textarea
                   value={form.description}
                   onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
@@ -1225,13 +1516,15 @@ export default function Challenges() {
                     </span>
                   </button>
                 )}
+                </div>
+                )}
 
                 <div className="space-y-2 pt-1">
                   <button
                     onClick={createChallenge} disabled={creating}
                     className="w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
                   >
-                    {creating ? 'CREATING…' : 'CREATE'}
+                    {creating ? 'STARTING…' : 'START IT'}
                   </button>
                   <button
                     onClick={() => setShowCreate(false)} disabled={creating}
@@ -1353,17 +1646,19 @@ export default function Challenges() {
                 <h2 className="text-xl font-black italic tracking-tighter">HOW CHALLENGES WORK</h2>
 
                 {[
-                  { n: '1', t: 'Every challenge has its own checklist',
-                    d: 'The tasks live right on the challenge card, and everyone in it ticks the same list. A challenge without tasks counts your own daily habits from the Habits tab instead.' },
-                  { n: '2', t: 'Tick everything and the day is banked',
+                  { n: '1', t: 'Your gym always has one running',
+                    d: 'The Daily 3 is there whenever you want it \u2014 three things, thirty days, one tap to join. Your thirty days start the day you join, so you can never be too late.' },
+                  { n: '2', t: 'Today is the top of this page',
+                    d: 'Whatever you have to tick today is the first thing you see, wherever it came from. Tick it there \u2014 you never have to go looking for it.' },
+                  { n: '3', t: 'Tick everything and the day is banked',
                     d: 'Finish the whole list on a day and that day counts. Miss one and it doesn\u2019t.' },
-                  { n: '3', t: 'Forgot a day? You get one more',
+                  { n: '4', t: 'Forgot a day? You get one more',
                     d: 'Until the end of the next day you can still fill it in from the Catch up list. After that the day is settled.' },
-                  { n: '4', t: 'Standings rank on days done',
+                  { n: '5', t: 'Standings rank on days done',
                     d: 'Not on who joined first. Level pegging goes to whoever has needed the fewest restarts.' },
-                  { n: '5', t: 'Strict means strict',
+                  { n: '6', t: 'Strict means strict',
                     d: 'In a strict challenge, a day you never filled in sends you back to Day 1. Non-strict challenges just stop counting that day.' },
-                  { n: '6', t: 'Challenges are separate, habits are yours',
+                  { n: '7', t: 'Challenges are separate, habits are yours',
                     d: 'Each challenge scores its own checklist. Only challenges without tasks fall back to your personal habits \u2014 those share one list.' },
                 ].map(step => (
                   <div key={step.n} className="flex gap-3">

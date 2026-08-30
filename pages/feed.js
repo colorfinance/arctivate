@@ -11,6 +11,11 @@ import { filterContent } from '../lib/contentFilter'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 
+// Session photos sit in the same private bucket the training page uses; the
+// feed only ever reads them, through short-lived signed URLs.
+const SESSION_PHOTO_BUCKET = 'workout-photos'
+const SESSION_PHOTO_TTL = 60 * 60
+
 // Icons
 const HighFiveIcon = ({ filled }) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -105,6 +110,8 @@ export default function Feed() {
   // Who you follow, and whether the feed is showing everyone at the gym or
   // only them. A filter, not a permission -- what you may see is unchanged.
   const [following, setFollowing] = useState(new Set())
+  // session id -> [signed url]
+  const [sessionPhotos, setSessionPhotos] = useState({})
   const [feedScope, setFeedScope] = useState('gym')
   const [newMessage, setNewMessage] = useState('')
   const [isPosting, setIsPosting] = useState(false)
@@ -225,7 +232,32 @@ export default function Feed() {
         const { data: mine } = await supabase
           .from('session_kudos').select('session_id').eq('user_id', userId).in('session_id', ids)
         setMyKudos(new Set((mine || []).map(k => k.session_id)))
+        await fetchSessionPhotos(ids)
       }
+    } catch {}
+  }
+
+  // Photos live in a private bucket and are read through signed URLs. Which
+  // rows come back is decided by RLS -- a photo on a private session simply
+  // isn't in the result -- so there is no visibility rule to repeat here.
+  async function fetchSessionPhotos(sessionIds) {
+    try {
+      const { data, error } = await supabase
+        .from('workout_photos')
+        .select('id, storage_path, session_id')
+        .in('session_id', sessionIds)
+      if (error || !data?.length) return
+      const paths = data.map(r => r.storage_path)
+      const { data: signed } = await supabase.storage
+        .from(SESSION_PHOTO_BUCKET).createSignedUrls(paths, SESSION_PHOTO_TTL)
+      const urlByPath = {}
+      ;(signed || []).forEach((sg, i) => { if (sg?.signedUrl) urlByPath[paths[i]] = sg.signedUrl })
+      const map = {}
+      data.forEach(r => {
+        const url = urlByPath[r.storage_path]
+        if (url) (map[r.session_id] || (map[r.session_id] = [])).push(url)
+      })
+      setSessionPhotos(map)
     } catch {}
   }
 
@@ -899,6 +931,7 @@ export default function Feed() {
                       onDelete={deleteSession}
                       comments={commentsBySession[s.id] || []}
                       onLoadComments={loadComments}
+                      photos={sessionPhotos[s.id]}
                       isFollowing={following.has(s.user_id)}
                       onToggleFollow={handleFollow}
                     />
