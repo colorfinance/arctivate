@@ -1240,6 +1240,11 @@ export default function Habits() {
   // Days you can still put right, most recent first, with what's outstanding
   // on each. A habit only counts against a day it already existed on, matching
   // the strict rule — adding a habit today shouldn't create a gap in yesterday.
+  // Which forgotten day is open. A day where you missed everything used to
+  // print the whole daily list a second time, at full size, above the list you
+  // came to tick -- so a bad yesterday doubled the page.
+  const [openCatchUp, setOpenCatchUp] = useState(null)
+
   const catchUp = (() => {
     const today = getTodayStr()
     const from = backfillFrom(today)
@@ -1477,13 +1482,33 @@ export default function Habits() {
                             {BACKFILL_DAYS === 1 ? 'Until end of today' : `${BACKFILL_DAYS} days to fix`}
                         </span>
                     </div>
-                    {catchUp.map(({ date, missing }) => (
+                    {catchUp.map(({ date, missing }) => {
+                      // Two or fewer is quicker to tick than to open.
+                      const collapsible = missing.length > 2
+                      const open = !collapsible || openCatchUp === date
+                      return (
                         <div key={date} className="bg-arc-surface border border-amber-500/20 rounded-2xl p-4 space-y-2">
-                            <p className="text-[11px] text-arc-muted">
-                                <span className="font-bold text-white">{dayLabel(date)}</span>
-                                {' — '}{missing.length} not ticked. Add {missing.length === 1 ? 'it' : 'them'} before the day closes.
-                            </p>
-                            {missing.map(habit => {
+                            {collapsible ? (
+                              <button
+                                onClick={() => setOpenCatchUp(open ? null : date)}
+                                aria-expanded={open}
+                                className="w-full flex items-center gap-2 text-left"
+                              >
+                                <span className="flex-1 min-w-0 text-[11px] text-arc-muted">
+                                    <span className="font-bold text-white">{dayLabel(date)}</span>
+                                    {' — '}{missing.length} not ticked. Add them before the day closes.
+                                </span>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 text-arc-muted transition-transform ${open ? 'rotate-180' : ''}`}>
+                                    <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                              </button>
+                            ) : (
+                              <p className="text-[11px] text-arc-muted">
+                                  <span className="font-bold text-white">{dayLabel(date)}</span>
+                                  {' — '}{missing.length} not ticked. Add {missing.length === 1 ? 'it' : 'them'} before the day closes.
+                              </p>
+                            )}
+                            {open && missing.map(habit => {
                                 const busy = backfilling === `${date}:${habit.id}`
                                 return (
                                     <button
@@ -1493,7 +1518,10 @@ export default function Habits() {
                                         className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-arc-card border border-white/5 hover:border-amber-500/40 transition-colors text-left disabled:opacity-50"
                                     >
                                         <span className="min-w-0">
-                                            <span className="block text-[13px] font-bold text-white truncate">{habit.title}</span>
+                                            {/* Two lines rather than one: "10+ minutes of
+                                                self-development every day" was being cut
+                                                to "...self-development ev…". */}
+                                            <span className="block text-[13px] font-bold text-white leading-snug line-clamp-2">{habit.title}</span>
                                             <span className="block text-[9px] text-arc-muted">{habit.points_reward || 10} PTS</span>
                                         </span>
                                         <span className="shrink-0 w-6 h-6 rounded-full border border-amber-500/40 text-amber-400 flex items-center justify-center">
@@ -1503,7 +1531,8 @@ export default function Habits() {
                                 )
                             })}
                         </div>
-                    ))}
+                      )
+                    })}
                 </section>
             )}
 
@@ -1670,7 +1699,7 @@ export default function Habits() {
                 <button
                    onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
                    disabled={savingStrict}
-                   className={`w-full mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 transition-colors disabled:opacity-50 ${
+                   className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 transition-colors disabled:opacity-50 ${
                        strictMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-arc-surface border-white/5 hover:border-white/15'
                    }`}
                 >
@@ -1691,7 +1720,7 @@ export default function Habits() {
                 {/* Challenges you can join, on top of your own run */}
                 <Link
                    href="/challenges"
-                   className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
+                   className="w-full flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
                 >
                    <span className="flex items-center gap-2 min-w-0">
                        <span className="text-arc-muted"><FlagIcon size={15} /></span>
@@ -1706,7 +1735,7 @@ export default function Habits() {
                 {/* Where you stand against your friends and the rest of the gym */}
                 <Link
                    href="/leaderboard"
-                   className="w-full mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
+                   className="w-full flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
                 >
                    <span className="flex items-center gap-2 min-w-0">
                        <span className="text-arc-muted"><TrophyIcon size={15} /></span>

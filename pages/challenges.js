@@ -1005,10 +1005,9 @@ export default function Challenges() {
                       disabled={!!taskBusy}
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/5 hover:border-amber-500/50 transition-colors text-left disabled:opacity-60"
                     >
-                      <span className="shrink-0 w-5 h-5 rounded-md border border-amber-500/40 text-amber-400 flex items-center justify-center">
-                        <CheckIcon size={12} />
-                      </span>
-                      <span className="text-[12px] font-bold text-amber-200 truncate">{t.title}</span>
+                      <span className="shrink-0 w-5 h-5 rounded-md border border-amber-500/50" />
+                      <span className="flex-1 min-w-0 text-[12px] font-bold text-amber-200 truncate">{t.title}</span>
+                      <span className="shrink-0 text-[9px] font-black text-amber-400/70 uppercase tracking-wider">Tap to fix</span>
                     </button>
                   ))}
                 </div>
