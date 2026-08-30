@@ -13,6 +13,8 @@ import {
   isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom,
 } from '../lib/challenges'
 import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_PRESETS, WAGER_MAX } from '../lib/newChallenge'
+import { fetchStreaks, streakFor } from '../lib/streaks'
+import StreakBanner from '../components/StreakBanner'
 
 export default function Challenges() {
   const [loading, setLoading] = useState(true)
@@ -91,6 +93,7 @@ export default function Challenges() {
   const [gymToday, setGymToday] = useState({})
   // The create sheet asks one question by default; the rest is behind this.
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [myStreak, setMyStreak] = useState({ current: 0, longest: 0, activeToday: false })
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
 
@@ -178,6 +181,7 @@ export default function Challenges() {
       if (fresh?.length) setJustEarned(fresh)
 
       await refreshGymToday(user.id, chData || [], memberData || [])
+      setMyStreak(streakFor(await fetchStreaks(supabase), user.id))
 
       const { data: mine } = await supabase
         .from('user_badges')
@@ -933,6 +937,9 @@ export default function Challenges() {
       </header>
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
+        {/* What you stand to lose today, before what you have to do about it. */}
+        <StreakBanner streak={myStreak} />
+
         {/* The reason to open this tab tomorrow. Three lines, tickable where
             you land, and what the rest of the gym did with the same three. */}
         {todayRows.map(({ ch, mine, day, tasks, doneToday }) => {

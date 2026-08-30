@@ -8,6 +8,7 @@ import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { resizeToBlob } from '../lib/imageResize'
 import { currentSession, finishSession, setSessionVisibility, VISIBILITY } from '../lib/sessions'
+import { fetchStreaks, streakFor } from '../lib/streaks'
 import { useRouter } from 'next/router'
 // Static import so the parent can call its picker via ref
 import WorkoutPhotos from '../components/train/WorkoutPhotos'
@@ -174,7 +175,7 @@ export default function Train() {
   const [currentPB, setCurrentPB] = useState(0)
   const [logs, setLogs] = useState([])
   const [points, setPoints] = useState(0)
-  const [streak, setStreak] = useState(0)
+  const [streakInfo, setStreakInfo] = useState({ current: 0, longest: 0, activeToday: false })
 
   // UI States
   const [isAdding, setIsAdding] = useState(false)
@@ -432,24 +433,13 @@ export default function Train() {
         setLogs(history)
       }
 
-      // Compute the current day-streak. A day counts as active if the member
-      // either logged a set (workout_logs) OR ticked a workout complete
-      // (workout_completions) — the tick-off flow is how most workouts are
-      // marked done now, so it has to count.
+      // The streak now comes from the database, and counts every kind of
+      // showing up -- a set, a ticked workout, a habit, a challenge task.
+      // This used to be worked out here from training alone, so a member who
+      // ticked five habits a day for a month still read as a 0-day streak.
       try {
-        const dayStr = (dt) => { const t = dt.getTimezoneOffset() * 60000; return new Date(dt - t).toISOString().slice(0, 10) }
-        const [logRes, compRes] = await Promise.all([
-          supabase.from('workout_logs').select('created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(500),
-          supabase.from('workout_completions').select('date').eq('user_id', userId).limit(500),
-        ])
-        const days = new Set((logRes.data || []).map((r) => dayStr(new Date(r.created_at))))
-        ;(compRes.data || []).forEach((r) => { if (r.date) days.add(String(r.date).slice(0, 10)) })
-        let s = 0
-        const cur = new Date()
-        // Today not done yet shouldn't break the streak — start from yesterday.
-        if (!days.has(dayStr(cur))) cur.setDate(cur.getDate() - 1)
-        while (days.has(dayStr(cur))) { s++; cur.setDate(cur.getDate() - 1) }
-        setStreak(s)
+        const streaks = await fetchStreaks(supabase)
+        setStreakInfo(streakFor(streaks, userId))
       } catch {}
     } catch {}
   }
@@ -1648,7 +1638,7 @@ export default function Train() {
 
             {/* Slim stat line (Streak · Today's pts · Sets) */}
             <section className="flex items-center justify-center gap-5 text-[11px] font-bold text-arc-muted">
-                <span><span className="text-emerald-400 font-black font-mono">{streak}</span> day streak</span>
+                <span><span className="text-emerald-400 font-black font-mono">{streakInfo.current}</span> day streak</span>
                 <span className="text-white/10">·</span>
                 <span><span className="text-arc-accent font-black font-mono">+{todayPoints}</span> pts today</span>
                 <span className="text-white/10">·</span>

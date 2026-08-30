@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import ProfileButton from '../components/ProfileButton'
 import { supabase } from '../lib/supabaseClient'
+import { fetchStreaks, streakFor } from '../lib/streaks'
 import { useRouter } from 'next/router'
 
 // ─── Icons ───────────────────────────────────────────
@@ -235,6 +236,11 @@ export default function Coach() {
 
       const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       if (prof && prof.completed_onboarding === false) { router.push('/onboarding'); return }
+      // profiles.current_streak is never written, so the coach was being told
+      // every member had a 0-day streak while asking them to protect it.
+      const streaks = await fetchStreaks(supabase)
+      const mine = streakFor(streaks, user.id)
+      if (prof) prof.current_streak = mine.current
 
       setUserId(user.id)
       setProfile(prof)

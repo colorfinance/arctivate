@@ -5,6 +5,8 @@ import Nav from '../components/Nav'
 import ProfileButton from '../components/ProfileButton'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
+import { fetchStreaks, streakFor } from '../lib/streaks'
+import StreakBanner from '../components/StreakBanner'
 import { ensureReminderPermission, syncHabitReminders, reminderPermissionState, syncDailyNudge } from '../lib/reminders'
 // Lazy-load confetti to keep initial bundle small
 const fireConfetti = async (opts) => {
@@ -92,6 +94,10 @@ export default function Habits() {
         router.push('/onboarding')
         return
       }
+
+      // What is at stake today, counted across everything: sets, ticked
+      // workouts, habits and challenge tasks.
+      fetchStreaks(supabase).then(m => setMyStreak(streakFor(m, user.id))).catch(() => {})
 
       if (profile) {
           if (profile.challenge_start_date) {
@@ -1244,6 +1250,7 @@ export default function Habits() {
   // print the whole daily list a second time, at full size, above the list you
   // came to tick -- so a bad yesterday doubled the page.
   const [openCatchUp, setOpenCatchUp] = useState(null)
+  const [myStreak, setMyStreak] = useState({ current: 0, longest: 0, activeToday: false })
 
   const catchUp = (() => {
     const today = getTodayStr()
@@ -1324,6 +1331,10 @@ export default function Habits() {
         </header>
 
         <main className="pt-36 px-6 space-y-8 max-w-lg mx-auto">
+
+            {/* The streak leads, because it is the only thing on this page that
+                can be lost by doing nothing. */}
+            <StreakBanner streak={myStreak} />
 
             {/* Reminders are set but the OS will not let them through. Without
                 this prompt a member never finds out their alarms are silent. */}

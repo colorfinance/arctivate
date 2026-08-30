@@ -6,6 +6,7 @@ import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
 import { ArrowLeftIcon, TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
 import { rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
+import { fetchStreaks, streakFor } from '../lib/streaks'
 import { fetchMyFollowing } from '../lib/follows'
 
 const TABS = [
@@ -91,7 +92,11 @@ export default function Leaderboard() {
       const { data: profs } = await supabase
         .from('profiles')
         .select('id, username, avatar_url, total_points, current_streak, gym_id')
-      setProfiles(profs || [])
+      // The stored current_streak column is dead -- nothing has ever written
+      // it, so this whole board read 0 for all 49 members. The real number is
+      // worked out in the database, in the viewer's own day frame.
+      const streaks = await fetchStreaks(supabase)
+      setProfiles((profs || []).map(p => ({ ...p, current_streak: streakFor(streaks, p.id).current })))
 
       const { data: gymRows, error: gymErr } = await supabase.from('gyms').select('*')
       if (gymErr) setNotReady(true)
