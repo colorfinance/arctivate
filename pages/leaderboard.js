@@ -116,17 +116,30 @@ export default function Leaderboard() {
     if (tab === 'gyms') return []
     // No username means they never finished onboarding — a board full of
     // "Member" rows reads as broken, and you're still shown to yourself.
-    let pool = profiles.filter(p => p.username || p.id === userId)
+    // Applied first so every tab inherits it: the gym and following tabs
+    // used to rebuild the pool from scratch and put "Member" back.
+    const named = profiles.filter(p => p.username || p.id === userId)
+    let pool = named
     if (tab === 'friends') {
       // You're always on your own board, otherwise it reads as if you
       // aren't competing.
       const ids = new Set([...myFriendIds, userId])
-      pool = profiles.filter(p => ids.has(p.id))
+      pool = named.filter(p => ids.has(p.id))
     } else if (tab === 'gym') {
-      pool = profiles.filter(p => p.gym_id && p.gym_id === myGymId)
+      pool = named.filter(p => p.gym_id && p.gym_id === myGymId)
     }
     return rankPeople(pool, metric)
   }, [tab, profiles, myFriendIds, userId, myGymId, metric])
+
+  // Everyone who has actually scored, and a count of everyone who hasn't.
+  // Sixteen rows of "0 pts" was half the board, and a public list of who
+  // hasn't started is not what a leaderboard is for. You stay on it either
+  // way -- being told your own score is zero is the point.
+  const scoredRows = useMemo(
+    () => rows.filter(r => (Number(r.score) || 0) > 0 || r.id === userId),
+    [rows, userId]
+  )
+  const yetToScore = rows.length - scoredRows.length
 
   const gymRows = useMemo(
     () => (tab === 'gyms' ? rankGyms(profiles, gyms, metric) : []),
@@ -331,7 +344,7 @@ export default function Leaderboard() {
               </div>
             )}
 
-            {rows.map(r => (
+            {scoredRows.map(r => (
               <div
                 key={r.id}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${
@@ -349,6 +362,12 @@ export default function Leaderboard() {
                 </span>
               </div>
             ))}
+
+            {yetToScore > 0 && (
+              <p className="text-[11px] text-arc-muted text-center pt-1">
+                and {yetToScore} {yetToScore === 1 ? 'other' : 'others'} yet to score
+              </p>
+            )}
           </div>
         )}
 

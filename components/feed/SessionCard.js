@@ -35,6 +35,7 @@ export default function SessionCard({
   onDelete,
   comments = [],
   onLoadComments,
+  photos = [],
   isFollowing,
   onToggleFollow,
 }) {
@@ -118,6 +119,23 @@ export default function SessionCard({
           {exercises.length > 6 && (
             <p className="text-[11px] text-arc-muted pt-0.5">+{exercises.length - 6} more</p>
           )}
+        </div>
+      )}
+
+      {/* The picture, when there is one. It sits above the numbers because it
+          is the part people stop scrolling for. */}
+      {photos.length > 0 && (
+        <div className={`px-4 pb-3 ${photos.length > 1 ? 'flex gap-2 overflow-x-auto scrollbar-hide' : ''}`}>
+          {photos.map((url, i) => (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              key={url}
+              src={url}
+              alt={i === 0 ? `${name}'s session` : ''}
+              loading="lazy"
+              className={`rounded-xl object-cover ${photos.length > 1 ? 'h-44 w-auto shrink-0' : 'w-full max-h-80'}`}
+            />
+          ))}
         </div>
       )}
 

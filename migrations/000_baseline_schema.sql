@@ -2339,3 +2339,170 @@ end; $$;
 
 REVOKE EXECUTE ON FUNCTION public.redeem_code(text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.redeem_code(text, uuid) TO authenticated, service_role;
+
+
+-- ---------------------------------------------------------------------------
+-- A challenge that is always there (migration 045).
+--
+-- Every gym has one challenge running permanently, created the first time a
+-- member of that gym opens the page. Each member's thirty days start the day
+-- they join, so there is no start line to miss.
+-- ---------------------------------------------------------------------------
+-- One per gym. The partial unique index is what makes ensure_gym_challenge()
+-- safe when two members of the same gym open the page at the same moment --
+-- one insert wins, the other reads the winner's row.
+CREATE UNIQUE INDEX IF NOT EXISTS group_challenges_one_house_per_gym
+  ON public.group_challenges (gym_id)
+  WHERE is_official = true AND is_active = true AND gym_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION public.ensure_gym_challenge()
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+declare
+  v_user uuid := auth.uid();
+  v_gym  uuid;
+  v_id   uuid;
+begin
+  if v_user is null then return null; end if;
+
+  select gym_id into v_gym from public.profiles where id = v_user;
+  -- A member with no gym has nobody to do it with; the page falls back to
+  -- what it always showed.
+  if v_gym is null then return null; end if;
+
+  select id into v_id
+  from public.group_challenges
+  where gym_id = v_gym and is_official = true and is_active = true
+  limit 1;
+  if v_id is not null then return v_id; end if;
+
+  begin
+    insert into public.group_challenges (
+      title, description, start_date, length_days, strict,
+      visibility, gym_vs_gym, is_official, gym_id, is_active, created_by
+    ) values (
+      'The Daily 3',
+      'Three things, every day, for thirty days. Your whole gym is in it.',
+      current_date, 30, false,
+      'gym', false, true, v_gym, true,
+      -- Nobody owns it, so nobody can quietly rewrite everyone's checklist.
+      null
+    )
+    returning id into v_id;
+
+    -- Short on purpose: three things you can finish on a bad day beat ten you
+    -- cannot. Same list a new member gets for their own habits.
+    insert into public.challenge_tasks (challenge_id, title, position) values
+      (v_id, '45 minutes of movement', 0),
+      (v_id, '3 litres of water', 1),
+      (v_id, '10 minutes of reading', 2);
+  exception when unique_violation then
+    -- Somebody else's insert won the race. Theirs is as good as ours.
+    select id into v_id
+    from public.group_challenges
+    where gym_id = v_gym and is_official = true and is_active = true
+    limit 1;
+  end;
+
+  return v_id;
+end;
+$$;
+
+-- Postgres grants EXECUTE to PUBLIC on every new function.
+REVOKE EXECUTE ON FUNCTION public.ensure_gym_challenge() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ensure_gym_challenge() TO authenticated, service_role;
+
+-- How many people at your gym ticked everything off today. This is the line
+-- that makes the tab worth opening tomorrow, and a browser cannot work it out
+-- for itself -- it can only see its own owner's ticks.
+CREATE OR REPLACE FUNCTION public.challenge_today(p_challenge_id uuid)
+RETURNS TABLE (members integer, done_today integer, ticked_today integer)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  WITH task_count AS (
+    SELECT count(*)::int AS n FROM public.challenge_tasks t WHERE t.challenge_id = p_challenge_id
+  ), per_member AS (
+    SELECT m.user_id, count(l.*)::int AS ticks
+    FROM public.group_challenge_members m
+    LEFT JOIN public.challenge_task_logs l
+      ON l.user_id = m.user_id
+     AND l.date = current_date
+     AND l.task_id IN (SELECT t.id FROM public.challenge_tasks t WHERE t.challenge_id = p_challenge_id)
+    WHERE m.challenge_id = p_challenge_id AND m.status = 'active'
+    GROUP BY m.user_id
+  )
+  SELECT
+    (SELECT count(*)::int FROM per_member),
+    -- Everything ticked. A challenge with no tasks has nothing to finish, so
+    -- nobody counts as done rather than everybody.
+    (SELECT count(*)::int FROM per_member p, task_count c WHERE c.n > 0 AND p.ticks >= c.n),
+    (SELECT count(*)::int FROM per_member p WHERE p.ticks > 0);
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.challenge_today(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.challenge_today(uuid) TO authenticated, service_role;
+
+
+-- ---------------------------------------------------------------------------
+-- A session can carry a photo (migration 046).
+--
+-- A photo attached to a session is seen by whoever can see the session, so a
+-- private session keeps its photo private.
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.workout_photos
+  ADD COLUMN IF NOT EXISTS session_id uuid
+  REFERENCES public.workout_sessions(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS workout_photos_session_idx
+  ON public.workout_photos (session_id) WHERE session_id IS NOT NULL;
+
+-- --- the row -----------------------------------------------------------------
+
+-- RLS is permissive, so this only ever widens what can be read: the existing
+-- own-photos policy still covers everything that is not on a session.
+DROP POLICY IF EXISTS "See photos on a session you can see" ON public.workout_photos;
+CREATE POLICY "See photos on a session you can see"
+  ON public.workout_photos FOR SELECT TO authenticated
+  USING (session_id IS NOT NULL AND public.can_see_session(session_id));
+
+-- --- the file ----------------------------------------------------------------
+
+-- The bucket is private and the app reads through signed URLs, which storage
+-- will only mint for an object the caller may select. Without this the row
+-- would be readable and the picture would not.
+DROP POLICY IF EXISTS "Read a photo on a session you can see" ON storage.objects;
+CREATE POLICY "Read a photo on a session you can see"
+  ON storage.objects FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'workout-photos'
+    AND EXISTS (
+      SELECT 1 FROM public.workout_photos wp
+      WHERE wp.storage_path = storage.objects.name
+        AND wp.session_id IS NOT NULL
+        AND public.can_see_session(wp.session_id)
+    )
+  );
+
+
+-- ---------------------------------------------------------------------------
+-- A challenge can have something on it (migration 047).
+--
+-- A stated stake, agreed between the people in it and settled between them.
+-- Not money, and nothing the app holds or moves.
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.group_challenges
+  ADD COLUMN IF NOT EXISTS wager text;
+
+-- Long enough for "loser buys the coffees for a month", short enough that it
+-- stays one readable line on a card.
+ALTER TABLE public.group_challenges
+  DROP CONSTRAINT IF EXISTS group_challenges_wager_len;
+ALTER TABLE public.group_challenges
+  ADD CONSTRAINT group_challenges_wager_len
+  CHECK (wager IS NULL OR char_length(wager) <= 80);

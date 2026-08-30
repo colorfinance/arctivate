@@ -197,6 +197,10 @@ export default function Train() {
   const [finishing, setFinishing] = useState(false)
   const [showFinish, setShowFinish] = useState(false)
   const [finishVisibility, setFinishVisibility] = useState('gym')
+  // A photo picked on the finish sheet, held locally until FINISH so backing
+  // out of the sheet doesn't leave a stray upload behind.
+  const [finishPhoto, setFinishPhoto] = useState(null)      // { file, preview }
+  const sessionPhotoInputRef = useRef(null)
 
   // Private workout photos (add-photo trigger lives in the logger header)
   const photosRef = useRef(null)
@@ -327,10 +331,14 @@ export default function Train() {
     if (!session || finishing) return
     setFinishing(true)
     try {
+      // The picture goes up first: a session already in the feed with no photo
+      // on it reads as though the upload was lost.
+      if (finishPhoto?.file) await attachSessionPhoto(session.id, finishPhoto.file)
       const done = await finishSession(supabase, session.id, { visibility: finishVisibility })
       if (!done) { showToast('Could not finish that'); return }
       setSession(null)
       setShowFinish(false)
+      clearFinishPhoto()
       showToast(finishVisibility === 'gym' ? 'Session shared with your gym 💪' : 'Session saved, private')
     } finally {
       setFinishing(false)
@@ -660,6 +668,34 @@ export default function Train() {
       setPhotoUploadFor(null)
       photoTargetRef.current = null
     }
+  }
+
+  // A photo on a session is seen by whoever can see the session. The rule
+  // lives in can_see_session(), so a private session keeps its photo private,
+  // and making a session private later takes the photo out of the feed with it.
+  const attachSessionPhoto = async (sessionId, file) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return false
+      const blob = await resizeToBlob(file)
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+      const { error: upErr } = await supabase.storage
+        .from(PHOTO_BUCKET)
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+      if (upErr) { showToast('Could not upload the photo — the session still saved'); return false }
+      const { error: insErr } = await supabase
+        .from('workout_photos')
+        .insert({ user_id: user.id, storage_path: path, session_id: sessionId })
+      if (insErr) { showToast('Could not attach the photo — the session still saved'); return false }
+      return true
+    } catch {
+      showToast('Could not add the photo — the session still saved')
+      return false
+    }
+  }
+
+  const clearFinishPhoto = () => {
+    setFinishPhoto((prev) => { if (prev?.preview) URL.revokeObjectURL(prev.preview); return null })
   }
 
   const removeWorkoutPhoto = async (workoutId, photo) => {
@@ -1509,6 +1545,48 @@ export default function Train() {
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  {/* The one thing people already do on every other fitness
+                      app. Whoever can see the session sees the photo, so a
+                      private session keeps it private. */}
+                  <div>
+                    <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">
+                      Photo <span className="normal-case tracking-normal font-normal">(optional)</span>
+                    </label>
+                    {finishPhoto ? (
+                      <div className="relative rounded-xl overflow-hidden border border-white/10">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={finishPhoto.preview} alt="Your session" className="w-full h-40 object-cover" />
+                        <button
+                          onClick={clearFinishPhoto}
+                          disabled={finishing}
+                          aria-label="Remove photo"
+                          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/70 text-white text-sm font-bold flex items-center justify-center disabled:opacity-50"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => sessionPhotoInputRef.current?.click()}
+                        disabled={finishing}
+                        className="w-full border border-dashed border-white/15 hover:border-arc-accent/40 text-arc-muted hover:text-white text-[12px] font-bold py-4 rounded-xl transition-colors disabled:opacity-50"
+                      >
+                        + Add a photo
+                      </button>
+                    )}
+                    <input
+                      ref={sessionPhotoInputRef} type="file" accept="image/*" className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) {
+                          clearFinishPhoto()
+                          setFinishPhoto({ file: f, preview: URL.createObjectURL(f) })
+                        }
+                        e.target.value = ''
+                      }}
+                    />
                   </div>
 
                   <div className="space-y-2">

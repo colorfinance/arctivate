@@ -5,11 +5,18 @@ import ProfileButton from '../components/ProfileButton'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import SessionCard from '../components/feed/SessionCard'
+import PostMenu from '../components/feed/PostMenu'
+import Avatar from '../components/Avatar'
 import { toggleKudos, addComment } from '../lib/sessions'
 import { fetchMyFollowing, toggleFollow } from '../lib/follows'
 import { filterContent } from '../lib/contentFilter'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+
+// Session photos sit in the same private bucket the training page uses; the
+// feed only ever reads them, through short-lived signed URLs.
+const SESSION_PHOTO_BUCKET = 'workout-photos'
+const SESSION_PHOTO_TTL = 60 * 60
 
 // Icons
 const HighFiveIcon = ({ filled }) => (
@@ -105,6 +112,8 @@ export default function Feed() {
   // Who you follow, and whether the feed is showing everyone at the gym or
   // only them. A filter, not a permission -- what you may see is unchanged.
   const [following, setFollowing] = useState(new Set())
+  // session id -> [signed url]
+  const [sessionPhotos, setSessionPhotos] = useState({})
   const [feedScope, setFeedScope] = useState('gym')
   const [newMessage, setNewMessage] = useState('')
   const [isPosting, setIsPosting] = useState(false)
@@ -225,7 +234,32 @@ export default function Feed() {
         const { data: mine } = await supabase
           .from('session_kudos').select('session_id').eq('user_id', userId).in('session_id', ids)
         setMyKudos(new Set((mine || []).map(k => k.session_id)))
+        await fetchSessionPhotos(ids)
       }
+    } catch {}
+  }
+
+  // Photos live in a private bucket and are read through signed URLs. Which
+  // rows come back is decided by RLS -- a photo on a private session simply
+  // isn't in the result -- so there is no visibility rule to repeat here.
+  async function fetchSessionPhotos(sessionIds) {
+    try {
+      const { data, error } = await supabase
+        .from('workout_photos')
+        .select('id, storage_path, session_id')
+        .in('session_id', sessionIds)
+      if (error || !data?.length) return
+      const paths = data.map(r => r.storage_path)
+      const { data: signed } = await supabase.storage
+        .from(SESSION_PHOTO_BUCKET).createSignedUrls(paths, SESSION_PHOTO_TTL)
+      const urlByPath = {}
+      ;(signed || []).forEach((sg, i) => { if (sg?.signedUrl) urlByPath[paths[i]] = sg.signedUrl })
+      const map = {}
+      data.forEach(r => {
+        const url = urlByPath[r.storage_path]
+        if (url) (map[r.session_id] || (map[r.session_id] = [])).push(url)
+      })
+      setSessionPhotos(map)
     } catch {}
   }
 
@@ -640,10 +674,10 @@ export default function Feed() {
     const diffHours = Math.floor(diffMs / 3600000)
     const diffDays = Math.floor(diffMs / 86400000)
     if (diffMins < 1) return 'just now'
-    if (diffMins < 60) return `${diffMins}m`
-    if (diffHours < 24) return `${diffHours}h`
-    if (diffDays < 7) return `${diffDays}d`
-    return date.toLocaleDateString()
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
   const getUnit = (metricType) => metricType === 'time' ? 'min' : 'kg'
@@ -899,6 +933,7 @@ export default function Feed() {
                       onDelete={deleteSession}
                       comments={commentsBySession[s.id] || []}
                       onLoadComments={loadComments}
+                      photos={sessionPhotos[s.id]}
                       isFollowing={following.has(s.user_id)}
                       onToggleFollow={handleFollow}
                     />
@@ -925,8 +960,12 @@ export default function Feed() {
                       const shareText = `Just logged ${workout.exercise_name}: ${workout.value}${getUnit(workout.metric_type)}${workout.is_new_pb ? ' - NEW PB!' : ''} on Arctivate!`
 
                       return (
-                        <motion.div key={post.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
-                          <div className="flex items-center gap-3 p-4 border-b border-white/5">
+                        <motion.div key={post.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/[0.06] rounded-2xl overflow-hidden">
+                          {/* A single logged exercise, from before sessions existed.
+                              Same chrome as a session card so the feed reads as one
+                              thing: these used to be centred, twice the type size, and
+                              shouted a points total the session card doesn't show. */}
+                          <div className="flex items-center gap-3 p-4 pb-3">
                             <button
                               onClick={() => {
                                 if (!isOwnPost) {
@@ -935,53 +974,48 @@ export default function Feed() {
                                 }
                               }}
                               disabled={isOwnPost}
-                              className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold disabled:cursor-default"
+                              aria-label={isOwnPost ? undefined : `Message ${displayName}`}
+                              className="shrink-0 disabled:cursor-default"
                             >
-                              {displayName[0]?.toUpperCase() || '?'}
+                              <Avatar src={post.profiles?.avatar_url} name={displayName} size={38} />
                             </button>
-                            <div className="flex-1">
-                              <span className="font-bold text-sm text-white">{displayName}</span>
+                            <div className="flex-1 min-w-0">
+                              <span className="block font-bold text-sm text-white truncate">{displayName}</span>
                               <span className="block text-[11px] text-arc-muted">{formatTimeAgo(post.created_at)}</span>
                             </div>
                             {workout.is_new_pb && (
-                              <span className="flex items-center gap-1 text-[10px] bg-arc-accent/20 text-arc-accent px-2 py-1 rounded-full font-bold">
-                                <FireIcon />PB
+                              <span className="shrink-0 flex items-center gap-1 text-[10px] bg-arc-accent/20 text-arc-accent px-2.5 py-1 rounded-full font-black">
+                                PB
                               </span>
                             )}
                           </div>
 
-                          <div className="p-5">
-                            <div className="text-center mb-4">
-                              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Logged</span>
-                              <h3 className="text-lg font-bold text-white mt-1">{workout.exercise_name}</h3>
-                            </div>
-                            <div className="flex justify-center gap-6">
-                              <div className="text-center">
-                                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">{workout.metric_type === 'time' ? 'Time' : 'Weight'}</span>
-                                <div className="flex items-baseline justify-center gap-1 mt-1">
-                                  <span className="text-2xl font-black font-mono text-arc-accent">{workout.value}</span>
-                                  <span className="text-sm text-arc-muted font-bold">{getUnit(workout.metric_type)}</span>
-                                </div>
-                              </div>
-                              <div className="text-center">
-                                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Points</span>
-                                <div className="flex items-baseline justify-center gap-1 mt-1">
-                                  <span className="text-sm text-green-400 font-bold">+</span>
-                                  <span className="text-2xl font-black font-mono text-white">{workout.points_earned}</span>
-                                </div>
-                              </div>
+                          <div className="px-4 pb-3">
+                            <div className="flex items-center gap-2 text-[13px]">
+                              <span className={`flex-1 min-w-0 truncate font-bold ${workout.is_new_pb ? 'text-arc-accent' : 'text-white'}`}>
+                                {workout.exercise_name}
+                              </span>
+                              <span className="shrink-0 text-arc-muted font-mono text-[12px]">
+                                {workout.value}{getUnit(workout.metric_type)}
+                              </span>
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between px-4 py-3 bg-arc-bg/50 border-t border-white/5">
-                            <div className="flex items-center gap-3">
-                              <button onClick={() => handleHighFive(post.id)} disabled={isOwnPost} className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${hasHighFived ? 'bg-arc-accent/20 text-arc-accent' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnPost ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                          <div className="flex items-center justify-between px-3 py-2.5 border-t border-white/[0.04]">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleHighFive(post.id)}
+                                disabled={isOwnPost}
+                                aria-label={hasHighFived ? 'Take back your high five' : 'High five'}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${hasHighFived ? 'bg-arc-accent/20 text-arc-accent' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnPost ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
                                 <HighFiveIcon filled={hasHighFived} />
                                 <span className="font-bold text-sm">{post.likes_count || 0}</span>
                               </button>
                               {!isOwnPost && (
                                 <button
                                   onClick={() => { setShowDMs(true); openDM(post.user_id, post.profiles?.username, post.profiles?.avatar_url) }}
+                                  aria-label={`Message ${displayName}`}
                                   className="flex items-center gap-1 px-3 py-2 rounded-xl bg-arc-surface text-arc-muted hover:text-white transition-all"
                                 >
                                   <MessageIcon />
@@ -989,20 +1023,18 @@ export default function Feed() {
                               )}
                             </div>
                             <div className="flex gap-2">
-                              {isOwnPost && (
-                                <button onClick={() => deleteOwnPost(post.id, 'feed')} className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
+                              {isOwnPost ? (
+                                <button onClick={() => deleteOwnPost(post.id, 'feed')} className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
                                   Delete
                                 </button>
-                              )}
-                              {!isOwnPost && (
-                                <>
-                                  <button onClick={() => setShowReportModal({ type: 'feed_post', id: post.id })} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
-                                    Report
-                                  </button>
-                                  <button onClick={() => blockUser(post.user_id)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
-                                    Block
-                                  </button>
-                                </>
+                              ) : (
+                                /* Report and Block used to sit here on every post, as
+                                   loud as the actions. Moderation matters and stays one
+                                   tap away, but it is not what a feed is for. */
+                                <PostMenu
+                                  onReport={() => setShowReportModal({ type: 'feed_post', id: post.id })}
+                                  onBlock={() => blockUser(post.user_id)}
+                                />
                               )}
                             </div>
                           </div>
@@ -1110,20 +1142,15 @@ export default function Feed() {
                               )}
                             </div>
                             <div className="flex gap-2">
-                              {isOwnMessage && (
-                                <button onClick={() => deleteOwnPost(msg.id, 'message')} className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
+                              {isOwnMessage ? (
+                                <button onClick={() => deleteOwnPost(msg.id, 'message')} className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
                                   Delete
                                 </button>
-                              )}
-                              {!isOwnMessage && (
-                                <>
-                                  <button onClick={() => setShowReportModal({ type: 'community_message', id: msg.id })} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
-                                    Report
-                                  </button>
-                                  <button onClick={() => blockUser(msg.user_id)} className="p-2 rounded-lg bg-arc-surface text-arc-muted hover:text-red-400 transition-colors text-[10px] font-bold">
-                                    Block
-                                  </button>
-                                </>
+                              ) : (
+                                <PostMenu
+                                  onReport={() => setShowReportModal({ type: 'community_message', id: msg.id })}
+                                  onBlock={() => blockUser(msg.user_id)}
+                                />
                               )}
                             </div>
                           </div>
