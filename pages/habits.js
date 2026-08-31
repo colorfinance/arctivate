@@ -98,6 +98,7 @@ export default function Habits() {
       // What is at stake today, counted across everything: sets, ticked
       // workouts, habits and challenge tasks.
       fetchStreaks(supabase).then(m => setMyStreak(streakFor(m, user.id))).catch(() => {})
+      loadGymToday(user.id)
 
       if (profile) {
           if (profile.challenge_start_date) {
@@ -1251,6 +1252,29 @@ export default function Habits() {
   // came to tick -- so a bad yesterday doubled the page.
   const [openCatchUp, setOpenCatchUp] = useState(null)
   const [myStreak, setMyStreak] = useState({ current: 0, longest: 0, activeToday: false })
+  // How the rest of the gym is doing today, for the gym challenge you're in.
+  // A browser can only ever see its own owner's ticks, so the count comes
+  // from challenge_today(). It sits here rather than on the challenge tab
+  // because it belongs beside the thing it is asking you to do.
+  const [gymToday, setGymToday] = useState(null)
+
+  // The gym challenge you're in, and how many of your gym have finished
+  // today. Quiet about every failure: it is a nice-to-have line, not the page.
+  const loadGymToday = async (uid) => {
+    try {
+      const { data: mine } = await supabase
+        .from('group_challenge_members').select('challenge_id').eq('user_id', uid).neq('status', 'left')
+      const ids = (mine || []).map(m => m.challenge_id)
+      if (!ids.length) return
+      const { data: official } = await supabase
+        .from('group_challenges').select('id').eq('is_official', true).in('id', ids).limit(1)
+      const id = official?.[0]?.id
+      if (!id) return
+      const { data } = await supabase.rpc('challenge_today', { p_challenge_id: id })
+      const row = Array.isArray(data) ? data[0] : data
+      if (row && row.members > 1) setGymToday(row)
+    } catch {}
+  }
 
   const catchUp = (() => {
     const today = getTodayStr()
@@ -1312,7 +1336,7 @@ export default function Habits() {
         <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-6">
             <div className="flex justify-between items-center">
                 <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-                    PROTOCOL
+                    TODAY
                 </h1>
                 <div className="flex items-center gap-3">
                     <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
@@ -1456,7 +1480,27 @@ export default function Habits() {
                                 Weekly {weeklyDoneCount}/{weeklyTotal}
                                 {allWeeklyDone && <StarIcon size={11} />}
                               </span>
-                        </div>
+        
+                    {/* Nobody comes back for a checklist. They come back to see
+                        whether everyone else did it too. */}
+                    {gymToday && (
+                        <p className="text-[10px] text-arc-muted mt-2 leading-snug max-w-[15rem]">
+                            {gymToday.done_today > 0
+                                ? `${gymToday.done_today} of ${gymToday.members} at your gym have finished today.`
+                                : `${gymToday.members} people at your gym are on this. Nobody's finished today yet.`}
+                        </p>
+                    )}
+                </div>
+                    )}
+
+                    {/* Nobody comes back for a checklist. They come back to see
+                        whether everyone else did it too. */}
+                    {gymToday && (
+                        <p className="text-[10px] text-arc-muted mt-2 leading-snug max-w-[15rem]">
+                            {gymToday.done_today > 0
+                                ? `${gymToday.done_today} of ${gymToday.members} at your gym have finished today.`
+                                : `${gymToday.members} people at your gym are on this. Nobody's finished today yet.`}
+                        </p>
                     )}
                 </div>
 

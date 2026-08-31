@@ -50,7 +50,7 @@ export default function Onboarding() {
       }
       const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', data.user.id).single()
       if (profile?.completed_onboarding) {
-        router.push('/challenges')
+        router.push('/habits')
         return
       }
       setCheckingUser(false)
@@ -109,6 +109,8 @@ export default function Onboarding() {
       const confetti = (await import('canvas-confetti')).default
       confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#00D4AA', '#06B6D4', '#ffffff'] })
     } catch {}
+    // Straight to the challenge you just started -- that is the thing you
+    // just did. Every other entry point lands on Today.
     setTimeout(() => router.push('/challenges'), 2000)
   }
 
