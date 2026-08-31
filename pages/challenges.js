@@ -94,6 +94,10 @@ export default function Challenges() {
   // The create sheet asks one question by default; the rest is behind this.
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [myStreak, setMyStreak] = useState({ current: 0, longest: 0, activeToday: false })
+  // A challenge with no list of its own is scored on these -- the same habits
+  // and the same habit_logs rows the Habits tab writes. One list, one record.
+  const [myHabits, setMyHabits] = useState([])
+  const [myHabitTicks, setMyHabitTicks] = useState(new Set())
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
 
@@ -182,6 +186,17 @@ export default function Challenges() {
 
       await refreshGymToday(user.id, chData || [], memberData || [])
       setMyStreak(streakFor(await fetchStreaks(supabase), user.id))
+
+      const { data: habitRows } = await supabase
+        .from('habits').select('id, title, created_at, frequency, points_reward')
+        .eq('user_id', user.id)
+      const daily = (habitRows || []).filter(h => (h.frequency || 'daily') !== 'weekly')
+      setMyHabits(daily)
+      const { data: habitTickRows } = await supabase
+        .from('habit_logs').select('habit_id, date')
+        .eq('user_id', user.id)
+        .gte('date', backfillFrom(todayStr()))
+      setMyHabitTicks(new Set((habitTickRows || []).map(l => `${l.habit_id}:${l.date}`)))
 
       const { data: mine } = await supabase
         .from('user_badges')
@@ -547,6 +562,48 @@ export default function Challenges() {
   // Ticking one task on one day. Points move with the tick both ways, and
   // when the last task of the day goes green the day is banked immediately —
   // the recount runs so the card and standings agree without a reload.
+  // Ticking a habit from the challenge page. It writes habit_logs, so it is
+  // the same tick as the one on the Habits tab rather than a second record of
+  // the same thing.
+  const tickHabit = async (habit, date, habitsForDay) => {
+    const key = `${habit.id}:${date}`
+    if (taskBusy) return
+    setTaskBusy(key)
+    const had = myHabitTicks.has(key)
+    const next = new Set(myHabitTicks)
+    had ? next.delete(key) : next.add(key)
+    setMyHabitTicks(next)
+    try {
+      if (had) {
+        const { error } = await supabase
+          .from('habit_logs')
+          .delete().eq('habit_id', habit.id).eq('user_id', userId).eq('date', date)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('habit_logs').insert({
+          habit_id: habit.id, user_id: userId, date,
+        })
+        if (error && error.code !== '23505') throw error
+      }
+
+      const dayComplete = !had && habitsForDay.every(h => next.has(`${h.id}:${date}`))
+      if (dayComplete) {
+        await supabase.rpc('recalc_my_challenge_progress')
+        const { data: scored } = await supabase.from('group_challenge_members').select('*')
+        if (scored) setMembers(scored)
+        const { data: fresh } = await supabase.rpc('award_my_badges')
+        if (fresh?.length) setJustEarned(fresh)
+        showToast(date === todayStr() ? 'Day banked 🔥' : 'Caught up — day banked')
+      }
+      setMyStreak(streakFor(await fetchStreaks(supabase), userId))
+    } catch {
+      setMyHabitTicks(myHabitTicks)
+      showToast('Could not save that')
+    } finally {
+      setTaskBusy(null)
+    }
+  }
+
   const tickTask = async (task, date, tasksForDay) => {
     const key = `${task.id}:${date}`
     if (taskBusy) return
@@ -670,10 +727,15 @@ export default function Challenges() {
     if (!mine || !hasStarted(ch.start_date, today)) return null
     const day = daysDone(mine)
     if (isFinished(day, ch.length_days)) return null
-    const tasks = chTasks.filter(t => t.challenge_id === ch.id)
+    // Its own checklist if it has one; otherwise your daily habits, which is
+    // what the database scores it on anyway.
+    const own = chTasks.filter(t => t.challenge_id === ch.id)
+    const onHabits = own.length === 0
+    const tasks = onHabits ? myHabits : own
     if (!tasks.length) return null
-    const doneToday = tasks.filter(t => myTicks.has(`${t.id}:${today}`)).length
-    return { ch, mine, day, tasks, doneToday }
+    const ticks = onHabits ? myHabitTicks : myTicks
+    const doneToday = tasks.filter(t => ticks.has(`${t.id}:${today}`)).length
+    return { ch, mine, day, tasks, doneToday, onHabits, ticks }
   }).filter(Boolean)
 
   // One challenge card. Lifted out of the list so the page can show the
@@ -785,7 +847,12 @@ export default function Challenges() {
           {/* The checklist itself lives in TODAY at the top of the page, where
               it is the first thing a member sees rather than something behind
               an expander. This card is the standings and the shape of the run. */}
-          {joined && !done && ownTasks.length === 0 && (ch.created_by === userId || isAdmin) && (
+          {joined && ownTasks.length === 0 && (
+            <p className="text-[11px] text-arc-muted">
+              Scored on your own daily habits — tick them at the top of this page or on Habits.
+            </p>
+          )}
+          {joined && !done && ownTasks.length === 0 && !ch.is_official && (ch.created_by === userId || isAdmin) && (
             <button
               onClick={() => openTaskEditor(ch)}
               className="w-full border border-dashed border-white/15 hover:border-arc-accent/40 text-arc-muted hover:text-white text-[11px] font-bold py-2.5 rounded-xl transition-colors"
@@ -942,12 +1009,13 @@ export default function Challenges() {
 
         {/* The reason to open this tab tomorrow. Three lines, tickable where
             you land, and what the rest of the gym did with the same three. */}
-        {todayRows.map(({ ch, mine, day, tasks, doneToday }) => {
+        {todayRows.map(({ ch, mine, day, tasks, doneToday, onHabits, ticks }) => {
           const all = tasks.length
           const banked = doneToday === all
           const gym = gymToday[ch.id]
           const yesterday = backfillFrom(today)
-          const missedYesterday = tasks.filter(t => !myTicks.has(`${t.id}:${yesterday}`))
+          const tick = onHabits ? tickHabit : tickTask
+          const missedYesterday = tasks.filter(t => !ticks.has(`${t.id}:${yesterday}`))
           const canFixYesterday = yesterday >= String(mine.start_date).slice(0, 10)
             && missedYesterday.length > 0
 
@@ -975,11 +1043,11 @@ export default function Challenges() {
 
               <div className="space-y-1.5">
                 {tasks.map(t => {
-                  const ticked = myTicks.has(`${t.id}:${today}`)
+                  const ticked = ticks.has(`${t.id}:${today}`)
                   return (
                     <button
                       key={t.id}
-                      onClick={() => tickTask(t, today, tasks)}
+                      onClick={() => tick(t, today, tasks)}
                       disabled={!!taskBusy}
                       className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border transition-colors text-left disabled:opacity-60 ${
                         ticked ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/[0.06] hover:border-arc-accent/40'
@@ -1008,7 +1076,7 @@ export default function Challenges() {
                   {missedYesterday.map(t => (
                     <button
                       key={`${t.id}-y`}
-                      onClick={() => tickTask(t, yesterday, tasks)}
+                      onClick={() => tick(t, yesterday, tasks)}
                       disabled={!!taskBusy}
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/5 hover:border-amber-500/50 transition-colors text-left disabled:opacity-60"
                     >
