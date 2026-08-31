@@ -33,7 +33,7 @@ export default function Support() {
           />
           <FAQ
             q="How do I track habits?"
-            a="Go to the Habits tab, tap + to create a new habit (e.g. 'No Sugar', 'Read 30 min'), then check it off each day. Streaks are tracked automatically."
+            a="Go to the Today tab, tap + to create a new habit (e.g. 'No Sugar', 'Read 30 min'), then check it off each day. Streaks are tracked automatically."
           />
           <FAQ
             q="How do I scan food?"

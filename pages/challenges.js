@@ -13,8 +13,6 @@ import {
   isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom,
 } from '../lib/challenges'
 import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_PRESETS, WAGER_MAX } from '../lib/newChallenge'
-import { fetchStreaks, streakFor } from '../lib/streaks'
-import StreakBanner from '../components/StreakBanner'
 
 export default function Challenges() {
   const [loading, setLoading] = useState(true)
@@ -74,7 +72,6 @@ export default function Challenges() {
   // Each challenge's own checklist
   const [chTasks, setChTasks] = useState([])          // every task I'm allowed to see
   const [myTicks, setMyTicks] = useState(new Set())   // `${task_id}:${date}` I've ticked
-  const [taskBusy, setTaskBusy] = useState(null)      // `${task_id}:${date}` in flight
   // Editing a checklist after creation (creator or coach only)
   const [editTasksFor, setEditTasksFor] = useState(null)  // the challenge being edited
   const [editRows, setEditRows] = useState([])            // [{ id?, title }]
@@ -88,16 +85,8 @@ export default function Challenges() {
   const [myBadges, setMyBadges] = useState([])       // everything earned so far
   const [justEarned, setJustEarned] = useState([])   // earned on this load, worth a cheer
   const [showHow, setShowHow] = useState(false)      // "how this works" sheet
-  // challenge id -> { members, done_today, ticked_today }. How the rest of the
-  // gym is doing today, which is the part a browser cannot work out for itself.
-  const [gymToday, setGymToday] = useState({})
   // The create sheet asks one question by default; the rest is behind this.
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [myStreak, setMyStreak] = useState({ current: 0, longest: 0, activeToday: false })
-  // A challenge with no list of its own is scored on these -- the same habits
-  // and the same habit_logs rows the Habits tab writes. One list, one record.
-  const [myHabits, setMyHabits] = useState([])
-  const [myHabitTicks, setMyHabitTicks] = useState(new Set())
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
 
@@ -184,19 +173,6 @@ export default function Challenges() {
       const { data: fresh } = await supabase.rpc('award_my_badges')
       if (fresh?.length) setJustEarned(fresh)
 
-      await refreshGymToday(user.id, chData || [], memberData || [])
-      setMyStreak(streakFor(await fetchStreaks(supabase), user.id))
-
-      const { data: habitRows } = await supabase
-        .from('habits').select('id, title, created_at, frequency, points_reward')
-        .eq('user_id', user.id)
-      const daily = (habitRows || []).filter(h => (h.frequency || 'daily') !== 'weekly')
-      setMyHabits(daily)
-      const { data: habitTickRows } = await supabase
-        .from('habit_logs').select('habit_id, date')
-        .eq('user_id', user.id)
-        .gte('date', backfillFrom(todayStr()))
-      setMyHabitTicks(new Set((habitTickRows || []).map(l => `${l.habit_id}:${l.date}`)))
 
       const { data: mine } = await supabase
         .from('user_badges')
@@ -222,23 +198,6 @@ export default function Challenges() {
     openCreate([target])
     router.replace('/challenges', undefined, { shallow: true })
   }, [router, loading])
-
-  // How many people at your gym have ticked today, per challenge you're in.
-  // Nobody comes back for a checklist; they come back to see whether the rest
-  // of the gym did it too.
-  const refreshGymToday = async (uid, chList, memberList) => {
-    const mineIds = (memberList || [])
-      .filter(m => m.user_id === uid && m.status !== 'left')
-      .map(m => m.challenge_id)
-    const wanted = (chList || []).filter(c => mineIds.includes(c.id))
-    if (!wanted.length) { setGymToday({}); return }
-    const pairs = await Promise.all(wanted.map(async (c) => {
-      const { data } = await supabase.rpc('challenge_today', { p_challenge_id: c.id })
-      const row = Array.isArray(data) ? data[0] : data
-      return [c.id, row || null]
-    }))
-    setGymToday(Object.fromEntries(pairs.filter(([, v]) => v)))
-  }
 
   // Strict challenges send you back to your own Day 1 if you miss a day.
   // Checked here on load, using the same rule the personal challenge uses.
@@ -562,88 +521,6 @@ export default function Challenges() {
   // Ticking one task on one day. Points move with the tick both ways, and
   // when the last task of the day goes green the day is banked immediately —
   // the recount runs so the card and standings agree without a reload.
-  // Ticking a habit from the challenge page. It writes habit_logs, so it is
-  // the same tick as the one on the Habits tab rather than a second record of
-  // the same thing.
-  const tickHabit = async (habit, date, habitsForDay) => {
-    const key = `${habit.id}:${date}`
-    if (taskBusy) return
-    setTaskBusy(key)
-    const had = myHabitTicks.has(key)
-    const next = new Set(myHabitTicks)
-    had ? next.delete(key) : next.add(key)
-    setMyHabitTicks(next)
-    try {
-      if (had) {
-        const { error } = await supabase
-          .from('habit_logs')
-          .delete().eq('habit_id', habit.id).eq('user_id', userId).eq('date', date)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('habit_logs').insert({
-          habit_id: habit.id, user_id: userId, date,
-        })
-        if (error && error.code !== '23505') throw error
-      }
-
-      const dayComplete = !had && habitsForDay.every(h => next.has(`${h.id}:${date}`))
-      if (dayComplete) {
-        await supabase.rpc('recalc_my_challenge_progress')
-        const { data: scored } = await supabase.from('group_challenge_members').select('*')
-        if (scored) setMembers(scored)
-        const { data: fresh } = await supabase.rpc('award_my_badges')
-        if (fresh?.length) setJustEarned(fresh)
-        showToast(date === todayStr() ? 'Day banked 🔥' : 'Caught up — day banked')
-      }
-      setMyStreak(streakFor(await fetchStreaks(supabase), userId))
-    } catch {
-      setMyHabitTicks(myHabitTicks)
-      showToast('Could not save that')
-    } finally {
-      setTaskBusy(null)
-    }
-  }
-
-  const tickTask = async (task, date, tasksForDay) => {
-    const key = `${task.id}:${date}`
-    if (taskBusy) return
-    setTaskBusy(key)
-    const had = myTicks.has(key)
-    const next = new Set(myTicks)
-    had ? next.delete(key) : next.add(key)
-    setMyTicks(next)
-    try {
-      if (had) {
-        const { error } = await supabase
-          .from('challenge_task_logs')
-          .delete().eq('task_id', task.id).eq('user_id', userId).eq('date', date)
-        if (error) throw error
-        await supabase.rpc('increment_points', { row_id: userId, x: -10 })
-      } else {
-        const { error } = await supabase.from('challenge_task_logs').insert({
-          task_id: task.id, user_id: userId, date,
-        })
-        if (error && error.code !== '23505') throw error
-        await supabase.rpc('increment_points', { row_id: userId, x: 10 })
-      }
-
-      const dayComplete = !had && tasksForDay.every(t => next.has(`${t.id}:${date}`))
-      if (dayComplete) {
-        await supabase.rpc('recalc_my_challenge_progress')
-        const { data: scored } = await supabase.from('group_challenge_members').select('*')
-        if (scored) setMembers(scored)
-        const { data: fresh } = await supabase.rpc('award_my_badges')
-        if (fresh?.length) setJustEarned(fresh)
-        showToast(date === todayStr() ? 'Day banked 🔥' : 'Caught up — day banked')
-      }
-    } catch {
-      setMyTicks(myTicks)
-      showToast('Could not save that')
-    } finally {
-      setTaskBusy(null)
-    }
-  }
-
   // --- Editing a checklist after creation ------------------------------------
 
   const openTaskEditor = (ch) => {
@@ -719,24 +596,6 @@ export default function Challenges() {
   // It leads the page in its own card, so listing it again under "open to
   // join" would offer the same thing twice.
   const openChallenges = challenges.filter(ch => !amIn(ch) && ch.id !== gymChallengeToJoin?.id)
-
-  // Everything you have to tick today, across everything you're in. Usually
-  // one challenge with three lines on it — which is the point.
-  const todayRows = joinedChallenges.map(ch => {
-    const mine = myRow(ch.id)
-    if (!mine || !hasStarted(ch.start_date, today)) return null
-    const day = daysDone(mine)
-    if (isFinished(day, ch.length_days)) return null
-    // Its own checklist if it has one; otherwise your daily habits, which is
-    // what the database scores it on anyway.
-    const own = chTasks.filter(t => t.challenge_id === ch.id)
-    const onHabits = own.length === 0
-    const tasks = onHabits ? myHabits : own
-    if (!tasks.length) return null
-    const ticks = onHabits ? myHabitTicks : myTicks
-    const doneToday = tasks.filter(t => ticks.has(`${t.id}:${today}`)).length
-    return { ch, mine, day, tasks, doneToday, onHabits, ticks }
-  }).filter(Boolean)
 
   // One challenge card. Lifted out of the list so the page can show the
   // ones you are in separately from the ones you could join, without
@@ -849,7 +708,7 @@ export default function Challenges() {
               an expander. This card is the standings and the shape of the run. */}
           {joined && ownTasks.length === 0 && (
             <p className="text-[11px] text-arc-muted">
-              Scored on your own daily habits — tick them at the top of this page or on Habits.
+              Scored on your daily habits — tick them on Today.
             </p>
           )}
           {joined && !done && ownTasks.length === 0 && !ch.is_official && (ch.created_by === userId || isAdmin) && (
@@ -1004,105 +863,10 @@ export default function Challenges() {
       </header>
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
-        {/* What you stand to lose today, before what you have to do about it. */}
-        <StreakBanner streak={myStreak} />
-
-        {/* The reason to open this tab tomorrow. Three lines, tickable where
-            you land, and what the rest of the gym did with the same three. */}
-        {todayRows.map(({ ch, mine, day, tasks, doneToday, onHabits, ticks }) => {
-          const all = tasks.length
-          const banked = doneToday === all
-          const gym = gymToday[ch.id]
-          const yesterday = backfillFrom(today)
-          const tick = onHabits ? tickHabit : tickTask
-          const missedYesterday = tasks.filter(t => !ticks.has(`${t.id}:${yesterday}`))
-          const canFixYesterday = yesterday >= String(mine.start_date).slice(0, 10)
-            && missedYesterday.length > 0
-
-          return (
-            <section
-              key={`today-${ch.id}`}
-              className={`relative overflow-hidden rounded-2xl border p-5 space-y-3 ${
-                banked ? 'bg-green-500/[0.07] border-green-500/30' : 'bg-arc-card border-arc-accent/25'
-              }`}
-            >
-              <div className="flex items-end justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="text-2xl font-black italic tracking-tighter leading-none">
-                    {banked ? 'DAY BANKED' : 'TODAY'}
-                  </h2>
-                  <p className="text-[11px] text-arc-muted mt-1 truncate">
-                    {ch.title}
-                    {todayRows.length === 1 && day > 0 ? ` · day ${day} done` : ''}
-                  </p>
-                </div>
-                <span className={`shrink-0 text-[11px] font-black tabular-nums ${banked ? 'text-green-400' : 'text-arc-accent'}`}>
-                  {doneToday}/{all}
-                </span>
-              </div>
-
-              <div className="space-y-1.5">
-                {tasks.map(t => {
-                  const ticked = ticks.has(`${t.id}:${today}`)
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => tick(t, today, tasks)}
-                      disabled={!!taskBusy}
-                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border transition-colors text-left disabled:opacity-60 ${
-                        ticked ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/[0.06] hover:border-arc-accent/40'
-                      }`}
-                    >
-                      <span className={`shrink-0 w-5 h-5 rounded-md border flex items-center justify-center ${
-                        ticked ? 'bg-green-500 border-green-500 text-white' : 'border-white/25 text-transparent'
-                      }`}>
-                        <CheckIcon size={12} />
-                      </span>
-                      <span className={`text-[13px] font-bold truncate ${
-                        ticked ? 'text-green-300 line-through decoration-green-500/50' : 'text-white'
-                      }`}>
-                        {t.title}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-
-              {canFixYesterday && (
-                <div className="space-y-1.5 pt-0.5">
-                  <span className="block px-1 text-[9px] font-bold text-amber-400 uppercase tracking-widest">
-                    Yesterday — fix it before today ends
-                  </span>
-                  {missedYesterday.map(t => (
-                    <button
-                      key={`${t.id}-y`}
-                      onClick={() => tick(t, yesterday, tasks)}
-                      disabled={!!taskBusy}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/5 hover:border-amber-500/50 transition-colors text-left disabled:opacity-60"
-                    >
-                      <span className="shrink-0 w-5 h-5 rounded-md border border-amber-500/50" />
-                      <span className="flex-1 min-w-0 text-[12px] font-bold text-amber-200 truncate">{t.title}</span>
-                      <span className="shrink-0 text-[9px] font-black text-amber-400/70 uppercase tracking-wider">Tap to fix</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Nobody comes back for a checklist. They come back to see
-                  whether everyone else did it too. */}
-              {gym && gym.members > 1 && (
-                <p className="text-[11px] text-arc-muted leading-snug">
-                  {banked
-                    ? `${gym.done_today} of ${gym.members} at your gym have finished today.`
-                    : gym.done_today > 0
-                      ? `${gym.done_today} of ${gym.members} at your gym have already finished today.`
-                      : `${gym.members} people at your gym are on this. Nobody's finished today yet.`}
-                </p>
-              )}
-            </section>
-          )
-        })}
-
+        {/* The day's checklist and the streak live on Today now. Both pages
+            were opening with the same list and the same banner, which made
+            two tabs look like the same screen. This one is what you are in,
+            who you have called out, and where you stand. */}
         {/* Your gym's challenge, when you're not in it yet. One tap. */}
         {gymChallengeToJoin && (
           <section className="relative overflow-hidden bg-arc-card border border-arc-accent/25 rounded-2xl p-5 space-y-3">
@@ -1722,8 +1486,8 @@ export default function Challenges() {
                 {[
                   { n: '1', t: 'Your gym always has one running',
                     d: 'The Daily 3 is there whenever you want it \u2014 three things, thirty days, one tap to join. Your thirty days start the day you join, so you can never be too late.' },
-                  { n: '2', t: 'Today is the top of this page',
-                    d: 'Whatever you have to tick today is the first thing you see, wherever it came from. Tick it there \u2014 you never have to go looking for it.' },
+                  { n: '2', t: 'You tick it on Today',
+                    d: 'The day\u2019s list lives on the Today tab, in one place, whichever challenge it came from. This page is where you stand and who you are up against.' },
                   { n: '3', t: 'Tick everything and the day is banked',
                     d: 'Finish the whole list on a day and that day counts. Miss one and it doesn\u2019t.' },
                   { n: '4', t: 'Forgot a day? You get one more',

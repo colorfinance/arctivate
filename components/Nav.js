@@ -46,6 +46,24 @@ export default function Nav() {
       aria-label="Primary"
       className="fixed bottom-0 left-0 right-0 bg-arc-card/90 backdrop-blur-xl border-t border-white/[0.04] px-1 py-3 flex justify-around text-[10px] font-bold text-arc-muted z-40 safe-area-bottom"
     >
+        {/* Today leads: it is the only tab with something on it that has to be
+            done today, and it is the one 48 of 49 members already use. */}
+        <Link href="/habits" aria-label="Today" aria-current={router.pathname === '/habits' ? 'page' : undefined} className={itemClasses('/habits')}>
+            <HabitsIcon size={20} />
+            <span className="truncate max-w-full">Today</span>
+        </Link>
+        <Link href="/train" aria-label="Train" aria-current={router.pathname === '/train' ? 'page' : undefined} className={itemClasses('/train')}>
+            <DumbbellIcon size={20} />
+            <span className="truncate max-w-full">Train</span>
+        </Link>
+        <Link href="/coach" aria-label="Coach" aria-current={router.pathname === '/coach' ? 'page' : undefined} className={itemClasses('/coach')}>
+            <CoachIcon size={20} />
+            <span className="truncate max-w-full">Coach</span>
+        </Link>
+        <Link href="/feed" aria-label="Feed" aria-current={router.pathname === '/feed' ? 'page' : undefined} className={itemClasses('/feed')}>
+            <UsersIcon size={20} />
+            <span className="truncate max-w-full">Feed</span>
+        </Link>
         <Link
           href="/challenges"
           aria-label={pendingInvites > 0 ? `Challenges, ${pendingInvites} waiting for you` : 'Challenges'}
@@ -61,22 +79,6 @@ export default function Nav() {
               )}
             </span>
             <span className="truncate max-w-full">Challenge</span>
-        </Link>
-        <Link href="/train" aria-label="Train" aria-current={router.pathname === '/train' ? 'page' : undefined} className={itemClasses('/train')}>
-            <DumbbellIcon size={20} />
-            <span className="truncate max-w-full">Train</span>
-        </Link>
-        <Link href="/coach" aria-label="Coach" aria-current={router.pathname === '/coach' ? 'page' : undefined} className={itemClasses('/coach')}>
-            <CoachIcon size={20} />
-            <span className="truncate max-w-full">Coach</span>
-        </Link>
-        <Link href="/feed" aria-label="Feed" aria-current={router.pathname === '/feed' ? 'page' : undefined} className={itemClasses('/feed')}>
-            <UsersIcon size={20} />
-            <span className="truncate max-w-full">Feed</span>
-        </Link>
-        <Link href="/habits" aria-label="Habits" aria-current={router.pathname === '/habits' ? 'page' : undefined} className={itemClasses('/habits')}>
-            <HabitsIcon size={20} />
-            <span className="truncate max-w-full">Habits</span>
         </Link>
         <Link href="/food" aria-label="Food" aria-current={router.pathname === '/food' ? 'page' : undefined} className={itemClasses('/food')}>
             <FoodIcon size={20} />

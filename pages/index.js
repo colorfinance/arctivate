@@ -47,13 +47,17 @@ export default function Auth() {
         .eq('id', userId)
         .single()
 
+      // Today, not Challenges. Opening the app asks "what do I do today",
+      // and the answer is the habit list 48 of 49 members already use --
+      // plus the weekly tasks and the photo, which the challenge tab never
+      // showed at all.
       if (error || !data || data.completed_onboarding === false) {
-        router.push(error ? '/challenges' : '/onboarding')
+        router.push(error ? '/habits' : '/onboarding')
       } else {
-        router.push('/challenges')
+        router.push('/habits')
       }
     } catch {
-      router.push('/challenges')
+      router.push('/habits')
     }
   }
 
