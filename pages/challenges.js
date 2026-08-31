@@ -9,8 +9,8 @@ import Avatar from '../components/Avatar'
 import ProfileButton from '../components/ProfileButton'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
-  challengeDay, challengeProgress, daysRemaining, daysUntilStart,
-  isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom,
+  challengeDay, challengeProgress, daysRemaining, daysUntilStart, isFinished, hasStarted,
+  findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom, DAILY_GOAL,
 } from '../lib/challenges'
 import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_PRESETS, WAGER_MAX } from '../lib/newChallenge'
 
@@ -1249,7 +1249,7 @@ export default function Challenges() {
                   <p className="text-[10px] text-arc-muted mt-1.5">
                     {taskList.length === 0
                       ? 'Everyone ticks these off each day, right on the challenge. Leave empty and it counts their own daily habits instead.'
-                      : `Tick all ${taskList.length} in a day and the day is banked.`}
+                      : `Any ${Math.min(DAILY_GOAL, taskList.length)} of the ${taskList.length} banks the day.`}
                   </p>
                 </div>
 
@@ -1488,8 +1488,8 @@ export default function Challenges() {
                     d: 'The Daily 3 is there whenever you want it \u2014 three things, thirty days, one tap to join. Your thirty days start the day you join, so you can never be too late.' },
                   { n: '2', t: 'You tick it on Today',
                     d: 'The day\u2019s list lives on the Today tab, in one place, whichever challenge it came from. This page is where you stand and who you are up against.' },
-                  { n: '3', t: 'Tick everything and the day is banked',
-                    d: 'Finish the whole list on a day and that day counts. Miss one and it doesn\u2019t.' },
+                  { n: '3', t: `Any ${DAILY_GOAL} things banks the day`,
+                    d: `Tick ${DAILY_GOAL} of your daily habits and that day counts. It used to take every single one, which meant the more habits you kept the harder every day got \u2014 people were ticking five of seven and banking nothing. Keep fewer than ${DAILY_GOAL} and the bar is however many you keep.` },
                   { n: '4', t: 'Forgot a day? You get one more',
                     d: 'Until the end of the next day you can still fill it in from the Catch up list. After that the day is settled.' },
                   { n: '5', t: 'Standings rank on days done',

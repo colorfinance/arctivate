@@ -16,7 +16,7 @@ const fireConfetti = async (opts) => {
   } catch {}
 }
 import { useRouter } from 'next/router'
-import { backfillFrom, BACKFILL_DAYS, STRICT_SAVES_PER_RUN, LAST_CHANCE_MAX_DAYS } from '../lib/challenges'
+import { backfillFrom, BACKFILL_DAYS, STRICT_SAVES_PER_RUN, LAST_CHANCE_MAX_DAYS, goalFor, DAILY_GOAL } from '../lib/challenges'
 import { LockIcon, UnlockIcon, FlagIcon, TrophyIcon, FlameIcon, RestartIcon, CheckIcon, StarIcon } from '../components/icons'
 
 // Helper for dates - use local date to avoid timezone issues
@@ -1304,10 +1304,13 @@ export default function Habits() {
   const weeklyTotal = weeklyHabits.length
   const weeklyDoneCount = weeklyDone.size
 
-  const allDailyDone = dailyTotal > 0 && dailyDoneCount >= dailyTotal
+  // The ring closes at the goal, not at perfection. It used to need every
+  // habit you had, which meant the more you kept the harder every day got --
+  // members were ticking five of seven and banking nothing.
+  const dailyGoal = goalFor(dailyTotal)
+  const allDailyDone = dailyTotal > 0 && dailyDoneCount >= dailyGoal
   const allWeeklyDone = weeklyTotal > 0 && weeklyDoneCount >= weeklyTotal
-  // Ring closes on daily completion; percent is daily progress.
-  const dailyPercent = dailyTotal === 0 ? 0 : Math.round((dailyDoneCount / dailyTotal) * 100)
+  const dailyPercent = dailyGoal === 0 ? 0 : Math.min(100, Math.round((dailyDoneCount / dailyGoal) * 100))
   const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
 
   if (loading) {
@@ -1464,15 +1467,19 @@ export default function Habits() {
                         <span className={allDailyDone ? (allWeeklyDone ? "text-yellow-400" : "text-green-500") : "text-white"}>
                             {dailyDoneCount}
                         </span>
-                        <span className="text-white/20">/{dailyTotal}</span>
+                        <span className="text-white/20">/{dailyGoal}</span>
                     </div>
                     <div className="text-[10px] font-bold mt-1 uppercase">
                         {allDailyDone
                             ? <span className={`inline-flex items-center gap-1.5 ${allWeeklyDone ? 'text-yellow-400' : 'text-green-500'}`}>
                                 {allWeeklyDone ? <TrophyIcon size={12} /> : <FlameIcon size={12} />}
-                                {allWeeklyDone ? 'All done — daily + weekly' : 'Daily done!'}
+                                {allWeeklyDone ? 'All done — daily + weekly' : 'Day banked!'}
                               </span>
-                            : <span className="text-arc-muted">Daily tasks</span>}
+                            /* Say what the bar actually is, so nobody has to
+                               work out why the ring closed at three. */
+                            : <span className="text-arc-muted">
+                                {dailyGoal === 1 ? 'Tick it to bank the day' : `Any ${dailyGoal} banks the day`}
+                              </span>}
                     </div>
                     {weeklyTotal > 0 && (
                         <div className="text-[10px] font-bold mt-1.5 uppercase tracking-wider">
