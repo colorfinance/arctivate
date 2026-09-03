@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import Link from 'next/link'
 import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, UsersIcon } from '../components/icons'
 import Avatar from '../components/Avatar'
-import ProfileButton from '../components/ProfileButton'
+import Masthead, { MastheadAction } from '../components/Masthead'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart, isFinished, hasStarted,
@@ -839,28 +838,15 @@ export default function Challenges() {
 
       {/* Top level now, so no back arrow — the two places you'd go next
           instead are the people you'd challenge and where you stand. */}
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-            CHALLENGES
-          </h1>
-          <div className="flex items-center gap-1">
-            <Link
-              href="/friends" aria-label="Friends"
-              className="w-9 h-9 rounded-full bg-white/5 text-arc-muted hover:text-white flex items-center justify-center transition-colors"
-            >
-              <UsersIcon size={17} />
-            </Link>
-            <Link
-              href="/leaderboard" aria-label="Leaderboard"
-              className="w-9 h-9 rounded-full bg-white/5 text-arc-muted hover:text-white flex items-center justify-center transition-colors"
-            >
-              <TrophyIcon size={17} />
-            </Link>
-            <ProfileButton />
-          </div>
-        </div>
-      </header>
+      <Masthead
+        title="Challenge"
+        actions={
+          <>
+            <MastheadAction href="/friends" label="Friends"><UsersIcon size={18} /></MastheadAction>
+            <MastheadAction href="/leaderboard" label="Leaderboard"><TrophyIcon size={18} /></MastheadAction>
+          </>
+        }
+      />
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
         {/* The day's checklist and the streak live on Today now. Both pages

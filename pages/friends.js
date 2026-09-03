@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
+import Masthead, { MastheadAction } from '../components/Masthead'
 import Nav from '../components/Nav'
 import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
 import FollowButton from '../components/FollowButton'
 import { fetchMyFollowing, toggleFollow } from '../lib/follows'
-import { ArrowLeftIcon, CheckIcon, CloseIcon, UsersIcon, FlameIcon } from '../components/icons'
+import { CheckIcon, CloseIcon, UsersIcon, FlameIcon } from '../components/icons'
 import { otherSide, incomingRequests, outgoingRequests } from '../lib/social'
 import { fetchStreaks, streakFor } from '../lib/streaks'
 
@@ -169,21 +170,15 @@ export default function Friends() {
         )}
       </AnimatePresence>
 
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-        <div className="flex items-center justify-between gap-3 max-w-lg mx-auto">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link href="/leaderboard" className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
-              <ArrowLeftIcon />
-            </Link>
-            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-              FRIENDS
-            </h1>
-          </div>
-          <Link href="/leaderboard" className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0">
-            Board
-          </Link>
-        </div>
-      </header>
+      <Masthead
+        title="People"
+        back
+        actions={
+          <MastheadAction href="/leaderboard" label="Leaderboard">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22M18 2H6v7a6 6 0 0 0 12 0V2Z" /></svg>
+          </MastheadAction>
+        }
+      />
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-5">
         {notReady && (

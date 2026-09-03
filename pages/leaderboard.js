@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
+import Masthead, { MastheadAction } from '../components/Masthead'
 import Nav from '../components/Nav'
 import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
-import { ArrowLeftIcon, TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
+import { TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
 import { rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
 import { fetchStreaks, streakFor } from '../lib/streaks'
 import { fetchMyFollowing } from '../lib/follows'
@@ -174,21 +175,15 @@ export default function Leaderboard() {
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-        <div className="flex items-center justify-between gap-3 max-w-lg mx-auto">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link href="/habits" className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
-              <ArrowLeftIcon />
-            </Link>
-            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-              LEADERBOARD
-            </h1>
-          </div>
-          <Link href="/friends" className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0">
-            Friends
-          </Link>
-        </div>
-      </header>
+      <Masthead
+        title="Leaderboard"
+        back
+        actions={
+          <MastheadAction href="/friends" label="People">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          </MastheadAction>
+        }
+      />
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
         {notReady && (

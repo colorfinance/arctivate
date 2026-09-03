@@ -13,7 +13,7 @@ import ProfileButton from './ProfileButton'
 // display face is not used here -- it is reserved for one moment per screen,
 // and a header on every screen is not a moment.
 
-export default function Masthead({ title, back = false, actions = null, subtitle = null, showProfile = true }) {
+export default function Masthead({ title, back = false, actions = null, subtitle = null, showProfile = true, below = null }) {
   const router = useRouter()
   return (
     <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/85 backdrop-blur-xl border-b border-white/[0.05]">
@@ -34,6 +34,7 @@ export default function Masthead({ title, back = false, actions = null, subtitle
         {actions && <div className="flex items-center gap-1 shrink-0">{actions}</div>}
         {showProfile && <ProfileButton size={32} />}
       </div>
+      {below && <div className="max-w-lg mx-auto px-4 pb-2.5">{below}</div>}
     </header>
   )
 }

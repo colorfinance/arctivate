@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
-import ProfileButton from '../components/ProfileButton'
+import Masthead, { MastheadAction } from '../components/Masthead'
+import Button from '../components/Button'
+import { SegmentedControl } from '../components/ui'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import SessionCard from '../components/feed/SessionCard'
@@ -10,7 +12,6 @@ import Avatar from '../components/Avatar'
 import { toggleKudos, addComment } from '../lib/sessions'
 import { fetchMyFollowing, toggleFollow } from '../lib/follows'
 import { filterContent } from '../lib/contentFilter'
-import Link from 'next/link'
 import { useRouter } from 'next/router'
 
 // Session photos sit in the same private bucket the training page uses; the
@@ -829,53 +830,34 @@ export default function Feed() {
         )}
       </AnimatePresence>
 
-      {/* Header */}
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5">
-        <div className="p-4 pb-0">
-          <div className="flex justify-between items-center mb-3">
-            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-              COMMUNITY
-            </h1>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setShowDMs(true); fetchConversations() }}
-                className="relative flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10"
-              >
-                <InboxIcon />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-arc-accent rounded-full flex items-center justify-center text-[9px] font-bold">{unreadCount}</span>
-                )}
-              </button>
-              <Link href="/groups" className="flex items-center gap-1.5 bg-arc-surface text-white text-xs font-bold px-3 py-2 rounded-full border border-white/10">
-                <GroupIcon />
-              </Link>
-              <button onClick={() => setShowComposer(true)} className="flex items-center gap-1.5 bg-arc-accent text-white text-xs font-bold px-3 py-2 rounded-full">
-                <MessageIcon />
-                Post
-              </button>
-              <ProfileButton />
-            </div>
-          </div>
+      {/* The title matches the tab. Post is the one primary on this screen. */}
+      <Masthead
+        title="Feed"
+        actions={
+          <>
+            <MastheadAction onClick={() => { setShowDMs(true); fetchConversations() }} label="Messages" badge={unreadCount}>
+              <InboxIcon />
+            </MastheadAction>
+            <MastheadAction href="/groups" label="Groups">
+              <GroupIcon />
+            </MastheadAction>
+            <Button variant="primary" size="sm" onClick={() => setShowComposer(true)} className="ml-1">
+              <MessageIcon />
+              Post
+            </Button>
+          </>
+        }
+        below={
+          <SegmentedControl
+            size="sm"
+            value={activeTab}
+            onChange={setActiveTab}
+            options={[{ value: 'workouts', label: 'Workouts' }, { value: 'community', label: 'Posts' }]}
+          />
+        }
+      />
 
-          {/* Tabs */}
-          <div className="flex gap-1 bg-arc-surface rounded-xl p-1">
-            <button
-              onClick={() => setActiveTab('workouts')}
-              className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all ${activeTab === 'workouts' ? 'bg-arc-accent text-white' : 'text-arc-muted hover:text-white'}`}
-            >
-              Workouts
-            </button>
-            <button
-              onClick={() => setActiveTab('community')}
-              className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all ${activeTab === 'community' ? 'bg-arc-accent text-white' : 'text-arc-muted hover:text-white'}`}
-            >
-              Feed
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="pt-32 px-4 max-w-lg mx-auto">
+      <main className="pt-[7.25rem] px-4 max-w-lg mx-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full" />
