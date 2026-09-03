@@ -4,6 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
+import Masthead from '../components/Masthead'
+import Button from '../components/Button'
+import Avatar from '../components/Avatar'
+import { goalFor } from '../lib/challenges'
 import { getStoredTheme, setTheme as applyStoredTheme } from '../lib/theme'
 
 // Icons
@@ -393,29 +397,12 @@ export default function Profile() {
         )}
       </AnimatePresence>
 
-      {/* Header */}
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.back()}
-              className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors"
-            >
-              <ArrowLeftIcon />
-            </button>
-            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-              PROFILE
-            </h1>
-          </div>
-          <button
-            onClick={openEditModal}
-            className="flex items-center gap-1.5 text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors"
-          >
-            <EditIcon />
-            Edit
-          </button>
-        </div>
-      </header>
+      <Masthead
+        title="Profile"
+        back
+        showProfile={false}
+        actions={<Button variant="secondary" size="sm" onClick={openEditModal}><EditIcon />Edit</Button>}
+      />
 
       <main className="pt-20 px-4 max-w-lg mx-auto">
         {/* Profile Card */}
@@ -429,19 +416,7 @@ export default function Profile() {
           <div className="flex items-center gap-5 relative z-10">
             {/* Avatar */}
             <div className="shrink-0">
-              {profile?.avatar_url ? (
-                <img
-                  src={profile.avatar_url}
-                  alt={profile.username || 'User'}
-                  className="w-20 h-20 rounded-full object-cover border-2 border-arc-accent/30"
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-full bg-arc-surface border-2 border-arc-accent/30 flex items-center justify-center">
-                  <span className="text-3xl font-black text-arc-accent">
-                    {profile?.username?.[0]?.toUpperCase() || '?'}
-                  </span>
-                </div>
-              )}
+              <Avatar src={profile?.avatar_url} name={profile?.username} size={80} />
             </div>
 
             {/* User Info */}
@@ -449,12 +424,7 @@ export default function Profile() {
               <h2 className="text-2xl font-black italic tracking-tight text-white truncate">
                 {profile?.username || (userEmail ? userEmail.split('@')[0] : 'Set your name')}
               </h2>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Total Points</span>
-                <span className="text-lg font-black font-mono text-arc-accent">
-                  {(profile?.total_points || 0).toLocaleString()}
-                </span>
-              </div>
+              {userEmail && <p className="t-caption text-arc-muted truncate mt-0.5">{userEmail}</p>}
             </div>
           </div>
         </motion.div>
@@ -517,12 +487,12 @@ export default function Profile() {
               <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Habits</span>
             </div>
             <div className="text-3xl font-black font-mono text-white">
-              <span className={habitsCompletedToday === totalHabitsToday && totalHabitsToday > 0 ? 'text-green-400' : ''}>
-                {habitsCompletedToday}
+              <span className={totalHabitsToday > 0 && habitsCompletedToday >= goalFor(totalHabitsToday) ? 'text-green-400' : ''}>
+                {Math.min(habitsCompletedToday, goalFor(totalHabitsToday))}
               </span>
-              <span className="text-lg text-white/20">/{totalHabitsToday}</span>
+              <span className="text-lg text-white/20">/{goalFor(totalHabitsToday)}</span>
             </div>
-            <div className="text-[10px] text-arc-muted font-bold mt-1">COMPLETED TODAY</div>
+            <div className="text-[10px] text-arc-muted font-bold mt-1">{totalHabitsToday > 0 && habitsCompletedToday >= goalFor(totalHabitsToday) ? 'DAY BANKED' : 'TO BANK TODAY'}</div>
           </motion.div>
 
           {/* Calorie Card */}

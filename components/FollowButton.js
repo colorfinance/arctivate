@@ -27,10 +27,10 @@ export default function FollowButton({
       disabled={busy}
       aria-pressed={isFollowing}
       aria-label={isFollowing ? 'Unfollow' : 'Follow'}
-      className={`shrink-0 rounded-full font-bold transition-all disabled:opacity-50 ${pad} ${
+      className={`shrink-0 rounded-full font-bold transition-all duration-fast disabled:opacity-50 ${pad} ${
         isFollowing
-          ? 'bg-arc-surface text-arc-muted border border-white/10 hover:text-white'
-          : 'bg-arc-accent text-white'
+          ? 'bg-arc-surface2 text-arc-muted border border-white/[0.08] hover:text-white'
+          : 'bg-arc-accent/[0.14] text-arc-accent ring-1 ring-inset ring-arc-accent/30 hover:bg-arc-accent hover:text-white'
       }`}
     >
       {busy ? '…' : isFollowing ? 'Following' : 'Follow'}

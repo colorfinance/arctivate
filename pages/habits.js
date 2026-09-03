@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
-import ProfileButton from '../components/ProfileButton'
+import Masthead, { MastheadAction } from '../components/Masthead'
+import Button from '../components/Button'
+import { Banner, ListRow, EmptyState, SectionLabel } from '../components/ui'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { fetchStreaks, streakFor } from '../lib/streaks'
@@ -16,7 +17,7 @@ const fireConfetti = async (opts) => {
   } catch {}
 }
 import { useRouter } from 'next/router'
-import { backfillFrom, BACKFILL_DAYS, STRICT_SAVES_PER_RUN, LAST_CHANCE_MAX_DAYS } from '../lib/challenges'
+import { backfillFrom, BACKFILL_DAYS, STRICT_SAVES_PER_RUN, LAST_CHANCE_MAX_DAYS, goalFor, DAILY_GOAL } from '../lib/challenges'
 import { LockIcon, UnlockIcon, FlagIcon, TrophyIcon, FlameIcon, RestartIcon, CheckIcon, StarIcon } from '../components/icons'
 
 // Helper for dates - use local date to avoid timezone issues
@@ -1304,11 +1305,13 @@ export default function Habits() {
   const weeklyTotal = weeklyHabits.length
   const weeklyDoneCount = weeklyDone.size
 
-  const allDailyDone = dailyTotal > 0 && dailyDoneCount >= dailyTotal
+  // The ring closes at the goal, not at perfection. It used to need every
+  // habit you had, which meant the more you kept the harder every day got --
+  // members were ticking five of seven and banking nothing.
+  const dailyGoal = goalFor(dailyTotal)
+  const allDailyDone = dailyTotal > 0 && dailyDoneCount >= dailyGoal
   const allWeeklyDone = weeklyTotal > 0 && weeklyDoneCount >= weeklyTotal
-  // Ring closes on daily completion; percent is daily progress.
-  const dailyPercent = dailyTotal === 0 ? 0 : Math.round((dailyDoneCount / dailyTotal) * 100)
-  const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
+  const dailyPercent = dailyGoal === 0 ? 0 : Math.min(100, Math.round((dailyDoneCount / dailyGoal) * 100))
 
   if (loading) {
     return <LoadingState label="Loading habits…" />
@@ -1332,200 +1335,121 @@ export default function Habits() {
           )}
         </AnimatePresence>
 
-        {/* Header */}
-        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-6">
-            <div className="flex justify-between items-center">
-                <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-                    TODAY
-                </h1>
-                <div className="flex items-center gap-3">
-                    <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold text-arc-accent uppercase tracking-widest border border-arc-accent/30 px-3 py-1.5 rounded-full hover:bg-arc-accent hover:text-white transition-colors">
-                        + Add
-                    </button>
-                    <ProfileButton />
-                </div>
-            </div>
+        <Masthead
+            title="Today"
+            actions={
+                <MastheadAction onClick={() => setIsAdding(true)} label="Add a habit">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
+                </MastheadAction>
+            }
+        />
 
-            {/* Points Display */}
-            <div className="mt-3 flex items-center gap-2">
-                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Earned</span>
-                <span className="text-lg font-black font-mono text-arc-cyan">{totalPoints.toLocaleString()}</span>
-                <span className="text-xs text-arc-muted">PTS</span>
-            </div>
-        </header>
+        <main className="pt-20 px-5 space-y-6 max-w-lg mx-auto">
 
-        <main className="pt-36 px-6 space-y-8 max-w-lg mx-auto">
-
-            {/* The streak leads, because it is the only thing on this page that
-                can be lost by doing nothing. */}
+            {/* The hero. The only thing on this page that can be lost by doing
+                nothing, and the one place the display face is used. */}
             <StreakBanner streak={myStreak} />
 
-            {/* Reminders are set but the OS will not let them through. Without
-                this prompt a member never finds out their alarms are silent. */}
-            {remindersBlocked && (
-                <motion.div
-                    initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-                    className="flex items-start gap-3 rounded-2xl border border-arc-accent/30 bg-arc-accent/10 p-4"
-                >
-                    <span className="shrink-0 mt-0.5 text-arc-accent">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                    </span>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-bold text-white leading-snug">
-                            {notifyPermission === 'denied'
-                                ? 'Reminders are switched off'
-                                : 'Turn on reminders'}
-                        </p>
-                        <p className="text-[11px] text-arc-muted leading-snug mt-0.5">
-                            {notifyPermission === 'denied'
-                                ? 'You have reminders set, but notifications are blocked. Turn them back on in your device settings.'
-                                : `You have ${remindersSetCount} reminder${remindersSetCount === 1 ? '' : 's'} set. Allow notifications and we will nudge you.`}
-                        </p>
-                        {notifyPermission !== 'denied' && (
-                            <button
-                                onClick={enableNotifications}
-                                className="mt-2 px-4 py-2 rounded-xl bg-arc-accent text-white text-[12px] font-bold active:scale-95 transition-transform"
-                            >
-                                Allow notifications
-                            </button>
-                        )}
-                    </div>
-                    <button
-                        onClick={dismissNotifyBanner}
-                        aria-label="Dismiss reminder notice"
-                        className="shrink-0 text-arc-muted hover:text-white transition-colors p-1"
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                    </button>
-                </motion.div>
-            )}
-
-            {/* The one reminder that matters. Kept visible rather than hidden
-                behind a per-habit icon, because the icon is exactly what nobody
-                ever found. */}
-            <button
-                onClick={() => { setNudgeInput(nudgeTime || '07:00'); setEditingNudge(true) }}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-arc-card border border-white/[0.06] hover:border-arc-accent/30 transition-colors text-left"
-            >
-                <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${nudgeTime ? 'bg-arc-accent/15 text-arc-accent' : 'bg-white/5 text-arc-muted'}`}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                </span>
-                <span className="flex-1 min-w-0">
-                    <span className="block text-[12px] font-bold text-white">Daily nudge</span>
-                    <span className="block text-[10px] text-arc-muted leading-snug">
-                        {nudgeTime ? `Once a day at ${fmtReminder(nudgeTime)}` : 'Off — tap to get a daily reminder'}
-                    </span>
-                </span>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-
-            {/* Challenge Progress */}
-            <section className="relative pt-2">
-                 <div className="flex justify-between items-end mb-2 px-1">
-                    <div>
-                        <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Challenge Phase 1</span>
-                        <div className="text-2xl font-black italic flex items-baseline gap-2">
-                            DAY {challengeDay} 
-                            <button onClick={() => setIsEditingGoal(true)} className="text-white/20 text-lg hover:text-white transition-colors border-b border-transparent hover:border-white/20">
-                                / {challengeGoal}
-                            </button>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <div className="text-xs font-mono font-bold text-arc-accent">{Math.round(challengeProgress)}%</div>
-                        <button
-                            onClick={() => setShowRestartConfirm(true)}
-                            className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-arc-accent transition-colors mt-1 flex items-center gap-1 ml-auto"
-                        >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-                            Start again
-                        </button>
-                    </div>
-                 </div>
-
-                 {/* Progress Bar */}
-                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${challengeProgress}%` }}
-                        className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan"
-                    />
-                 </div>
-
-            </section>
-
-            {/* Daily Grind Circle — closes when daily tasks are done, turns gold when weekly are too */}
-            <section className="bg-glass-gradient border border-white/5 p-6 rounded-[2rem] flex items-center justify-between relative overflow-hidden">
-                <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl rounded-full pointer-events-none ${allDailyDone && allWeeklyDone ? 'bg-yellow-400/10' : allDailyDone ? 'bg-green-500/10' : 'bg-green-500/5'}`} />
-
-                <div>
-                    <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Daily Grind</h2>
-                    <div className="text-4xl font-black italic tracking-tighter">
-                        <span className={allDailyDone ? (allWeeklyDone ? "text-yellow-400" : "text-green-500") : "text-white"}>
-                            {dailyDoneCount}
-                        </span>
-                        <span className="text-white/20">/{dailyTotal}</span>
-                    </div>
-                    <div className="text-[10px] font-bold mt-1 uppercase">
-                        {allDailyDone
-                            ? <span className={`inline-flex items-center gap-1.5 ${allWeeklyDone ? 'text-yellow-400' : 'text-green-500'}`}>
-                                {allWeeklyDone ? <TrophyIcon size={12} /> : <FlameIcon size={12} />}
-                                {allWeeklyDone ? 'All done — daily + weekly' : 'Daily done!'}
-                              </span>
-                            : <span className="text-arc-muted">Daily tasks</span>}
-                    </div>
-                    {weeklyTotal > 0 && (
-                        <div className="text-[10px] font-bold mt-1.5 uppercase tracking-wider">
-                            <span className={`inline-flex items-center gap-1.5 ${allWeeklyDone ? 'text-yellow-400' : 'text-arc-muted'}`}>
-                                Weekly {weeklyDoneCount}/{weeklyTotal}
-                                {allWeeklyDone && <StarIcon size={11} />}
-                              </span>
-        
-                    {/* Nobody comes back for a checklist. They come back to see
-                        whether everyone else did it too. */}
-                    {gymToday && (
-                        <p className="text-[10px] text-arc-muted mt-2 leading-snug max-w-[15rem]">
-                            {gymToday.done_today > 0
-                                ? `${gymToday.done_today} of ${gymToday.members} at your gym have finished today.`
-                                : `${gymToday.members} people at your gym are on this. Nobody's finished today yet.`}
-                        </p>
-                    )}
-                </div>
-                    )}
-
-                    {/* Nobody comes back for a checklist. They come back to see
-                        whether everyone else did it too. */}
-                    {gymToday && (
-                        <p className="text-[10px] text-arc-muted mt-2 leading-snug max-w-[15rem]">
-                            {gymToday.done_today > 0
-                                ? `${gymToday.done_today} of ${gymToday.members} at your gym have finished today.`
-                                : `${gymToday.members} people at your gym are on this. Nobody's finished today yet.`}
-                        </p>
-                    )}
-                </div>
-
-                {/* Ring Chart */}
-                <div className="relative w-20 h-20">
-                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                        <circle className="text-white/5 stroke-current" strokeWidth="8" cx="50" cy="50" r="40" fill="transparent"></circle>
+            {/* The ring: how today is going against the goal, and how the rest
+                of the gym is going against the same goal. */}
+            <section className="flex items-center gap-5 px-1">
+                <div className="relative w-[76px] h-[76px] shrink-0">
+                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100" aria-hidden>
+                        <circle className="text-white/[0.06] stroke-current" strokeWidth="9" cx="50" cy="50" r="42" fill="transparent" />
                         <motion.circle
                             initial={{ pathLength: 0 }}
                             animate={{ pathLength: dailyPercent / 100 }}
-                            transition={{ duration: 1, ease: "easeOut" }}
-                            className={`${allDailyDone && allWeeklyDone ? 'text-yellow-400' : allDailyDone ? 'text-green-500' : 'text-arc-accent'} stroke-current drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]`}
-                            strokeWidth="8"
-                            strokeLinecap="round"
-                            cx="50" cy="50" r="40"
-                            fill="transparent"
-                        ></motion.circle>
+                            transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] }}
+                            className={`${allDailyDone && allWeeklyDone ? 'text-yellow-400' : allDailyDone ? 'text-arc-success' : 'text-arc-accent'} stroke-current`}
+                            strokeWidth="9" strokeLinecap="round" cx="50" cy="50" r="42" fill="transparent"
+                        />
                     </svg>
-                    {/* Centre check when the daily ring is closed */}
-                    {allDailyDone && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <svg className={`w-7 h-7 ${allWeeklyDone ? 'text-yellow-400' : 'text-green-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        </div>
-                    )}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        {allDailyDone ? (
+                            <svg className={`w-7 h-7 ${allWeeklyDone ? 'text-yellow-400' : 'text-arc-success'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12"/></svg>
+                        ) : (
+                            <span className="t-num text-[20px] font-bold text-white leading-none">
+                                {dailyDoneCount}<span className="text-arc-muted text-[13px]">/{dailyGoal}</span>
+                            </span>
+                        )}
+                    </div>
                 </div>
+                <div className="min-w-0 flex-1">
+                    <p className="t-title text-white">
+                        {allDailyDone
+                            ? (allWeeklyDone ? 'All done — daily and weekly' : 'Day banked')
+                            : dailyGoal === 1 ? 'Tick it to bank the day' : `Any ${dailyGoal} banks the day`}
+                    </p>
+                    {/* Nobody comes back for a checklist. They come back to see
+                        whether everyone else did it too. */}
+                    {gymToday ? (
+                        <p className="t-caption text-arc-muted mt-0.5">
+                            {gymToday.done_today > 0
+                                ? `${gymToday.done_today} of ${gymToday.members} at your gym have finished today.`
+                                : `${gymToday.members} at your gym are on this. Nobody's finished yet.`}
+                        </p>
+                    ) : weeklyTotal > 0 ? (
+                        <p className="t-caption text-arc-muted mt-0.5">Weekly {weeklyDoneCount}/{weeklyTotal}</p>
+                    ) : null}
+                </div>
+            </section>
+
+            {/* The list. Above the fold, because it is what you came for. */}
+            <section className="space-y-2">
+                <SectionLabel>Daily habits</SectionLabel>
+                {dailyHabits.map(habit => {
+                    const isDone = logs.has(habit.id)
+                    return (
+                        <motion.div
+                            key={habit.id}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            onClick={() => toggleHabit(habit.id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
+                            role="checkbox"
+                            aria-checked={isDone}
+                            tabIndex={0}
+                            aria-label={habit.title}
+                            className={`flex items-center gap-3 pl-4 pr-1 py-2 rounded-control border cursor-pointer transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-arc-success/[0.08] border-arc-success/30' : 'bg-arc-surface2/60 border-white/[0.05] hover:border-white/15'}`}
+                        >
+                            <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors duration-fast ${isDone ? 'bg-arc-success border-arc-success' : 'border-white/25'}`}>
+                                {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></motion.svg>}
+                            </span>
+                            <span className={`flex-1 min-w-0 py-1.5 text-[15px] font-bold leading-snug line-clamp-2 transition-colors ${isDone ? 'text-arc-success/80 line-through decoration-2' : 'text-white'}`}>
+                                {habit.title}
+                            </span>
+                            <span className="shrink-0 flex items-center">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
+                                    aria-label={habit.reminder_time ? `Reminder at ${fmtReminder(habit.reminder_time)} for ${habit.title}` : `Set a reminder for ${habit.title}`}
+                                    className={`w-10 h-10 rounded-full flex items-center justify-center gap-1 transition-colors ${habit.reminder_time ? 'text-arc-accent' : 'text-white/25 hover:text-arc-accent'}`}
+                                >
+                                    {habit.reminder_time && <span className="text-[9px] font-bold">{fmtReminder(habit.reminder_time)}</span>}
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
+                                    aria-label={`Delete ${habit.title}`}
+                                    className="w-10 h-10 rounded-full flex items-center justify-center text-white/20 hover:text-arc-danger transition-colors"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                </button>
+                            </span>
+                        </motion.div>
+                    )
+                })}
+                {dailyHabits.length === 0 && !loading && (
+                    <EmptyState
+                        title="No habits yet"
+                        body="Three a day banks the day. Start with one."
+                        action={<Button variant="primary" size="sm" onClick={() => setIsAdding(true)}>Add a habit</Button>}
+                    />
+                )}
+                {dailyHabits.length > 0 && (
+                    <button onClick={() => setIsAdding(true)} className="w-full border border-dashed border-white/10 rounded-control py-3 text-[13px] font-bold text-arc-muted hover:text-white hover:border-white/25 transition-colors duration-fast">
+                        + Add a habit
+                    </button>
+                )}
             </section>
 
             {/* A day you forgot, while there's still time to put it right */}
@@ -1626,11 +1550,8 @@ export default function Habits() {
 
             {/* Weekly Habits */}
             {weeklyHabits.length > 0 && (
-                <section className="space-y-3">
-                    <div className="flex items-center gap-2 px-1">
-                        <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">This Week</span>
-                        <span className="text-[9px] font-bold text-arc-cyan uppercase tracking-wider bg-arc-cyan/10 border border-arc-cyan/20 px-2 py-0.5 rounded-full">Resets Monday</span>
-                    </div>
+                <section className="space-y-2">
+                    <SectionLabel trailing={<span className="t-caption text-arc-muted">{weeklyDoneCount}/{weeklyTotal} · resets Monday</span>}>This week</SectionLabel>
                     {weeklyHabits.map(habit => {
                         const isDone = weeklyDone.has(habit.id)
                         return (
@@ -1644,173 +1565,96 @@ export default function Habits() {
                                 aria-checked={isDone}
                                 tabIndex={0}
                                 aria-label={habit.title}
-                                className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-arc-cyan/10 border-arc-cyan/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
+                                className={`flex items-center gap-3 pl-4 pr-1 py-2 rounded-control border cursor-pointer transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-arc-cyan/[0.08] border-arc-cyan/30' : 'bg-arc-surface2/60 border-white/[0.05] hover:border-white/15'}`}
                             >
-                                <div className="flex items-center gap-4 z-10">
-                                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-arc-cyan border-arc-cyan' : 'border-white/20 group-hover:border-white/40'}`}>
-                                        {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></motion.svg>}
-                                    </div>
-                                    <div>
-                                        <div className={`font-bold text-sm transition-colors ${isDone ? 'text-arc-cyan line-through decoration-2 opacity-70' : 'text-white'}`}>{habit.title}</div>
-                                        <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">{habit.points_reward || 10} PTS · Weekly</div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-1 z-10">
+                                <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors duration-fast ${isDone ? 'bg-arc-cyan border-arc-cyan' : 'border-white/25'}`}>
+                                    {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></motion.svg>}
+                                </span>
+                                <span className={`flex-1 min-w-0 py-1.5 text-[15px] font-bold leading-snug line-clamp-2 transition-colors ${isDone ? 'text-arc-cyan/80 line-through decoration-2' : 'text-white'}`}>
+                                    {habit.title}
+                                </span>
+                                <span className="shrink-0 flex items-center">
                                     <button
                                         onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
-                                        className={`transition-colors p-2 flex items-center gap-1 ${habit.reminder_time ? 'text-arc-accent' : 'text-arc-muted hover:text-arc-accent'}`}
                                         aria-label={habit.reminder_time ? `Reminder at ${fmtReminder(habit.reminder_time)} for ${habit.title}` : `Set a reminder for ${habit.title}`}
-                                        title={habit.reminder_time ? 'Change reminder' : 'Set reminder'}
+                                        className={`w-10 h-10 rounded-full flex items-center justify-center gap-1 transition-colors ${habit.reminder_time ? 'text-arc-accent' : 'text-white/25 hover:text-arc-accent'}`}
                                     >
-                                        {habit.reminder_time && <span className="text-[9px] font-bold tracking-wide">{fmtReminder(habit.reminder_time)}</span>}
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                                        {habit.reminder_time && <span className="text-[9px] font-bold">{fmtReminder(habit.reminder_time)}</span>}
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                                     </button>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
                                         aria-label={`Delete ${habit.title}`}
-                                        title="Delete habit"
-                                        className="text-white/20 hover:text-red-500 transition-colors p-2"
+                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white/20 hover:text-arc-danger transition-colors"
                                     >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden><path d="M18 6L6 18M6 6l12 12"/></svg>
                                     </button>
-                                </div>
+                                </span>
                             </motion.div>
                         )
                     })}
                 </section>
             )}
 
-            {/* Daily Habits */}
-            <section className="space-y-3 pb-12">
-                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest px-1 block">Daily Habits</span>
-                {dailyHabits.map(habit => {
-                    const isDone = logs.has(habit.id)
-                    return (
-                        <motion.div
-                            key={habit.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            onClick={() => toggleHabit(habit.id)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
-                            role="checkbox"
-                            aria-checked={isDone}
-                            tabIndex={0}
-                            aria-label={habit.title}
-                            className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer relative overflow-hidden group transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-arc-surface border-white/5 hover:border-white/10'}`}
-                        >
-                            <div className="flex items-center gap-4 z-10">
-                                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-white/20 group-hover:border-white/40'}`}>
-                                    {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></motion.svg>}
-                                </div>
-                                <div>
-                                    <div className={`font-bold text-sm transition-colors ${isDone ? 'text-green-500 line-through decoration-2 opacity-70' : 'text-white'}`}>{habit.title}</div>
-                                    <div className="text-[10px] text-arc-muted font-bold uppercase tracking-wider">{habit.points_reward || 10} PTS</div>
-                                </div>
-                            </div>
 
-                            <div className="z-10 flex items-center shrink-0">
-                            {/* Daily habits are the ones you are meant to tick every single
-                                day, and until now they were the only rows with no way to set
-                                a reminder -- which is why not one habit in the database had
-                                one. */}
-                            <button
-                                onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
-                                aria-label={habit.reminder_time ? `Reminder at ${fmtReminder(habit.reminder_time)} for ${habit.title}` : `Set a reminder for ${habit.title}`}
-                                title={habit.reminder_time ? 'Change reminder' : 'Set reminder'}
-                                className={`transition-colors p-2 flex items-center gap-1 ${habit.reminder_time ? 'text-arc-accent' : 'text-arc-muted hover:text-arc-accent'}`}
-                            >
-                                {habit.reminder_time && <span className="text-[9px] font-bold tracking-wide">{fmtReminder(habit.reminder_time)}</span>}
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
-                                aria-label={`Delete ${habit.title}`}
-                                title="Delete habit"
-                                className="text-white/20 hover:text-red-500 transition-colors p-2"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                            </button>
-                            </div>
-                        </motion.div>
-                    )
-                })}
 
-                {dailyHabits.length === 0 && !loading && (
-                    <div className="text-center py-6 opacity-50 text-sm">No daily habits. Add one!</div>
-                )}
-
-                {/* Nudge: the challenge asks for at least one personal habit */}
-                <button onClick={() => setIsAdding(true)} className="w-full mt-1 border border-dashed border-white/10 rounded-xl py-3 text-xs font-bold text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors">
-                    + Add your own personal habit
-                </button>
-            </section>
+            {/* Reminders live with the other settings now. A prompt was sitting
+                above the list it was prompting you to tick. */}
+            {remindersBlocked && (
+                <Banner
+                    tone="info"
+                    icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-accent" aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
+                    title={notifyPermission === 'denied' ? 'Reminders are switched off' : 'Turn on reminders'}
+                    body={notifyPermission === 'denied'
+                        ? 'You have reminders set, but notifications are blocked. Turn them back on in your device settings.'
+                        : `You have ${remindersSetCount} reminder${remindersSetCount === 1 ? '' : 's'} set. Allow notifications and we will nudge you.`}
+                    action={notifyPermission !== 'denied' && <Button variant="primary" size="sm" onClick={enableNotifications}>Allow notifications</Button>}
+                    onDismiss={dismissNotifyBanner}
+                />
+            )}
 
             {/* Strict mode, and where to go next. These used to sit directly
                 under the day counter, which put three rows of settings and
                 signposting above the five things people open this page to
                 tick. */}
             <section className="space-y-2">
-                 {/* Strict mode — opt in to a real, no-missed-days challenge */}
-                <button
-                   onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
-                   disabled={savingStrict}
-                   className={`w-full flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 transition-colors disabled:opacity-50 ${
-                       strictMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-arc-surface border-white/5 hover:border-white/15'
-                   }`}
-                >
-                   <span className="flex items-center gap-2 min-w-0">
-                       <span className={strictMode ? 'text-amber-400' : 'text-arc-muted'}>{strictMode ? <LockIcon size={15} /> : <UnlockIcon size={15} />}</span>
-                       <span className="text-left min-w-0">
-                           <span className={`block text-[11px] font-bold ${strictMode ? 'text-amber-400' : 'text-white'}`}>Strict mode</span>
-                           <span className="block text-[9px] text-arc-muted leading-snug">
-                               {strictMode ? 'Miss a day and you go back to Day 1' : 'Off — a missed day won’t reset you'}
-                           </span>
-                       </span>
-                   </span>
-                   <span className={`shrink-0 w-9 h-5 rounded-full flex items-center px-0.5 transition-colors ${strictMode ? 'bg-amber-500 justify-end' : 'bg-white/10 justify-start'}`}>
-                       <span className="w-4 h-4 rounded-full bg-white" />
-                   </span>
-                </button>
-
-                {/* Challenges you can join, on top of your own run */}
-                <Link
-                   href="/challenges"
-                   className="w-full flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
-                >
-                   <span className="flex items-center gap-2 min-w-0">
-                       <span className="text-arc-muted"><FlagIcon size={15} /></span>
-                       <span className="text-left min-w-0">
-                           <span className="block text-[11px] font-bold text-white">Challenges</span>
-                           <span className="block text-[9px] text-arc-muted leading-snug">Join one, or start your own</span>
-                       </span>
-                   </span>
-                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-                </Link>
-
-                {/* Where you stand against your friends and the rest of the gym */}
-                <Link
-                   href="/leaderboard"
-                   className="w-full flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-arc-surface px-4 py-2.5 hover:border-arc-accent/30 transition-colors"
-                >
-                   <span className="flex items-center gap-2 min-w-0">
-                       <span className="text-arc-muted"><TrophyIcon size={15} /></span>
-                       <span className="text-left min-w-0">
-                           <span className="block text-[11px] font-bold text-white">Leaderboard</span>
-                           <span className="block text-[9px] text-arc-muted leading-snug">You vs your friends, your gym, other gyms</span>
-                       </span>
-                   </span>
-                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-                </Link>
+                <ListRow
+                    onClick={() => { setNudgeInput(nudgeTime || '07:00'); setEditingNudge(true) }}
+                    icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={nudgeTime ? 'text-arc-accent' : ''} aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
+                    title="Daily nudge"
+                    caption={nudgeTime ? `Once a day at ${fmtReminder(nudgeTime)}` : 'Off — tap to get a daily reminder'}
+                />
+                <ListRow
+                    onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
+                    tone={strictMode ? 'warning' : 'default'}
+                    icon={<span className={strictMode ? 'text-arc-warning' : ''}>{strictMode ? <LockIcon size={16} /> : <UnlockIcon size={16} />}</span>}
+                    title="Strict mode"
+                    caption={strictMode ? 'Miss a day and you go back to Day 1' : 'Off — a missed day won’t reset you'}
+                    trailing={
+                        <span role="switch" aria-checked={strictMode} className={`w-10 h-6 rounded-full flex items-center px-0.5 transition-colors duration-fast ${strictMode ? 'bg-arc-warning justify-end' : 'bg-white/10 justify-start'} ${savingStrict ? 'opacity-50' : ''}`}>
+                            <span className="w-5 h-5 rounded-full bg-white shadow" />
+                        </span>
+                    }
+                />
+                <ListRow
+                    href="/challenges"
+                    icon={<FlagIcon size={16} />}
+                    title="Challenges"
+                    caption="Join one, or start your own"
+                />
+                <ListRow
+                    href="/leaderboard"
+                    icon={<TrophyIcon size={16} />}
+                    title="Leaderboard"
+                    caption="You vs your friends, your gym, other gyms"
+                />
             </section>
 
             {/* Weigh-in trend — only once there's something to show */}
             {weightLogs.length > 0 && (
                 <section className="space-y-3">
-                    <div className="flex items-center justify-between px-1">
-                        <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Weigh-in</h2>
-                        <span className="text-[10px] text-arc-muted">{weightLogs.length} logged</span>
-                    </div>
-                    <div className="bg-glass-gradient border border-white/5 p-6 rounded-[2rem] relative overflow-hidden">
+                    <SectionLabel trailing={<span className="t-caption text-arc-muted">{weightLogs.length} logged</span>}>Weigh-in</SectionLabel>
+                    <div className="bg-arc-surface2/60 border border-white/[0.05] p-5 rounded-container relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-arc-cyan/5 blur-3xl rounded-full pointer-events-none" />
                         <div className="flex items-end justify-between">
                             <div>
@@ -1842,23 +1686,16 @@ export default function Habits() {
             )}
 
             {/* Progress Photo Section - 75 Hard Style */}
-            <section className="space-y-4 pb-12">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Progress Photo</h2>
-                        <p className="text-xs text-arc-muted">One photo per day. Stay accountable.</p>
-                    </div>
-                    {progressPhoto && (
-                        <span className="text-[10px] font-bold text-green-500 uppercase tracking-widest flex items-center gap-1">
-                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                            Done Today
-                        </span>
-                    )}
-                </div>
+            <section className="space-y-2 pb-12">
+                <SectionLabel trailing={progressPhoto ? (
+                    <span className="t-caption font-bold text-arc-success flex items-center gap-1">
+                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12"/></svg>
+                        Done today
+                    </span>
+                ) : <span className="t-caption text-arc-muted">One a day</span>}>Progress photo</SectionLabel>
 
                 {/* Today's Photo or Upload */}
-                <div className="bg-glass-gradient border border-white/5 rounded-[2rem] p-6 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-32 h-32 bg-arc-accent/5 blur-3xl rounded-full pointer-events-none" />
+                <div className="bg-arc-surface2/60 border border-white/[0.05] rounded-container p-4 relative overflow-hidden">
 
                     {progressPhoto ? (
                         <motion.div
@@ -1890,7 +1727,7 @@ export default function Habits() {
                             </label>
                         </motion.div>
                     ) : (
-                        <label className={`flex flex-col items-center justify-center py-10 cursor-pointer group ${isUploadingPhoto ? 'pointer-events-none' : ''}`}>
+                        <label className={`flex flex-col items-center justify-center py-6 cursor-pointer group ${isUploadingPhoto ? 'pointer-events-none' : ''}`}>
                             {isUploadingPhoto ? (
                                 <div className="flex flex-col items-center gap-3">
                                     <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
@@ -1898,18 +1735,18 @@ export default function Habits() {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-white/10 group-hover:border-arc-accent/50 flex items-center justify-center transition-colors mb-3">
-                                        <svg className="w-7 h-7 text-white/20 group-hover:text-arc-accent/50 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <div className="w-12 h-12 rounded-control border-2 border-dashed border-white/15 group-hover:border-arc-accent/50 flex items-center justify-center transition-colors mb-3">
+                                        <svg className="w-5 h-5 text-white/30 group-hover:text-arc-accent/50 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
                                             <circle cx="8.5" cy="8.5" r="1.5"/>
                                             <polyline points="21 15 16 10 5 21"/>
                                         </svg>
                                     </div>
-                                    <span className="text-sm font-bold text-white/40 group-hover:text-white/60 transition-colors">
-                                        Tap to upload today&apos;s photo
+                                    <span className="text-[14px] font-bold text-white/70 group-hover:text-white transition-colors">
+                                        Add today&apos;s photo
                                     </span>
-                                    <span className="text-[10px] text-arc-muted mt-1">
-                                        Max 800px, compressed automatically
+                                    <span className="t-caption text-arc-muted mt-1">
+                                        Not posted to the feed
                                     </span>
                                 </>
                             )}

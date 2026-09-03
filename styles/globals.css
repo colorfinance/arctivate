@@ -19,6 +19,21 @@
   --c-accent: 0 212 170;
   --c-cyan: 6 182 212;
   --c-teal: 20 184 166;
+
+  /* Semantic roles. The palette family stays; these name what each colour is
+     FOR, so a screen never has to pick a raw shade. */
+  --c-surface-1: 10 20 20;   /* raised: a card, a sheet */
+  --c-surface-2: 19 32 32;   /* control: an input, a chip, a row */
+  --c-success: 34 197 94;
+  --c-warning: 245 158 11;   /* the amber of an at-risk streak */
+  --c-danger: 239 68 68;
+
+  /* Two radii, two durations, one easing. */
+  --r-control: 12px;
+  --r-container: 20px;
+  --t-fast: 150ms;
+  --t-standard: 250ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 :root.light {
@@ -32,6 +47,12 @@
   --c-accent: 0 166 135;
   --c-cyan: 8 145 178;
   --c-teal: 13 148 136;
+
+  --c-surface-1: 255 255 255;
+  --c-surface-2: 233 240 239;
+  --c-success: 22 163 74;
+  --c-warning: 217 119 6;
+  --c-danger: 220 38 38;
 }
 
 html {
@@ -51,6 +72,21 @@ body {
 ::selection {
   background: rgba(0, 212, 170, 0.3);
   color: rgb(var(--c-fg));
+}
+
+/* --- Type scale: five steps, no more ---------------------------------------
+   Display is for one moment per screen. Everything else is one of the other
+   four. Numbers that get compared use .t-num so their digits line up. */
+@layer components {
+  .t-display { @apply font-black italic uppercase leading-none; font-size: 28px; letter-spacing: -0.03em; }
+  .t-title   { @apply font-bold leading-tight; font-size: 17px; letter-spacing: -0.01em; }
+  .t-body    { @apply font-normal; font-size: 15px; line-height: 1.45; }
+  .t-label   { @apply font-bold uppercase; font-size: 11px; line-height: 1.2; letter-spacing: 0.08em; }
+  .t-caption { @apply font-normal; font-size: 12px; line-height: 1.35; }
+  .t-num     { @apply font-mono tabular-nums; font-variant-numeric: tabular-nums; }
+
+  /* Two elevations. Ground is the page; raised is a card or a sheet. */
+  .raised { background: rgb(var(--c-surface-1)); border: 1px solid rgb(var(--c-white) / 0.06); }
 }
 
 /* Glass panel */

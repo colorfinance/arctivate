@@ -1,16 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import Link from 'next/link'
 import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
 import { supabase } from '../lib/supabaseClient'
 import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, UsersIcon } from '../components/icons'
 import Avatar from '../components/Avatar'
-import ProfileButton from '../components/ProfileButton'
+import Masthead, { MastheadAction } from '../components/Masthead'
+import Button from '../components/Button'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
-  challengeDay, challengeProgress, daysRemaining, daysUntilStart,
-  isFinished, hasStarted, findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom,
+  challengeDay, challengeProgress, daysRemaining, daysUntilStart, isFinished, hasStarted,
+  findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom, DAILY_GOAL,
 } from '../lib/challenges'
 import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_PRESETS, WAGER_MAX } from '../lib/newChallenge'
 
@@ -771,13 +771,9 @@ export default function Challenges() {
                 </button>
               </>
             ) : (
-              <button
-                onClick={() => (ch.strict ? setConfirmJoin(ch) : join(ch))}
-                disabled={busy === ch.id || !ch.is_active}
-                className="flex-1 bg-accent-gradient text-white font-black italic py-3 rounded-xl shadow-glow active:scale-95 transition-transform disabled:opacity-40"
-              >
-                {busy === ch.id ? 'JOINING…' : !ch.is_active ? 'CLOSED' : mine ? 'REJOIN' : 'JOIN'}
-              </button>
+              <Button variant="primary" className="flex-1" onClick={() => (ch.strict ? setConfirmJoin(ch) : join(ch))} disabled={busy === ch.id || !ch.is_active}>
+                {busy === ch.id ? 'Joining…' : !ch.is_active ? 'Closed' : mine ? 'Rejoin' : 'Join'}
+              </Button>
             )}
           </div>
         </div>
@@ -839,28 +835,15 @@ export default function Challenges() {
 
       {/* Top level now, so no back arrow — the two places you'd go next
           instead are the people you'd challenge and where you stand. */}
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-            CHALLENGES
-          </h1>
-          <div className="flex items-center gap-1">
-            <Link
-              href="/friends" aria-label="Friends"
-              className="w-9 h-9 rounded-full bg-white/5 text-arc-muted hover:text-white flex items-center justify-center transition-colors"
-            >
-              <UsersIcon size={17} />
-            </Link>
-            <Link
-              href="/leaderboard" aria-label="Leaderboard"
-              className="w-9 h-9 rounded-full bg-white/5 text-arc-muted hover:text-white flex items-center justify-center transition-colors"
-            >
-              <TrophyIcon size={17} />
-            </Link>
-            <ProfileButton />
-          </div>
-        </div>
-      </header>
+      <Masthead
+        title="Challenge"
+        actions={
+          <>
+            <MastheadAction href="/friends" label="Friends"><UsersIcon size={18} /></MastheadAction>
+            <MastheadAction href="/leaderboard" label="Leaderboard"><TrophyIcon size={18} /></MastheadAction>
+          </>
+        }
+      />
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
         {/* The day's checklist and the streak live on Today now. Both pages
@@ -868,35 +851,43 @@ export default function Challenges() {
             two tabs look like the same screen. This one is what you are in,
             who you have called out, and where you stand. */}
         {/* Your gym's challenge, when you're not in it yet. One tap. */}
-        {gymChallengeToJoin && (
-          <section className="relative overflow-hidden bg-arc-card border border-arc-accent/25 rounded-2xl p-5 space-y-3">
-            <div className="absolute -top-16 -right-12 w-40 h-40 rounded-full bg-arc-accent/10 blur-2xl pointer-events-none" />
-            <div className="relative space-y-1">
-              <span className="text-[9px] font-bold text-arc-accent uppercase tracking-widest">Your gym is doing this</span>
-              <h2 className="text-2xl font-black italic tracking-tighter leading-none">{gymChallengeToJoin.title.toUpperCase()}</h2>
-              <p className="text-[12px] text-arc-muted leading-relaxed">
-                {gymChallengeToJoin.description}
-              </p>
-            </div>
-            <div className="relative flex flex-wrap gap-1.5">
-              {chTasks.filter(t => t.challenge_id === gymChallengeToJoin.id).map(t => (
-                <span key={t.id} className="text-[10px] font-bold text-white bg-arc-surface border border-white/[0.06] px-2.5 py-1 rounded-full">
-                  {t.title}
-                </span>
-              ))}
-            </div>
-            <button
-              onClick={() => join(gymChallengeToJoin)}
-              disabled={busy === gymChallengeToJoin.id}
-              className="relative w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
-            >
-              {busy === gymChallengeToJoin.id ? 'JOINING…' : "I'M IN"}
-            </button>
-            <p className="relative text-[10px] text-arc-muted text-center">
-              Your thirty days start today. No start line to miss.
-            </p>
-          </section>
-        )}
+        {gymChallengeToJoin && (() => {
+          const inIt = members.filter(m => m.challenge_id === gymChallengeToJoin.id && m.status !== 'left')
+          const faces = inIt.slice(0, 6)
+          return (
+            <section className="relative overflow-hidden rounded-container border border-arc-accent/25 bg-gradient-to-br from-arc-accent/[0.10] to-transparent p-5 space-y-4">
+              <div className="space-y-1.5">
+                <span className="t-label text-arc-accent">Your gym is doing this</span>
+                <h2 className="t-display text-white">{gymChallengeToJoin.title}</h2>
+                {/* The rule is one sentence on the card, not a help sheet. */}
+                <p className="t-body text-arc-muted">
+                  Tick any {DAILY_GOAL} of your habits and the day counts. Miss none for {gymChallengeToJoin.length_days} days.
+                </p>
+              </div>
+              {inIt.length > 0 && (
+                <div className="flex items-center gap-3">
+                  <div className="flex -space-x-2">
+                    {faces.map(m => (
+                      <span key={m.id} className="rounded-full ring-2 ring-arc-bg">
+                        <Avatar src={names[m.user_id]?.avatar} name={names[m.user_id]?.name} size={30} />
+                      </span>
+                    ))}
+                  </div>
+                  <span className="t-caption text-arc-muted">
+                    {inIt.length === 1 ? '1 member is in' : `${inIt.length} members are in`}
+                  </span>
+                </div>
+              )}
+              <Button variant="hero" size="lg" block onClick={() => join(gymChallengeToJoin)} disabled={busy === gymChallengeToJoin.id}>
+                {busy === gymChallengeToJoin.id ? 'Joining…' : "I'm in"}
+              </Button>
+              <div className="flex items-center justify-between">
+                <p className="t-caption text-arc-muted">Your {gymChallengeToJoin.length_days} days start today.</p>
+                <button onClick={() => setShowHow(true)} className="t-caption font-bold text-arc-muted hover:text-white transition-colors">How it works</button>
+              </div>
+            </section>
+          )
+        })()}
 
         {/* Somebody has challenged you */}
         {pendingForMe.length > 0 && (
@@ -924,18 +915,12 @@ export default function Challenges() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => respondInvite(inv, true)} disabled={busy === inv.id}
-                      className="flex-1 bg-accent-gradient text-white font-black italic py-2.5 rounded-xl text-sm shadow-glow active:scale-95 transition-transform disabled:opacity-50"
-                    >
-                      ACCEPT
-                    </button>
-                    <button
-                      onClick={() => respondInvite(inv, false)} disabled={busy === inv.id}
-                      className="px-4 bg-white/5 text-arc-muted hover:text-white font-bold py-2.5 rounded-xl text-xs transition-colors disabled:opacity-50"
-                    >
+                    <Button variant="primary" size="sm" className="flex-1" onClick={() => respondInvite(inv, true)} disabled={busy === inv.id}>
+                      Accept
+                    </Button>
+                    <Button variant="tertiary" size="sm" onClick={() => respondInvite(inv, false)} disabled={busy === inv.id}>
                       No thanks
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )
@@ -943,26 +928,22 @@ export default function Challenges() {
           </section>
         )}
 
-        {/* The thing the app is for */}
-        <section className="relative overflow-hidden bg-arc-card border border-arc-accent/20 rounded-2xl p-5 space-y-4">
-          <div className="absolute -top-20 -right-14 w-44 h-44 rounded-full bg-arc-accent/10 blur-2xl pointer-events-none" />
-          <div className="relative space-y-1">
-            <h2 className="text-2xl font-black italic tracking-tighter leading-none">CALL SOMEONE OUT</h2>
-            <p className="text-[12px] text-arc-muted leading-relaxed">
-              Set the rules, pick who you&apos;re up against, and see who&apos;s still standing at the end.
+        {/* Calling someone out is the secondary action; the gym challenge is the hero. */}
+        <section className="rounded-container border border-white/[0.06] bg-arc-surface2/50 p-5 space-y-4">
+          <div className="space-y-1">
+            <h2 className="t-title text-white">Call someone out</h2>
+            <p className="t-body text-arc-muted">
+              Pick who you&apos;re up against, set something on it, and see who&apos;s still standing.
             </p>
           </div>
 
-          <button
-            onClick={() => openCreate([])}
-            className="relative w-full bg-accent-gradient text-white font-black italic py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
-          >
-            CHALLENGE SOMEONE
-          </button>
+          <Button variant={gymChallengeToJoin ? 'secondary' : 'primary'} block onClick={() => openCreate([])}>
+            Challenge someone
+          </Button>
 
           {quickTargets.length > 0 && (
-            <div className="relative space-y-2">
-              <p className="text-[9px] font-bold text-arc-muted uppercase tracking-widest">Or go straight at</p>
+            <div className="space-y-2">
+              <p className="t-label text-arc-muted">Or go straight at</p>
               {/* -mx-5 px-5 lets the row bleed to the card edges as it scrolls */}
               <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-1">
                 {quickTargets.map(p => (
@@ -1004,15 +985,13 @@ export default function Challenges() {
           </section>
         )}
 
-        {/* Plain English, because nobody reads a challenge they don't understand */}
-        <button
-          onClick={() => setShowHow(true)}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-arc-card border border-white/[0.06] hover:border-arc-accent/30 transition-colors text-left"
-        >
-          <span className="w-7 h-7 rounded-full bg-arc-accent/10 text-arc-accent flex items-center justify-center text-sm font-black shrink-0">?</span>
-          <span className="text-[12px] font-bold text-white flex-1">How challenges work</span>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-arc-muted shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
+        {/* The rules live on the hero card; the full sheet is a line there.
+            Members already in the gym challenge get the link here instead. */}
+        {!gymChallengeToJoin && (
+          <button onClick={() => setShowHow(true)} className="w-full text-center t-caption font-bold text-arc-muted hover:text-white transition-colors py-1">
+            How challenges work
+          </button>
+        )}
 
         {missingTables && (
           <div className="bg-arc-card border border-amber-500/30 rounded-2xl p-5 text-center">
@@ -1249,7 +1228,7 @@ export default function Challenges() {
                   <p className="text-[10px] text-arc-muted mt-1.5">
                     {taskList.length === 0
                       ? 'Everyone ticks these off each day, right on the challenge. Leave empty and it counts their own daily habits instead.'
-                      : `Tick all ${taskList.length} in a day and the day is banked.`}
+                      : `Any ${Math.min(DAILY_GOAL, taskList.length)} of the ${taskList.length} banks the day.`}
                   </p>
                 </div>
 
@@ -1488,8 +1467,8 @@ export default function Challenges() {
                     d: 'The Daily 3 is there whenever you want it \u2014 three things, thirty days, one tap to join. Your thirty days start the day you join, so you can never be too late.' },
                   { n: '2', t: 'You tick it on Today',
                     d: 'The day\u2019s list lives on the Today tab, in one place, whichever challenge it came from. This page is where you stand and who you are up against.' },
-                  { n: '3', t: 'Tick everything and the day is banked',
-                    d: 'Finish the whole list on a day and that day counts. Miss one and it doesn\u2019t.' },
+                  { n: '3', t: `Any ${DAILY_GOAL} things banks the day`,
+                    d: `Tick ${DAILY_GOAL} of your daily habits and that day counts. It used to take every single one, which meant the more habits you kept the harder every day got \u2014 people were ticking five of seven and banking nothing. Keep fewer than ${DAILY_GOAL} and the bar is however many you keep.` },
                   { n: '4', t: 'Forgot a day? You get one more',
                     d: 'Until the end of the next day you can still fill it in from the Catch up list. After that the day is settled.' },
                   { n: '5', t: 'Standings rank on days done',

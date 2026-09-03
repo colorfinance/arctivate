@@ -2,9 +2,11 @@ import { FlameIcon } from '../components/icons'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
-import ProfileButton from '../components/ProfileButton'
+import Masthead from '../components/Masthead'
+import { SegmentedControl } from '../components/ui'
 import { supabase } from '../lib/supabaseClient'
 import { fetchStreaks, streakFor } from '../lib/streaks'
+import { goalFor } from '../lib/challenges'
 import { useRouter } from 'next/router'
 
 // ─── Icons ───────────────────────────────────────────
@@ -550,41 +552,20 @@ export default function Coach() {
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
-      {/* Header */}
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5">
-        <div className="p-4 flex items-center justify-between max-w-lg mx-auto">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-arc-accent to-arc-cyan flex items-center justify-center">
-              <BrainIcon />
-            </div>
-            <div>
-              <h1 className="text-sm font-black italic tracking-tight">ARC COACH</h1>
-              <span className="text-[10px] text-arc-muted font-medium">AI-Powered Training</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <ReadinessRing score={readinessScore} size={48} strokeWidth={4} />
-            <ProfileButton />
-          </div>
-        </div>
+      {/* A conversation, not a dashboard: the readiness score has its own tab. */}
+      <Masthead
+        title="Coach"
+        below={
+          <SegmentedControl
+            size="sm"
+            value={activeTab}
+            onChange={setActiveTab}
+            options={[{ value: 'chat', label: 'Coach' }, { value: 'readiness', label: 'Readiness' }]}
+          />
+        }
+      />
 
-        {/* Tabs */}
-        <div className="flex border-t border-white/5 max-w-lg mx-auto">
-          {['chat', 'readiness'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${
-                activeTab === tab ? 'text-arc-accent border-b-2 border-arc-accent' : 'text-arc-muted'
-              }`}
-            >
-              {tab === 'chat' ? 'AI Coach' : 'Readiness'}
-            </button>
-          ))}
-        </div>
-      </header>
-
-      <main className="pt-32 max-w-lg mx-auto">
+      <main className="pt-[7.25rem] max-w-lg mx-auto">
         {activeTab === 'chat' ? (
           /* ─── Chat Tab ─────────────────────────── */
           <div className="flex flex-col h-[calc(100vh-14rem)]">
@@ -605,9 +586,12 @@ export default function Coach() {
                         : "You haven't logged a workout yet today. Let's not break the chain — a few sets counts."}
                     </p>
                     <p className="text-[11px] text-arc-muted mt-1.5">
-                      {profile?.current_streak > 0 && <span className="text-arc-accent font-bold inline-flex items-center gap-1"><FlameIcon size={12} /> {profile.current_streak}-day streak. </span>}
+                      {profile?.current_streak > 0 && <span className="text-arc-accent font-bold inline-flex items-center gap-1"><FlameIcon size={12} /> {profile.current_streak}-day streak.</span>}
+                      {profile?.current_streak > 0 && ' '}
                       {habitsToday.total > 0
-                        ? `Habits: ${habitsToday.done}/${habitsToday.total} done today.`
+                        ? (habitsToday.done >= goalFor(habitsToday.total)
+                            ? 'Today is banked.'
+                            : `${Math.min(habitsToday.done, goalFor(habitsToday.total))} of ${goalFor(habitsToday.total)} habits today.`)
                         : 'Set up a habit to build consistency.'}
                     </p>
                   </div>
@@ -617,7 +601,7 @@ export default function Coach() {
                     <button onClick={() => router.push('/train')} className="flex-1 bg-arc-accent text-white text-[11px] font-bold py-2 rounded-lg">Log a workout</button>
                   )}
                   <button onClick={() => router.push('/habits')} className="flex-1 bg-arc-surface border border-white/10 text-white text-[11px] font-bold py-2 rounded-lg">
-                    {habitsToday.total > 0 && habitsToday.done < habitsToday.total ? 'Finish habits' : 'Habits'}
+                    {habitsToday.total > 0 && habitsToday.done < goalFor(habitsToday.total) ? 'Finish habits' : 'Habits'}
                   </button>
                   <button
                     onClick={() => sendMessage(trainedToday ? 'Give me a quick motivational check-in based on my training today.' : "Motivate me to train today and suggest what to do.")}
@@ -637,22 +621,22 @@ export default function Coach() {
                     <BrainIcon />
                   </div>
                   <div>
-                    <h2 className="text-lg font-black italic tracking-tight mb-2">Your AI Training Partner</h2>
-                    <p className="text-sm text-arc-muted max-w-xs mx-auto">I can analyze your workouts, identify plateaus, and suggest program updates based on your recovery data.</p>
+                    <h2 className="t-title text-white mb-1">Ask about your training</h2>
+                    <p className="t-body text-arc-muted max-w-xs mx-auto">The coach has your workouts, habits and recovery. Ask it anything, or start with one of these.</p>
                   </div>
 
-                  {/* Quick Prompts */}
-                  <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto">
+                  {/* Suggestions are chips, not tiles */}
+                  <div className="flex flex-wrap justify-center gap-2 max-w-sm mx-auto">
                     {QUICK_PROMPTS.map((qp, i) => (
                       <motion.button
                         key={i}
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.1 * i }}
+                        transition={{ delay: 0.06 * i }}
                         onClick={() => sendMessage(qp.prompt)}
-                        className="bg-arc-surface border border-white/5 rounded-xl px-3 py-3 text-left hover:border-arc-accent/30 transition-colors"
+                        className="h-9 px-3.5 rounded-full bg-arc-surface2/70 border border-white/[0.06] text-[13px] font-bold text-white hover:border-arc-accent/40 transition-colors duration-fast"
                       >
-                        <span className="text-xs font-bold text-white">{qp.label}</span>
+                        {qp.label}
                       </motion.button>
                     ))}
                   </div>

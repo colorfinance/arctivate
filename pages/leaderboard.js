@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
+import Masthead, { MastheadAction } from '../components/Masthead'
+import Button from '../components/Button'
+import { SegmentedControl } from '../components/ui'
 import Nav from '../components/Nav'
 import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
-import { ArrowLeftIcon, TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
+import { TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
 import { rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
 import { fetchStreaks, streakFor } from '../lib/streaks'
 import { fetchMyFollowing } from '../lib/follows'
@@ -174,21 +177,15 @@ export default function Leaderboard() {
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
-      <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-        <div className="flex items-center justify-between gap-3 max-w-lg mx-auto">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link href="/habits" className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
-              <ArrowLeftIcon />
-            </Link>
-            <h1 className="text-xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-              LEADERBOARD
-            </h1>
-          </div>
-          <Link href="/friends" className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0">
-            Friends
-          </Link>
-        </div>
-      </header>
+      <Masthead
+        title="Leaderboard"
+        back
+        actions={
+          <MastheadAction href="/friends" label="People">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          </MastheadAction>
+        }
+      />
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
         {notReady && (
@@ -199,39 +196,24 @@ export default function Leaderboard() {
 
         {/* Who you're up against. Four across since Lifts joined -- at three
             columns the fourth dropped onto a row of its own. */}
-        <div className="grid grid-cols-4 gap-2">
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`py-2.5 px-1 rounded-xl text-[11px] font-bold transition-all border truncate ${
-                tab === t.key
-                  ? 'bg-accent-gradient text-white border-transparent shadow-glow-accent'
-                  : 'bg-arc-card text-arc-muted border-white/[0.06] hover:text-white'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          value={tab}
+          onChange={setTab}
+          options={TABS.map(t => ({ value: t.key, label: t.label }))}
+        />
 
         {/* What you're ranked on. Meaningless on Lifts, where the metric is
             the lift itself. */}
         {tab !== 'lifts' && (
-        <div className="flex gap-2">
-          {Object.entries(METRICS).map(([key, m]) => (
-            <button
-              key={key}
-              onClick={() => setMetric(key)}
-              className={`flex-1 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 ${
-                metric === key ? 'bg-arc-surface text-white border border-white/10' : 'text-arc-muted hover:text-white'
-              }`}
-            >
-              {key === 'points' ? <TrophyIcon size={12} /> : <FlameIcon size={12} />}
-              {m.label}
-            </button>
-          ))}
-        </div>
+          <div className="flex justify-end">
+            <SegmentedControl
+              size="sm"
+              className="w-48"
+              value={metric}
+              onChange={setMetric}
+              options={Object.entries(METRICS).map(([key, m]) => ({ value: key, label: m.label }))}
+            />
+          </div>
         )}
 
         {tab === 'lifts' && (
@@ -342,9 +324,7 @@ export default function Leaderboard() {
                     : 'Nobody at your gym has any points on the board yet.'}
                 </p>
                 {tab === 'friends' && (
-                  <Link href="/friends" className="inline-block mt-2 bg-accent-gradient text-white font-black italic px-6 py-3 rounded-xl text-sm shadow-glow active:scale-95 transition-transform">
-                    FIND PEOPLE
-                  </Link>
+                  <Button variant="primary" size="sm" href="/friends" className="mt-2">Find people</Button>
                 )}
               </div>
             )}
