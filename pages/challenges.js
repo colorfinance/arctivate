@@ -7,12 +7,13 @@ import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, UsersIcon } from '../compone
 import Avatar from '../components/Avatar'
 import Masthead, { MastheadAction } from '../components/Masthead'
 import Button from '../components/Button'
+import WagerPicker from '../components/WagerPicker'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart, isFinished, hasStarted,
   findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom, DAILY_GOAL,
 } from '../lib/challenges'
-import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_PRESETS, WAGER_MAX } from '../lib/newChallenge'
+import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_MAX } from '../lib/newChallenge'
 
 export default function Challenges() {
   const [loading, setLoading] = useState(true)
@@ -34,6 +35,13 @@ export default function Challenges() {
   const [people, setPeople] = useState([])        // everyone, for the invite picker
   const [friendships, setFriendships] = useState([])
   const [invites, setInvites] = useState([])      // invites involving me
+  // Putting something on the line after the challenge already exists. Only
+  // the person who started it can, which is the same rule the table enforces.
+  const [wagerFor, setWagerFor] = useState(null)
+  const [wagerDraft, setWagerDraft] = useState('')
+  const [savingWager, setSavingWager] = useState(false)
+  // A wager typed while calling someone out on a challenge that has none yet.
+  const [inviteWager, setInviteWager] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({
@@ -379,10 +387,42 @@ export default function Challenges() {
     }
   }
 
+  const canSetWager = (ch) => !!ch && !ch.is_official && (ch.created_by === userId || isAdmin)
+
+  // Writes the wager on the challenge itself so everyone in it sees the same
+  // line. Clearing it is allowed too -- a wager nobody agreed to shouldn't
+  // sit on the card forever.
+  const saveWager = async (ch, text) => {
+    const wager = (text || '').trim().slice(0, WAGER_MAX) || null
+    const { error } = await supabase.from('group_challenges').update({ wager }).eq('id', ch.id)
+    if (error) throw error
+    setChallenges(prev => prev.map(c => (c.id === ch.id ? { ...c, wager } : c)))
+    return wager
+  }
+
+  const submitWager = async () => {
+    if (savingWager || !wagerFor) return
+    setSavingWager(true)
+    try {
+      const wager = await saveWager(wagerFor, wagerDraft)
+      setWagerFor(null)
+      showToast(wager ? `On the line: ${wager}` : 'Wager removed')
+    } catch {
+      showToast('Could not save that')
+    } finally {
+      setSavingWager(false)
+    }
+  }
+
   const sendInvites = async () => {
     if (sendingInvites || !inviteFor || invitePicked.length === 0) return
     setSendingInvites(true)
     try {
+      // The stake travels with the callout. If they typed one here, it goes
+      // on the challenge before the invites do, so the invite card shows it.
+      if (inviteWager.trim() && canSetWager(inviteFor)) {
+        await saveWager(inviteFor, inviteWager)
+      }
       const rows = invitePicked.map(id => ({
         challenge_id: inviteFor.id,
         inviter_id: userId,
@@ -409,6 +449,7 @@ export default function Challenges() {
       setInviteFor(null)
       setInvitePicked([])
       setInviteSearch('')
+      setInviteWager('')
       await fetchAll()
       showToast(`Challenged ${n} ${n === 1 ? 'person' : 'people'}`)
     } catch {
@@ -678,15 +719,35 @@ export default function Challenges() {
 
           {/* The stake, stated. Half the point of agreeing one is that it is
               written down where both of you can see it. */}
-          {ch.wager && (
-            <div className="flex items-center gap-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/25 px-3 py-2.5">
+          {ch.wager ? (
+            <div className="flex items-center gap-2.5 rounded-control bg-arc-warning/[0.07] border border-arc-warning/25 px-3 py-2.5">
               <span aria-hidden className="text-base leading-none">🤝</span>
-              <span className="min-w-0">
-                <span className="block text-[9px] font-bold text-amber-400/80 uppercase tracking-widest">On the line</span>
-                <span className="block text-[12px] font-bold text-amber-200 leading-snug">{ch.wager}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block t-label text-arc-warning/80">On the line</span>
+                <span className="block text-[13px] font-bold text-amber-200 leading-snug">{ch.wager}</span>
               </span>
+              {canSetWager(ch) && !done && (
+                <button
+                  onClick={() => { setWagerFor(ch); setWagerDraft(ch.wager || '') }}
+                  className="shrink-0 t-caption font-bold text-arc-muted hover:text-white transition-colors px-1 py-1"
+                >
+                  Change
+                </button>
+              )}
             </div>
-          )}
+          ) : canSetWager(ch) && !done ? (
+            <button
+              onClick={() => { setWagerFor(ch); setWagerDraft('') }}
+              className="w-full flex items-center gap-2.5 rounded-control border border-dashed border-arc-warning/30 px-3 py-2.5 text-left hover:border-arc-warning/60 transition-colors duration-fast"
+            >
+              <span aria-hidden className="text-base leading-none">🤝</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-bold text-white">Put something on the line</span>
+                <span className="block t-caption text-arc-muted">Coffees, lunch, burpees. Everyone in it sees it.</span>
+              </span>
+              <span className="t-caption font-bold text-arc-warning shrink-0">Set a wager</span>
+            </button>
+          ) : null}
 
           {joined && started && !done && (
             <>
@@ -1120,31 +1181,7 @@ export default function Challenges() {
                   <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">
                     What&apos;s on the line?
                   </label>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {WAGER_PRESETS.map(w => (
-                      <button
-                        key={w}
-                        onClick={() => setForm(f => ({ ...f, wager: f.wager === w ? '' : w }))}
-                        className={`px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors ${
-                          form.wager === w
-                            ? 'bg-arc-accent/15 border-arc-accent/40 text-arc-accent'
-                            : 'bg-arc-surface border-white/[0.06] text-arc-muted hover:text-white'
-                        }`}
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    value={form.wager}
-                    onChange={(e) => setForm(f => ({ ...f, wager: e.target.value.slice(0, WAGER_MAX) }))}
-                    placeholder="Or write your own"
-                    maxLength={WAGER_MAX}
-                    className="w-full bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
-                  />
-                  <p className="text-[10px] text-arc-muted mt-1.5">
-                    Between you and them. Arctivate writes it down and says who won — it doesn&apos;t hold or move anything.
-                  </p>
+                  <WagerPicker value={form.wager} onChange={(w) => setForm(f => ({ ...f, wager: w }))} />
                 </div>
 
                 {/* Everything below is already answered. It is here to be
@@ -1382,6 +1419,14 @@ export default function Challenges() {
                   placeholder="Search by name"
                   className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
                 />
+                {inviteFor.wager ? (
+                  <p className="t-caption text-arc-warning font-bold">🤝 On the line: {inviteFor.wager}</p>
+                ) : canSetWager(inviteFor) ? (
+                  <div>
+                    <label className="t-label text-arc-muted block mb-2">What&apos;s on the line?</label>
+                    <WagerPicker value={inviteWager} onChange={setInviteWager} />
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex-1 overflow-y-auto px-6 space-y-1.5 min-h-0">
@@ -1697,6 +1742,36 @@ export default function Challenges() {
 
       {/* Leaving */}
       <AnimatePresence>
+        {wagerFor && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !savingWager && setWagerFor(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50"
+            >
+              <div className="p-6 space-y-4 pb-safe max-w-lg mx-auto">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <div>
+                  <h2 className="t-title text-white" style={{ fontSize: 20 }}>What&apos;s on the line?</h2>
+                  <p className="t-caption text-arc-muted mt-0.5 truncate">{wagerFor.title}</p>
+                </div>
+                <WagerPicker value={wagerDraft} onChange={setWagerDraft} autoFocus />
+                <div className="flex gap-2">
+                  <Button variant="primary" className="flex-1" onClick={submitWager} disabled={savingWager}>
+                    {savingWager ? 'Saving…' : wagerDraft.trim() ? 'Set it' : wagerFor.wager ? 'Remove wager' : 'Set it'}
+                  </Button>
+                  <Button variant="tertiary" onClick={() => setWagerFor(null)} disabled={savingWager}>Cancel</Button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+
         {confirmLeave && (
           <>
             <motion.div
