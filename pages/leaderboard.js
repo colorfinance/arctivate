@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import Masthead, { MastheadAction } from '../components/Masthead'
+import Button from '../components/Button'
+import { SegmentedControl } from '../components/ui'
 import Nav from '../components/Nav'
 import Avatar from '../components/Avatar'
 import { supabase } from '../lib/supabaseClient'
@@ -194,39 +196,24 @@ export default function Leaderboard() {
 
         {/* Who you're up against. Four across since Lifts joined -- at three
             columns the fourth dropped onto a row of its own. */}
-        <div className="grid grid-cols-4 gap-2">
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`py-2.5 px-1 rounded-xl text-[11px] font-bold transition-all border truncate ${
-                tab === t.key
-                  ? 'bg-accent-gradient text-white border-transparent shadow-glow-accent'
-                  : 'bg-arc-card text-arc-muted border-white/[0.06] hover:text-white'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          value={tab}
+          onChange={setTab}
+          options={TABS.map(t => ({ value: t.key, label: t.label }))}
+        />
 
         {/* What you're ranked on. Meaningless on Lifts, where the metric is
             the lift itself. */}
         {tab !== 'lifts' && (
-        <div className="flex gap-2">
-          {Object.entries(METRICS).map(([key, m]) => (
-            <button
-              key={key}
-              onClick={() => setMetric(key)}
-              className={`flex-1 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors inline-flex items-center justify-center gap-1.5 ${
-                metric === key ? 'bg-arc-surface text-white border border-white/10' : 'text-arc-muted hover:text-white'
-              }`}
-            >
-              {key === 'points' ? <TrophyIcon size={12} /> : <FlameIcon size={12} />}
-              {m.label}
-            </button>
-          ))}
-        </div>
+          <div className="flex justify-end">
+            <SegmentedControl
+              size="sm"
+              className="w-48"
+              value={metric}
+              onChange={setMetric}
+              options={Object.entries(METRICS).map(([key, m]) => ({ value: key, label: m.label }))}
+            />
+          </div>
         )}
 
         {tab === 'lifts' && (
@@ -337,9 +324,7 @@ export default function Leaderboard() {
                     : 'Nobody at your gym has any points on the board yet.'}
                 </p>
                 {tab === 'friends' && (
-                  <Link href="/friends" className="inline-block mt-2 bg-accent-gradient text-white font-black italic px-6 py-3 rounded-xl text-sm shadow-glow active:scale-95 transition-transform">
-                    FIND PEOPLE
-                  </Link>
+                  <Button variant="primary" size="sm" href="/friends" className="mt-2">Find people</Button>
                 )}
               </div>
             )}

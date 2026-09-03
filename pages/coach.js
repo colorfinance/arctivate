@@ -621,22 +621,22 @@ export default function Coach() {
                     <BrainIcon />
                   </div>
                   <div>
-                    <h2 className="text-lg font-black italic tracking-tight mb-2">Your AI Training Partner</h2>
-                    <p className="text-sm text-arc-muted max-w-xs mx-auto">I can analyze your workouts, identify plateaus, and suggest program updates based on your recovery data.</p>
+                    <h2 className="t-title text-white mb-1">Ask about your training</h2>
+                    <p className="t-body text-arc-muted max-w-xs mx-auto">The coach has your workouts, habits and recovery. Ask it anything, or start with one of these.</p>
                   </div>
 
-                  {/* Quick Prompts */}
-                  <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto">
+                  {/* Suggestions are chips, not tiles */}
+                  <div className="flex flex-wrap justify-center gap-2 max-w-sm mx-auto">
                     {QUICK_PROMPTS.map((qp, i) => (
                       <motion.button
                         key={i}
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.1 * i }}
+                        transition={{ delay: 0.06 * i }}
                         onClick={() => sendMessage(qp.prompt)}
-                        className="bg-arc-surface border border-white/5 rounded-xl px-3 py-3 text-left hover:border-arc-accent/30 transition-colors"
+                        className="h-9 px-3.5 rounded-full bg-arc-surface2/70 border border-white/[0.06] text-[13px] font-bold text-white hover:border-arc-accent/40 transition-colors duration-fast"
                       >
-                        <span className="text-xs font-bold text-white">{qp.label}</span>
+                        {qp.label}
                       </motion.button>
                     ))}
                   </div>

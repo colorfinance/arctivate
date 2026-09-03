@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
 import Masthead from '../components/Masthead'
+import Button from '../components/Button'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { resizeToBlob } from '../lib/imageResize'
@@ -1618,42 +1619,32 @@ export default function Train() {
 
         <main className="pt-20 px-5 space-y-6 max-w-lg mx-auto">
 
-            {/* Slim stat line (Streak · Today's pts · Sets) */}
-            <section className="flex items-center justify-center gap-5 text-[11px] font-bold text-arc-muted">
-                <span><span className="text-emerald-400 font-black font-mono">{streakInfo.current}</span> day streak</span>
+            {/* Streak and sets. Points live on the leaderboard. */}
+            <section className="flex items-center justify-center gap-5 t-caption font-bold text-arc-muted">
+                <span><span className="t-num text-arc-success font-black">{streakInfo.current}</span> day streak</span>
                 <span className="text-white/10">·</span>
-                <span><span className="text-arc-accent font-black font-mono">+{todayPoints}</span> pts today</span>
-                <span className="text-white/10">·</span>
-                <span><span className="text-white font-black font-mono">{todaySets}</span> sets</span>
+                <span><span className="t-num text-white font-black">{todaySets}</span> {todaySets === 1 ? 'set' : 'sets'} today</span>
             </section>
 
-            {/* Primary actions — keep it simple */}
-            <section className="grid grid-cols-3 gap-3">
-                <button
-                    onClick={() => { setLoggerMode('workout'); setShowLogger(true) }}
-                    className="bg-arc-card border border-arc-accent/20 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-arc-accent/50 transition-colors"
-                >
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-accent"><path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M6.5 17.5l-4 4M17.5 6.5l4-4"/></svg>
-                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Log Workout</span>
-                </button>
-                <button
-                    onClick={() => { setLoggerMode('pb'); setShowLogger(true) }}
-                    className="bg-arc-card border border-arc-cyan/20 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-arc-cyan/50 transition-colors"
-                >
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-cyan"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 0h1.5a2.5 2.5 0 0 1 0 5H18M6 4h12v6a6 6 0 0 1-12 0zM8 22h8M12 16v6"/></svg>
-                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Log PB</span>
-                </button>
-                <button
-                    onClick={() => openNotes('')}
-                    className="relative bg-arc-card border border-white/10 rounded-2xl py-4 flex flex-col items-center justify-center gap-1.5 hover:border-white/25 transition-colors"
-                >
-                    {/* Dot when this day already has a note, so it's findable */}
-                    {(notesByWorkout['']?.body || '').trim() && (
-                        <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full bg-arc-accent" />
-                    )}
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-                    <span className="text-[11px] font-black uppercase tracking-wide text-white">Notes</span>
-                </button>
+            {/* One primary: log something. PB and notes are secondary. */}
+            <section className="space-y-2">
+                <Button variant="hero" size="lg" block onClick={() => { setLoggerMode('workout'); setShowLogger(true) }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M6.5 17.5l-4 4M17.5 6.5l4-4"/></svg>
+                    Log a workout
+                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                    <Button variant="secondary" onClick={() => { setLoggerMode('pb'); setShowLogger(true) }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-cyan" aria-hidden><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 0h1.5a2.5 2.5 0 0 1 0 5H18M6 4h12v6a6 6 0 0 1-12 0zM8 22h8M12 16v6"/></svg>
+                        Log a PB
+                    </Button>
+                    <Button variant="secondary" onClick={() => openNotes('')} className="relative">
+                        {(notesByWorkout['']?.body || '').trim() && (
+                            <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-arc-accent" />
+                        )}
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70" aria-hidden><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                        Notes
+                    </Button>
+                </div>
             </section>
 
             {/* Hidden input used by "Scan a workout" inside the Log Workout sheet */}

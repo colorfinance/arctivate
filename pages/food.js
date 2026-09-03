@@ -1505,8 +1505,8 @@ export default function Food() {
         </div>
 
         {/* Action Buttons - Scan, Voice, Manual */}
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {/* Scan Food */}
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          {/* Scan is the primary way in; voice and manual are beside it. */}
           <button
             onClick={() => {
               setError(null)
@@ -1514,7 +1514,7 @@ export default function Food() {
               fileInputRef.current?.click()
             }}
             disabled={scanning || voiceProcessing}
-            className="bg-arc-card border border-white/5 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition hover:border-arc-accent/30 disabled:opacity-50"
+            className="col-span-2 bg-accent-gradient text-white shadow-glow-accent rounded-control h-14 px-5 flex items-center gap-3 active:scale-[0.98] transition disabled:opacity-50"
           >
             {scanning ? (
               <motion.div
@@ -1523,21 +1523,22 @@ export default function Food() {
                 className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full"
               />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-arc-accent/10 flex items-center justify-center">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00D4AA" strokeWidth="2">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                  <circle cx="12" cy="13" r="4"/>
-                </svg>
-              </div>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
             )}
-            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">Scan</span>
+            <span className="text-left">
+              <span className="block font-black italic uppercase tracking-wide text-[15px] leading-tight">{scanning ? 'Reading your plate…' : 'Scan a meal'}</span>
+              <span className="block text-[11px] text-white/80 leading-tight">Point the camera at your plate</span>
+            </span>
           </button>
 
           {/* Voice Note */}
           <button
             onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
             disabled={scanning || voiceProcessing}
-            className={`bg-arc-card border rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition disabled:opacity-50 ${isRecording ? 'border-red-500/50 bg-red-500/5' : 'border-white/5 hover:border-arc-accent/30'}`}
+            className={`bg-arc-surface2/60 border rounded-control p-3 flex flex-col items-center gap-1.5 active:scale-95 transition disabled:opacity-50 ${isRecording ? 'border-red-500/50 bg-red-500/5' : 'border-white/[0.05] hover:border-white/15'}`}
           >
             {voiceProcessing ? (
               <motion.div
@@ -1578,7 +1579,7 @@ export default function Food() {
               setShowManualEntry(true)
             }}
             disabled={scanning || voiceProcessing}
-            className="bg-arc-card border border-white/5 rounded-2xl p-4 flex flex-col items-center gap-2 active:scale-95 transition hover:border-arc-accent/30 disabled:opacity-50"
+            className="bg-arc-surface2/60 border border-white/[0.05] rounded-control p-3 flex flex-col items-center gap-1.5 active:scale-95 transition hover:border-white/15 disabled:opacity-50"
           >
             <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

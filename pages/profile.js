@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useRouter } from 'next/router'
 import Masthead from '../components/Masthead'
 import Button from '../components/Button'
+import Avatar from '../components/Avatar'
 import { goalFor } from '../lib/challenges'
 import { getStoredTheme, setTheme as applyStoredTheme } from '../lib/theme'
 
@@ -415,19 +416,7 @@ export default function Profile() {
           <div className="flex items-center gap-5 relative z-10">
             {/* Avatar */}
             <div className="shrink-0">
-              {profile?.avatar_url ? (
-                <img
-                  src={profile.avatar_url}
-                  alt={profile.username || 'User'}
-                  className="w-20 h-20 rounded-full object-cover border-2 border-arc-accent/30"
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-full bg-arc-surface border-2 border-arc-accent/30 flex items-center justify-center">
-                  <span className="text-3xl font-black text-arc-accent">
-                    {profile?.username?.[0]?.toUpperCase() || '?'}
-                  </span>
-                </div>
-              )}
+              <Avatar src={profile?.avatar_url} name={profile?.username} size={80} />
             </div>
 
             {/* User Info */}
@@ -435,12 +424,7 @@ export default function Profile() {
               <h2 className="text-2xl font-black italic tracking-tight text-white truncate">
                 {profile?.username || (userEmail ? userEmail.split('@')[0] : 'Set your name')}
               </h2>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Total Points</span>
-                <span className="text-lg font-black font-mono text-arc-accent">
-                  {(profile?.total_points || 0).toLocaleString()}
-                </span>
-              </div>
+              {userEmail && <p className="t-caption text-arc-muted truncate mt-0.5">{userEmail}</p>}
             </div>
           </div>
         </motion.div>
