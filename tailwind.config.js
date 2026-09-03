@@ -25,7 +25,25 @@ module.exports = {
           teal: 'rgb(var(--c-teal) / <alpha-value>)',
           muted: 'rgb(var(--c-muted) / <alpha-value>)',
           white: 'rgb(var(--c-fg) / <alpha-value>)',
+          // Semantic roles. `card` and `surface` stay as aliases so the
+          // hundreds of existing usages keep working while screens migrate.
+          surface1: 'rgb(var(--c-surface-1) / <alpha-value>)',
+          surface2: 'rgb(var(--c-surface-2) / <alpha-value>)',
+          success: 'rgb(var(--c-success) / <alpha-value>)',
+          warning: 'rgb(var(--c-warning) / <alpha-value>)',
+          danger: 'rgb(var(--c-danger) / <alpha-value>)',
         }
+      },
+      borderRadius: {
+        control: 'var(--r-control)',
+        container: 'var(--r-container)',
+      },
+      transitionDuration: {
+        fast: 'var(--t-fast)',
+        standard: 'var(--t-standard)',
+      },
+      transitionTimingFunction: {
+        arc: 'var(--ease)',
       },
       fontFamily: {
         sans: ['Inter', ...defaultTheme.fontFamily.sans],
