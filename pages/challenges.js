@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/router'
 import Nav from '../components/Nav'
@@ -7,12 +7,20 @@ import { FlagIcon, LockIcon, CheckIcon, TrophyIcon, UsersIcon } from '../compone
 import Avatar from '../components/Avatar'
 import Masthead, { MastheadAction } from '../components/Masthead'
 import Button from '../components/Button'
+import WagerPicker from '../components/WagerPicker'
+import { resizeToBlob } from '../lib/imageResize'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart, isFinished, hasStarted,
   findFirstMissedDay, cohortStats, rankMembers, todayStr, daysDone, backfillFrom, DAILY_GOAL,
 } from '../lib/challenges'
-import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_PRESETS, WAGER_MAX } from '../lib/newChallenge'
+import { STARTER_TASKS, defaultChallengeTitle, startChallengeWith, WAGER_MAX } from '../lib/newChallenge'
+
+// Proof lives in a private bucket and is read through signed URLs that
+// storage only mints for someone in the challenge.
+const PROOF_BUCKET = 'challenge-proof'
+const PROOF_TTL = 60 * 60
+const PROOF_MAX_VIDEO = 50 * 1024 * 1024
 
 export default function Challenges() {
   const [loading, setLoading] = useState(true)
@@ -34,12 +42,29 @@ export default function Challenges() {
   const [people, setPeople] = useState([])        // everyone, for the invite picker
   const [friendships, setFriendships] = useState([])
   const [invites, setInvites] = useState([])      // invites involving me
+  // Putting something on the line after the challenge already exists. Only
+  // the person who started it can, which is the same rule the table enforces.
+  const [wagerFor, setWagerFor] = useState(null)
+  const [wagerDraft, setWagerDraft] = useState('')
+  const [savingWager, setSavingWager] = useState(false)
+  // A wager typed while calling someone out on a challenge that has none yet.
+  const [inviteWager, setInviteWager] = useState('')
+  // Ticking a task on a challenge with its own checklist, and the proof that
+  // can go with it. proofs is keyed `${user}:${task}:${date}` for everyone in
+  // my challenges; proofUrls caches the signed URL per storage path.
+  const [taskBusy, setTaskBusy] = useState(null)
+  const [proofs, setProofs] = useState({})
+  const [proofUrls, setProofUrls] = useState({})
+  const [proofFor, setProofFor] = useState(null)   // what the file picker is for
+  const [viewProof, setViewProof] = useState(null) // what the viewer is showing
+  const [editProof, setEditProof] = useState(false) // the editor's proof toggle
+  const proofInputRef = useRef(null)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({
     title: '', description: '', start_date: '', length_days: '30',
     strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
-    wager: '',
+    wager: '', proof_required: false,
   })
   // Searching the gym from inside the create sheet, so picking who you're up
   // against happens on the same screen as everything else.
@@ -52,7 +77,7 @@ export default function Challenges() {
     setForm({
       title: '', description: '', start_date: '', length_days: '30',
       strict: false, visibility: 'gym', gym_vs_gym: false, is_official: false,
-      wager: '',
+      wager: '', proof_required: false,
     })
     setTaskList([...STARTER_TASKS])
     setTaskDraft('')
@@ -154,12 +179,20 @@ export default function Challenges() {
         .from('challenge_tasks').select('*').order('position')
       setChTasks(taskData || [])
 
+      // Everyone's ticks in the challenges I'm in (the policy scopes it),
+      // so the standings can show what people have to show for themselves.
       const { data: tickData } = await supabase
         .from('challenge_task_logs')
-        .select('task_id, date')
-        .eq('user_id', user.id)
+        .select('task_id, user_id, date, proof_path, proof_type')
         .gte('date', backfillFrom(todayStr()))
-      setMyTicks(new Set((tickData || []).map(t => `${t.task_id}:${t.date}`)))
+      const allTicks = tickData || []
+      setMyTicks(new Set(allTicks.filter(t => t.user_id === user.id).map(t => `${t.task_id}:${t.date}`)))
+      const proofMap = {}
+      for (const t of allTicks) {
+        if (t.proof_path) proofMap[`${t.user_id}:${t.task_id}:${t.date}`] = { path: t.proof_path, type: t.proof_type || 'image' }
+      }
+      setProofs(proofMap)
+      signProofs(Object.values(proofMap).map(x => x.path))
 
       await enforceStrict(user.id, chData || [], memberData || [], taskData || [])
 
@@ -347,6 +380,7 @@ export default function Challenges() {
         visibility: form.visibility,
         strict: form.strict,
         wager: form.wager,
+        proofRequired: taskList.length > 0 && form.proof_required,
         gymVsGym: form.gym_vs_gym,
         isOfficial: isAdmin ? form.is_official : false,
       })
@@ -379,10 +413,42 @@ export default function Challenges() {
     }
   }
 
+  const canSetWager = (ch) => !!ch && !ch.is_official && (ch.created_by === userId || isAdmin)
+
+  // Writes the wager on the challenge itself so everyone in it sees the same
+  // line. Clearing it is allowed too -- a wager nobody agreed to shouldn't
+  // sit on the card forever.
+  const saveWager = async (ch, text) => {
+    const wager = (text || '').trim().slice(0, WAGER_MAX) || null
+    const { error } = await supabase.from('group_challenges').update({ wager }).eq('id', ch.id)
+    if (error) throw error
+    setChallenges(prev => prev.map(c => (c.id === ch.id ? { ...c, wager } : c)))
+    return wager
+  }
+
+  const submitWager = async () => {
+    if (savingWager || !wagerFor) return
+    setSavingWager(true)
+    try {
+      const wager = await saveWager(wagerFor, wagerDraft)
+      setWagerFor(null)
+      showToast(wager ? `On the line: ${wager}` : 'Wager removed')
+    } catch {
+      showToast('Could not save that')
+    } finally {
+      setSavingWager(false)
+    }
+  }
+
   const sendInvites = async () => {
     if (sendingInvites || !inviteFor || invitePicked.length === 0) return
     setSendingInvites(true)
     try {
+      // The stake travels with the callout. If they typed one here, it goes
+      // on the challenge before the invites do, so the invite card shows it.
+      if (inviteWager.trim() && canSetWager(inviteFor)) {
+        await saveWager(inviteFor, inviteWager)
+      }
       const rows = invitePicked.map(id => ({
         challenge_id: inviteFor.id,
         inviter_id: userId,
@@ -409,6 +475,7 @@ export default function Challenges() {
       setInviteFor(null)
       setInvitePicked([])
       setInviteSearch('')
+      setInviteWager('')
       await fetchAll()
       showToast(`Challenged ${n} ${n === 1 ? 'person' : 'people'}`)
     } catch {
@@ -521,10 +588,138 @@ export default function Challenges() {
   // Ticking one task on one day. Points move with the tick both ways, and
   // when the last task of the day goes green the day is banked immediately —
   // the recount runs so the card and standings agree without a reload.
+  // --- Ticking, and proving it -----------------------------------------------
+
+  async function signProofs(paths) {
+    const need = [...new Set(paths)].filter(Boolean)
+    if (!need.length) return
+    const { data } = await supabase.storage.from(PROOF_BUCKET).createSignedUrls(need, PROOF_TTL)
+    if (!data) return
+    setProofUrls(prev => {
+      const next = { ...prev }
+      for (const row of data) if (row.signedUrl && !row.error) next[row.path] = row.signedUrl
+      return next
+    })
+  }
+
+  // Images are shrunk before they leave the phone; a video goes as it is,
+  // under the bucket's limit.
+  const uploadProof = async (file, task, date) => {
+    const isVideo = (file.type || '').startsWith('video/')
+    if (isVideo && file.size > PROOF_MAX_VIDEO) throw new Error('too large')
+    const ext = isVideo ? (file.type === 'video/quicktime' ? 'mov' : file.type === 'video/webm' ? 'webm' : 'mp4') : 'jpg'
+    const blob = isVideo ? file : await resizeToBlob(file, 1400)
+    const contentType = isVideo ? (file.type || 'video/mp4') : 'image/jpeg'
+    const path = `${userId}/${task.id}-${date}-${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from(PROOF_BUCKET).upload(path, blob, { contentType, upsert: false })
+    if (error) throw error
+    return { path, type: isVideo ? 'video' : 'image' }
+  }
+
+  const rescoreMe = async () => {
+    await supabase.rpc('recalc_my_challenge_progress')
+    const { data: scored } = await supabase.from('group_challenge_members').select('*')
+    if (scored) setMembers(scored)
+  }
+
+  // A tick, with or without something to show for it. When the challenge
+  // asks for proof, tapping the task opens the camera and the tick is saved
+  // with the file -- there is no separate step to forget.
+  const tickTask = async (task, date, tasksForDay, ch, file = null) => {
+    const key = `${task.id}:${date}`
+    if (taskBusy) return
+    const had = myTicks.has(key)
+    if (!had && ch.proof_required && !file) { askForProof(task, date, tasksForDay, ch); return }
+    setTaskBusy(key)
+    const next = new Set(myTicks)
+    had ? next.delete(key) : next.add(key)
+    setMyTicks(next)
+    const proofKey = `${userId}:${task.id}:${date}`
+    try {
+      if (had) {
+        const old = proofs[proofKey]
+        const { error } = await supabase
+          .from('challenge_task_logs')
+          .delete().eq('task_id', task.id).eq('user_id', userId).eq('date', date)
+        if (error) throw error
+        if (old?.path) await supabase.storage.from(PROOF_BUCKET).remove([old.path]).then(() => {}, () => {})
+        setProofs(prev => { const n = { ...prev }; delete n[proofKey]; return n })
+      } else {
+        const proof = file ? await uploadProof(file, task, date) : null
+        const { error } = await supabase.from('challenge_task_logs').insert({
+          task_id: task.id, user_id: userId, date,
+          ...(proof ? { proof_path: proof.path, proof_type: proof.type } : {}),
+        })
+        if (error && error.code !== '23505') throw error
+        if (proof) {
+          setProofs(prev => ({ ...prev, [proofKey]: proof }))
+          await signProofs([proof.path])
+        }
+      }
+
+      const goal = Math.min(DAILY_GOAL, tasksForDay.length)
+      const doneNow = tasksForDay.filter(t => next.has(`${t.id}:${date}`)).length
+      if (!had && doneNow >= goal) {
+        await rescoreMe()
+        const { data: fresh } = await supabase.rpc('award_my_badges')
+        if (fresh?.length) setJustEarned(fresh)
+        showToast(date === todayStr() ? 'Day banked 🔥' : 'Caught up — day banked')
+      } else if (had) {
+        await rescoreMe()
+      } else if (file) {
+        showToast('Proof added')
+      }
+    } catch (e) {
+      setMyTicks(myTicks)
+      showToast(String(e?.message || '').includes('too large') ? 'That video is too big (50MB max)' : 'Could not save that')
+    } finally {
+      setTaskBusy(null)
+    }
+  }
+
+  // Proof on a tick that already exists.
+  const attachProof = async (task, date, ch, file) => {
+    const key = `${task.id}:${date}`
+    if (taskBusy) return
+    setTaskBusy(key)
+    try {
+      const proof = await uploadProof(file, task, date)
+      const { error } = await supabase
+        .from('challenge_task_logs')
+        .update({ proof_path: proof.path, proof_type: proof.type })
+        .eq('task_id', task.id).eq('user_id', userId).eq('date', date)
+      if (error) throw error
+      setProofs(prev => ({ ...prev, [`${userId}:${task.id}:${date}`]: proof }))
+      await signProofs([proof.path])
+      if (ch.proof_required) await rescoreMe()
+      showToast('Proof added')
+    } catch (e) {
+      showToast(String(e?.message || '').includes('too large') ? 'That video is too big (50MB max)' : 'Could not upload that')
+    } finally {
+      setTaskBusy(null)
+    }
+  }
+
+  // One hidden file input for the whole page; proofFor says what it is for.
+  const askForProof = (task, date, tasks, ch, attach = false) => {
+    setProofFor({ task, date, tasks, ch, attach })
+    setTimeout(() => proofInputRef.current?.click(), 0)
+  }
+  const onProofPicked = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    const p = proofFor
+    setProofFor(null)
+    if (!file || !p) return
+    if (p.attach) await attachProof(p.task, p.date, p.ch, file)
+    else await tickTask(p.task, p.date, p.tasks, p.ch, file)
+  }
+
   // --- Editing a checklist after creation ------------------------------------
 
   const openTaskEditor = (ch) => {
     setEditTasksFor(ch)
+    setEditProof(!!ch.proof_required)
     setEditRows(chTasks.filter(t => t.challenge_id === ch.id).map(t => ({ id: t.id, title: t.title })))
     setEditDraft('')
   }
@@ -562,6 +757,12 @@ export default function Challenges() {
           added.map(x => ({ challenge_id: chId, title: x.r.title, position: x.i }))
         )
         if (error) throw error
+      }
+
+      if (editProof !== !!editTasksFor.proof_required) {
+        const { error } = await supabase.from('group_challenges').update({ proof_required: editProof }).eq('id', chId)
+        if (error) throw error
+        setChallenges(prev => prev.map(c => (c.id === chId ? { ...c, proof_required: editProof } : c)))
       }
 
       // The definition of "a day" just changed, so recount and refresh.
@@ -647,6 +848,11 @@ export default function Challenges() {
                     Gym vs gym
                   </span>
                 )}
+                {ch.proof_required && ownTasks.length > 0 && (
+                  <span className="text-[9px] font-bold text-arc-accent bg-arc-accent/10 border border-arc-accent/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Proof
+                  </span>
+                )}
                 {ch.is_official ? (
                   <span className="text-[9px] font-bold text-arc-accent bg-arc-accent/10 border border-arc-accent/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
                     Official
@@ -678,15 +884,35 @@ export default function Challenges() {
 
           {/* The stake, stated. Half the point of agreeing one is that it is
               written down where both of you can see it. */}
-          {ch.wager && (
-            <div className="flex items-center gap-2.5 rounded-xl bg-amber-500/[0.07] border border-amber-500/25 px-3 py-2.5">
+          {ch.wager ? (
+            <div className="flex items-center gap-2.5 rounded-control bg-arc-warning/[0.07] border border-arc-warning/25 px-3 py-2.5">
               <span aria-hidden className="text-base leading-none">🤝</span>
-              <span className="min-w-0">
-                <span className="block text-[9px] font-bold text-amber-400/80 uppercase tracking-widest">On the line</span>
-                <span className="block text-[12px] font-bold text-amber-200 leading-snug">{ch.wager}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block t-label text-arc-warning/80">On the line</span>
+                <span className="block text-[13px] font-bold text-amber-200 leading-snug">{ch.wager}</span>
               </span>
+              {canSetWager(ch) && !done && (
+                <button
+                  onClick={() => { setWagerFor(ch); setWagerDraft(ch.wager || '') }}
+                  className="shrink-0 t-caption font-bold text-arc-muted hover:text-white transition-colors px-1 py-1"
+                >
+                  Change
+                </button>
+              )}
             </div>
-          )}
+          ) : canSetWager(ch) && !done ? (
+            <button
+              onClick={() => { setWagerFor(ch); setWagerDraft('') }}
+              className="w-full flex items-center gap-2.5 rounded-control border border-dashed border-arc-warning/30 px-3 py-2.5 text-left hover:border-arc-warning/60 transition-colors duration-fast"
+            >
+              <span aria-hidden className="text-base leading-none">🤝</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-bold text-white">Put something on the line</span>
+                <span className="block t-caption text-arc-muted">Coffees, lunch, burpees. Everyone in it sees it.</span>
+              </span>
+              <span className="t-caption font-bold text-arc-warning shrink-0">Set a wager</span>
+            </button>
+          ) : null}
 
           {joined && started && !done && (
             <>
@@ -706,6 +932,94 @@ export default function Challenges() {
           {/* The checklist itself lives in TODAY at the top of the page, where
               it is the first thing a member sees rather than something behind
               an expander. This card is the standings and the shape of the run. */}
+          {/* The checklist, on the card, where the challenge is. Tap to tick;
+              the camera puts a photo or video on the tick for the others to
+              see. If the challenge asks for proof, the tap is the camera. */}
+          {joined && !done && ownTasks.length > 0 && (() => {
+            const today = todayStr()
+            const yesterday = backfillFrom(today)
+            const goal = Math.min(DAILY_GOAL, ownTasks.length)
+            const doneToday = ownTasks.filter(t => myTicks.has(`${t.id}:${today}`)).length
+            const banked = doneToday >= goal
+            const missedYesterday = ownTasks.filter(t => !myTicks.has(`${t.id}:${yesterday}`))
+            const canFixYesterday = yesterday >= String(mine.start_date).slice(0, 10) && missedYesterday.length > 0
+            const row = (t, date, fix = false) => {
+              const ticked = myTicks.has(`${t.id}:${date}`)
+              const proof = proofs[`${userId}:${t.id}:${date}`]
+              const url = proof && proofUrls[proof.path]
+              const busyRow = taskBusy === `${t.id}:${date}`
+              return (
+                <div
+                  key={`${t.id}-${date}`}
+                  className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-control border transition-colors duration-fast ${
+                    ticked ? 'bg-arc-success/[0.08] border-arc-success/30' : fix ? 'bg-arc-warning/[0.06] border-arc-warning/30' : 'bg-arc-surface2/60 border-white/[0.05]'
+                  }`}
+                >
+                  <button
+                    onClick={() => tickTask(t, date, ownTasks, ch)}
+                    disabled={!!taskBusy}
+                    aria-label={`${ticked ? 'Untick' : 'Tick'} ${t.title}`}
+                    className="flex-1 min-w-0 flex items-center gap-3 py-1.5 text-left disabled:opacity-60"
+                  >
+                    <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center ${
+                      ticked ? 'bg-arc-success border-arc-success text-black' : fix ? 'border-arc-warning/60 text-transparent' : 'border-white/25 text-transparent'
+                    }`}>
+                      {busyRow
+                        ? <span className="w-3 h-3 border-2 border-arc-muted border-t-transparent rounded-full animate-spin" />
+                        : <CheckIcon size={13} />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className={`block text-[14px] font-bold truncate ${
+                        ticked ? 'text-arc-success/80 line-through decoration-2' : fix ? 'text-amber-200' : 'text-white'
+                      }`}>{t.title}</span>
+                      {fix && !ticked && <span className="block t-caption text-arc-warning/80">Yesterday · tap to fix</span>}
+                      {!fix && !ticked && ch.proof_required && <span className="block t-caption text-arc-muted">Tap to add a photo or video</span>}
+                    </span>
+                  </button>
+                  {ticked && url ? (
+                    <button
+                      onClick={() => setViewProof({ url, type: proof.type, name: 'You', title: t.title, date })}
+                      aria-label={`See your proof for ${t.title}`}
+                      className="shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-black/40 ring-1 ring-white/10"
+                    >
+                      {proof.type === 'video'
+                        ? <video src={url} muted playsInline className="w-full h-full object-cover" />
+                        : <img src={url} alt="" className="w-full h-full object-cover" />}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => askForProof(t, date, ownTasks, ch, ticked)}
+                      disabled={!!taskBusy}
+                      aria-label={`Add a photo or video for ${t.title}`}
+                      className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                        ch.proof_required && !ticked ? 'text-arc-accent' : 'text-white/30 hover:text-arc-accent'
+                      }`}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    </button>
+                  )}
+                </div>
+              )
+            }
+            return (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-1">
+                  <span className={`t-label ${banked ? 'text-arc-success' : 'text-arc-muted'}`}>{banked ? 'Day banked' : 'Today'}</span>
+                  <span className={`t-caption font-bold ${banked ? 'text-arc-success' : 'text-arc-muted'}`}>
+                    {doneToday}/{goal}{ownTasks.length > goal ? ` · any ${goal} of ${ownTasks.length}` : ''}
+                  </span>
+                </div>
+                {ownTasks.map(t => row(t, today))}
+                {canFixYesterday && missedYesterday.map(t => row(t, yesterday, true))}
+                <p className="t-caption text-arc-muted px-1">
+                  {ch.proof_required
+                    ? 'This one asks for proof. Tap a task, take a photo or video, and it ticks.'
+                    : 'Tap to tick. The camera adds a photo or video the others can see.'}
+                </p>
+              </div>
+            )
+          })()}
+
           {joined && ownTasks.length === 0 && (
             <p className="text-[11px] text-arc-muted">
               Scored on your daily habits — tick them on Today.
@@ -803,6 +1117,32 @@ export default function Challenges() {
                     <span className="text-[12px] font-bold text-white truncate flex-1">
                       {m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member')}
                     </span>
+                    {(() => {
+                      // What they have to show for today and yesterday.
+                      const today = todayStr()
+                      const days = [today, backfillFrom(today)]
+                      const thumbs = ownTasks
+                        .flatMap(t => days.map(d => ({ t, d, p: proofs[`${m.user_id}:${t.id}:${d}`] })))
+                        .filter(x => x.p && proofUrls[x.p.path])
+                        .slice(0, 3)
+                      if (!thumbs.length) return null
+                      return (
+                        <span className="flex -space-x-1.5 shrink-0">
+                          {thumbs.map(x => (
+                            <button
+                              key={`${x.t.id}-${x.d}`}
+                              onClick={() => setViewProof({ url: proofUrls[x.p.path], type: x.p.type, name: m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member'), title: x.t.title, date: x.d })}
+                              aria-label={`Proof: ${x.t.title}`}
+                              className="w-7 h-7 rounded-md overflow-hidden ring-2 ring-arc-bg bg-black/40"
+                            >
+                              {x.p.type === 'video'
+                                ? <video src={proofUrls[x.p.path]} muted playsInline className="w-full h-full object-cover" />
+                                : <img src={proofUrls[x.p.path]} alt="" className="w-full h-full object-cover" />}
+                            </button>
+                          ))}
+                        </span>
+                      )
+                    })()}
                     {m.restarts > 0 && (
                       <span className="text-[9px] text-arc-muted shrink-0">{m.restarts}× restart</span>
                     )}
@@ -844,6 +1184,10 @@ export default function Challenges() {
           </>
         }
       />
+
+      {/* One picker for every proof on the page. No `capture`, so the phone
+          offers the camera and the library both. */}
+      <input ref={proofInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={onProofPicked} />
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
         {/* The day's checklist and the streak live on Today now. Both pages
@@ -1120,31 +1464,7 @@ export default function Challenges() {
                   <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">
                     What&apos;s on the line?
                   </label>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {WAGER_PRESETS.map(w => (
-                      <button
-                        key={w}
-                        onClick={() => setForm(f => ({ ...f, wager: f.wager === w ? '' : w }))}
-                        className={`px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors ${
-                          form.wager === w
-                            ? 'bg-arc-accent/15 border-arc-accent/40 text-arc-accent'
-                            : 'bg-arc-surface border-white/[0.06] text-arc-muted hover:text-white'
-                        }`}
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    value={form.wager}
-                    onChange={(e) => setForm(f => ({ ...f, wager: e.target.value.slice(0, WAGER_MAX) }))}
-                    placeholder="Or write your own"
-                    maxLength={WAGER_MAX}
-                    className="w-full bg-arc-surface border border-white/10 px-4 py-2.5 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
-                  />
-                  <p className="text-[10px] text-arc-muted mt-1.5">
-                    Between you and them. Arctivate writes it down and says who won — it doesn&apos;t hold or move anything.
-                  </p>
+                  <WagerPicker value={form.wager} onChange={(w) => setForm(f => ({ ...f, wager: w }))} />
                 </div>
 
                 {/* Everything below is already answered. It is here to be
@@ -1152,7 +1472,7 @@ export default function Challenges() {
                 <div className="rounded-xl bg-arc-surface/60 border border-white/[0.06] px-4 py-3 space-y-1">
                   <p className="text-[11px] text-white font-bold">
                     {taskList.length
-                      ? `${taskList.length} things a day, 30 days, your gym can join.`
+                      ? `${taskList.length} things a day${form.proof_required ? ', with proof' : ''}, 30 days, your gym can join.`
                       : 'Their own daily habits, 30 days, your gym can join.'}
                   </p>
                   <p className="text-[10px] text-arc-muted leading-snug">
@@ -1231,6 +1551,23 @@ export default function Challenges() {
                       : `Any ${Math.min(DAILY_GOAL, taskList.length)} of the ${taskList.length} banks the day.`}
                   </p>
                 </div>
+
+                {taskList.length > 0 && (
+                  <button
+                    onClick={() => setForm(f => ({ ...f, proof_required: !f.proof_required }))}
+                    className={`w-full flex items-center justify-between gap-3 rounded-control border px-4 py-3 text-left transition-colors duration-fast ${
+                      form.proof_required ? 'bg-arc-accent/[0.08] border-arc-accent/30' : 'bg-arc-surface border-white/[0.06]'
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-bold text-white">Ask for proof</span>
+                      <span className="block t-caption text-arc-muted">A tick needs a photo or video. Everyone in it can see them.</span>
+                    </span>
+                    <span role="switch" aria-checked={form.proof_required} className={`shrink-0 w-10 h-6 rounded-full flex items-center px-0.5 transition-colors ${form.proof_required ? 'bg-arc-accent justify-end' : 'bg-white/10 justify-start'}`}>
+                      <span className="w-5 h-5 rounded-full bg-white shadow" />
+                    </span>
+                  </button>
+                )}
 
                 <div className="flex gap-3">
                   <div className="flex-1">
@@ -1382,6 +1719,14 @@ export default function Challenges() {
                   placeholder="Search by name"
                   className="w-full bg-arc-surface border border-white/10 p-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
                 />
+                {inviteFor.wager ? (
+                  <p className="t-caption text-arc-warning font-bold">🤝 On the line: {inviteFor.wager}</p>
+                ) : canSetWager(inviteFor) ? (
+                  <div>
+                    <label className="t-label text-arc-muted block mb-2">What&apos;s on the line?</label>
+                    <WagerPicker value={inviteWager} onChange={setInviteWager} />
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex-1 overflow-y-auto px-6 space-y-1.5 min-h-0">
@@ -1465,8 +1810,8 @@ export default function Challenges() {
                 {[
                   { n: '1', t: 'Your gym always has one running',
                     d: 'The Daily 3 is there whenever you want it \u2014 three things, thirty days, one tap to join. Your thirty days start the day you join, so you can never be too late.' },
-                  { n: '2', t: 'You tick it on Today',
-                    d: 'The day\u2019s list lives on the Today tab, in one place, whichever challenge it came from. This page is where you stand and who you are up against.' },
+                  { n: '2', t: 'You tick it where it lives',
+                    d: 'The gym challenge is scored on your own habits, so you tick those on Today. A challenge with its own checklist is ticked right here, on its card.' },
                   { n: '3', t: `Any ${DAILY_GOAL} things banks the day`,
                     d: `Tick ${DAILY_GOAL} of your daily habits and that day counts. It used to take every single one, which meant the more habits you kept the harder every day got \u2014 people were ticking five of seven and banking nothing. Keep fewer than ${DAILY_GOAL} and the bar is however many you keep.` },
                   { n: '4', t: 'Forgot a day? You get one more',
@@ -1475,6 +1820,8 @@ export default function Challenges() {
                     d: 'Not on who joined first. Level pegging goes to whoever has needed the fewest restarts.' },
                   { n: '6', t: 'Strict means strict',
                     d: 'In a strict challenge, a day you never filled in sends you back to Day 1. Non-strict challenges just stop counting that day.' },
+                  { n: '8', t: 'Prove it, if the challenge asks',
+                    d: 'Any tick can carry a photo or a short video, and everyone in the challenge can see it in the standings. If whoever started it asked for proof, a tick without one does not count.' },
                   { n: '7', t: 'Challenges are separate, habits are yours',
                     d: 'Each challenge scores its own checklist. Only challenges without tasks fall back to your personal habits \u2014 those share one list.' },
                 ].map(step => (
@@ -1615,6 +1962,23 @@ export default function Challenges() {
                   </div>
                 )}
 
+                {editRows.length > 0 && (
+                  <button
+                    onClick={() => setEditProof(v => !v)}
+                    className={`w-full flex items-center justify-between gap-3 rounded-control border px-4 py-3 text-left transition-colors duration-fast ${
+                      editProof ? 'bg-arc-accent/[0.08] border-arc-accent/30' : 'bg-arc-surface border-white/[0.06]'
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-bold text-white">Ask for proof</span>
+                      <span className="block t-caption text-arc-muted">A tick needs a photo or video. Ticks without one stop counting.</span>
+                    </span>
+                    <span role="switch" aria-checked={editProof} className={`shrink-0 w-10 h-6 rounded-full flex items-center px-0.5 transition-colors ${editProof ? 'bg-arc-accent justify-end' : 'bg-white/10 justify-start'}`}>
+                      <span className="w-5 h-5 rounded-full bg-white shadow" />
+                    </span>
+                  </button>
+                )}
+
                 <p className="text-[10px] text-arc-muted leading-relaxed">
                   Changes apply to everyone in the challenge. A task added today only
                   counts from today — it can&apos;t fail anyone&apos;s yesterday. Removing a
@@ -1697,6 +2061,61 @@ export default function Challenges() {
 
       {/* Leaving */}
       <AnimatePresence>
+        {viewProof && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setViewProof(null)}
+              className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[70]"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+              className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[70] max-w-lg mx-auto rounded-container overflow-hidden bg-arc-card border border-white/10"
+            >
+              {viewProof.type === 'video'
+                ? <video src={viewProof.url} controls autoPlay playsInline className="w-full max-h-[70vh] bg-black" />
+                : <img src={viewProof.url} alt="" className="w-full max-h-[70vh] object-contain bg-black" />}
+              <div className="p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[14px] font-bold text-white truncate">{viewProof.title}</p>
+                  <p className="t-caption text-arc-muted">{viewProof.name} · {viewProof.date === todayStr() ? 'today' : 'yesterday'}</p>
+                </div>
+                <Button variant="tertiary" size="sm" onClick={() => setViewProof(null)}>Close</Button>
+              </div>
+            </motion.div>
+          </>
+        )}
+
+        {wagerFor && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !savingWager && setWagerFor(null)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50"
+            >
+              <div className="p-6 space-y-4 pb-safe max-w-lg mx-auto">
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+                <div>
+                  <h2 className="t-title text-white" style={{ fontSize: 20 }}>What&apos;s on the line?</h2>
+                  <p className="t-caption text-arc-muted mt-0.5 truncate">{wagerFor.title}</p>
+                </div>
+                <WagerPicker value={wagerDraft} onChange={setWagerDraft} autoFocus />
+                <div className="flex gap-2">
+                  <Button variant="primary" className="flex-1" onClick={submitWager} disabled={savingWager}>
+                    {savingWager ? 'Saving…' : wagerDraft.trim() ? 'Set it' : wagerFor.wager ? 'Remove wager' : 'Set it'}
+                  </Button>
+                  <Button variant="tertiary" onClick={() => setWagerFor(null)} disabled={savingWager}>Cancel</Button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+
         {confirmLeave && (
           <>
             <motion.div
