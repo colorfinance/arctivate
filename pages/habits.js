@@ -268,6 +268,7 @@ export default function Habits() {
       setWeeklyDone(weekSet)
       setPastDone(pastSets)
       setStrictMode(!!profile?.strict_challenge)
+      if (profile?.gym_id) supabase.rpc('is_gym_staff', { p_gym: profile.gym_id }).then(({ data }) => setGymStaff(!!data), () => {})
       profileRef.current = profile
 
       // Strict mode: a missed day sends you back to Day 1.
@@ -318,6 +319,8 @@ export default function Habits() {
 
   // Strict mode — miss a day and the challenge restarts itself
   const [strictMode, setStrictMode] = useState(false)
+  // Whether this member runs their gym; if so, the pulse is one row away.
+  const [gymStaff, setGymStaff] = useState(false)
   const [savingStrict, setSavingStrict] = useState(false)
   const [showStrictConfirm, setShowStrictConfirm] = useState(false)
   const [strictReset, setStrictReset] = useState(null) // date that was missed
@@ -1648,6 +1651,15 @@ export default function Habits() {
                     title="Leaderboard"
                     caption="You vs your friends, your gym, other gyms"
                 />
+                {gymStaff && (
+                    <ListRow
+                        href="/gym"
+                        tone="accent"
+                        icon={<span aria-hidden>🏋️</span>}
+                        title="Your gym"
+                        caption="Who is active, at risk and quiet today"
+                    />
+                )}
             </section>
 
             {/* Weigh-in trend — only once there's something to show */}
