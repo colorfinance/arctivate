@@ -8,6 +8,8 @@ import Masthead from '../components/Masthead'
 import Button from '../components/Button'
 import Avatar from '../components/Avatar'
 import { goalFor } from '../lib/challenges'
+import { ListRow, SectionLabel } from '../components/ui'
+import Field from '../components/Field'
 import { getStoredTheme, setTheme as applyStoredTheme } from '../lib/theme'
 
 // Icons
@@ -74,6 +76,50 @@ export default function Profile() {
   const [toast, setToast] = useState(null)
   const [userId, setUserId] = useState(null)
   const [userEmail, setUserEmail] = useState('')
+  // Your gym: which one, whether you run it, and the two ways to change it.
+  const [gym, setGym] = useState(null)
+  const [isStaff, setIsStaff] = useState(false)
+  const [gymSheet, setGymSheet] = useState(null) // 'join' | 'create'
+  const [gymCode, setGymCode] = useState('')
+  const [gymName, setGymName] = useState('')
+  const [gymCity, setGymCity] = useState('')
+  const [gymBusy, setGymBusy] = useState(false)
+  const [gymError, setGymError] = useState('')
+
+  useEffect(() => {
+    const gid = profile?.gym_id
+    if (!gid) { setGym(null); setIsStaff(false); return }
+    let alive = true
+    ;(async () => {
+      const { data: g } = await supabase.from('gyms').select('id, name, city, join_code').eq('id', gid).single()
+      const { data: staff } = await supabase.rpc('is_gym_staff', { p_gym: gid })
+      if (!alive) return
+      setGym(g || null)
+      setIsStaff(!!staff)
+    })()
+    return () => { alive = false }
+  }, [profile?.gym_id])
+
+  const joinGym = async () => {
+    if (gymBusy) return
+    setGymBusy(true); setGymError('')
+    const { data, error } = await supabase.rpc('join_gym', { p_code: gymCode })
+    setGymBusy(false)
+    if (error) { setGymError(error.message?.includes('No gym') ? 'No gym has that code. Check it with the front desk.' : 'Could not join. Try again.'); return }
+    setProfile(prev => ({ ...prev, gym_id: data.id }))
+    setGymSheet(null); setGymCode('')
+  }
+
+  const createGym = async () => {
+    if (gymBusy) return
+    setGymBusy(true); setGymError('')
+    const { data, error } = await supabase.rpc('create_gym', { p_name: gymName, p_city: gymCity || null })
+    setGymBusy(false)
+    if (error) { setGymError(error.message?.includes('name') ? 'Give the gym a name.' : 'Could not create the gym. Try again.'); return }
+    setProfile(prev => ({ ...prev, gym_id: data.id }))
+    setGymSheet(null); setGymName(''); setGymCity('')
+    router.push('/gym')
+  }
 
   // Stats
   const [challengeDay, setChallengeDay] = useState(1)
@@ -127,13 +173,13 @@ export default function Profile() {
       // Fetch profile (fall back if the newer body-metric columns aren't there)
       let { data: profileData, error: profErr } = await supabase
         .from('profiles')
-        .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal, age, weight, height')
+        .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal, age, weight, height, gym_id')
         .eq('id', user.id)
         .single()
       if (profErr) {
         const fb = await supabase
           .from('profiles')
-          .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal')
+          .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal, gym_id')
           .eq('id', user.id)
           .single()
         profileData = fb.data
@@ -539,6 +585,46 @@ export default function Profile() {
           </div>
         </motion.div>
 
+        {/* Your gym: who you are ranked against, and how to run one. */}
+        <section className="mt-8">
+          <SectionLabel>Your gym</SectionLabel>
+          <div className="space-y-1.5">
+            {gym ? (
+              isStaff ? (
+                <ListRow
+                  href="/gym"
+                  tone="accent"
+                  icon={<span aria-hidden>🏋️</span>}
+                  title={gym.name}
+                  caption="You run this gym. See who is active, at risk and quiet."
+                />
+              ) : (
+                <ListRow
+                  icon={<span aria-hidden>🏋️</span>}
+                  title={gym.name}
+                  caption={gym.city ? `${gym.city} · your leaderboard and challenges` : 'Your leaderboard and challenges'}
+                />
+              )
+            ) : (
+              <ListRow icon={<span aria-hidden>🏋️</span>} title="No gym yet" caption="Join one with a code from the front desk." />
+            )}
+            <ListRow
+              onClick={() => { setGymSheet('join'); setGymError('') }}
+              icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg>}
+              title={gym ? 'Join a different gym' : 'Join a gym'}
+              caption="Enter the six-letter code"
+            />
+            {!isStaff && (
+              <ListRow
+                onClick={() => { setGymSheet('create'); setGymError('') }}
+                icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>}
+                title="Run a gym? Start one"
+                caption="Free 30-day pilot. Your members join with a code."
+              />
+            )}
+          </div>
+        </section>
+
         {/* Appearance — light / dark mode */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -798,6 +884,54 @@ export default function Profile() {
           </>
         )}
       </AnimatePresence>
+
+      {gymSheet && (
+        <>
+          <div onClick={() => !gymBusy && setGymSheet(null)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+          <div className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50">
+            <div className="p-6 space-y-4 pb-safe max-w-lg mx-auto">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+              {gymSheet === 'join' ? (
+                <>
+                  <div>
+                    <h2 className="t-title text-white" style={{ fontSize: 20 }}>Join a gym</h2>
+                    <p className="t-caption text-arc-muted mt-0.5">The code is on the wall or at the front desk. Everything you have logged comes with you.</p>
+                  </div>
+                  <Field
+                    label="Gym code"
+                    value={gymCode}
+                    onChange={(e) => setGymCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+                    placeholder="ABC123"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    autoFocus
+                    error={gymError}
+                    className="[&_input]:tracking-[0.3em] [&_input]:font-black [&_input]:text-[20px]"
+                  />
+                  <div className="flex gap-2">
+                    <Button variant="primary" className="flex-1" onClick={joinGym} disabled={gymBusy || gymCode.length < 6}>{gymBusy ? 'Joining…' : 'Join'}</Button>
+                    <Button variant="tertiary" onClick={() => setGymSheet(null)} disabled={gymBusy}>Cancel</Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <h2 className="t-title text-white" style={{ fontSize: 20 }}>Start a gym</h2>
+                    <p className="t-caption text-arc-muted mt-0.5">You become its owner and move into it. You get a code your members join with, and a page that shows who is active, at risk and quiet. Free for 30 days.</p>
+                  </div>
+                  <Field label="Gym name" value={gymName} onChange={(e) => setGymName(e.target.value.slice(0, 60))} placeholder="e.g. Iron & Oak Fitness" autoFocus error={gymError} />
+                  <Field label="Suburb or city" value={gymCity} onChange={(e) => setGymCity(e.target.value.slice(0, 60))} placeholder="Optional" />
+                  <div className="flex gap-2">
+                    <Button variant="primary" className="flex-1" onClick={createGym} disabled={gymBusy || gymName.trim().length < 2}>{gymBusy ? 'Starting…' : 'Start the gym'}</Button>
+                    <Button variant="tertiary" onClick={() => setGymSheet(null)} disabled={gymBusy}>Cancel</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       <Nav />
     </div>

@@ -129,7 +129,7 @@ export default function Landing() {
           >
             {[
               { value: "75", label: "Day Challenge" },
-              { value: "10+", label: "Partner Brands" },
+              { value: "1", label: "Gym on board" },
               { value: "∞", label: "Excuses Eliminated" },
             ].map((stat, i) => (
               <div key={i} className="text-center">
@@ -272,10 +272,10 @@ export default function Landing() {
             variants={fadeUp}
             className="glass-panel rounded-2xl p-8 mb-8"
           >
-            <h3 className="text-xl font-bold text-white mb-6">Your Progress = Your Reward</h3>
-            <TierRow progress="7-Day Streak" reward="10% off recovery session" />
-            <TierRow progress="30-Day Streak" reward="Free infrared sauna session" />
-            <TierRow progress="75 Hard Complete" reward="VIP Recovery Package" />
+            <h3 className="text-xl font-bold text-white mb-6">Your gym sets the rewards</h3>
+            <TierRow progress="7-day streak" reward="e.g. a free coffee" />
+            <TierRow progress="30-day streak" reward="e.g. a recovery session" />
+            <TierRow progress="Gym challenge finished" reward="whatever your gym puts up" />
           </motion.div>
 
           <motion.div
