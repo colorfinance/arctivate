@@ -1138,6 +1138,20 @@ export default function Habits() {
     })
   }
 
+  // A photo you can put up, you can take down.
+  async function deleteProgressPhoto() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { error } = await supabase.storage.from('progress-photos').remove([`${user.id}/${getTodayStr()}.jpg`])
+      if (error) throw error
+      setProgressPhoto(null)
+      showToast('Photo deleted')
+    } catch {
+      showToast('Could not delete the photo')
+    }
+  }
+
   async function uploadProgressPhoto(file) {
     if (!file) return
     setIsUploadingPhoto(true)
@@ -1725,6 +1739,12 @@ export default function Habits() {
                                     {getTodayStr()}
                                 </span>
                             </div>
+                            <button
+                                onClick={deleteProgressPhoto}
+                                className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full hover:bg-arc-danger/80 transition-colors"
+                            >
+                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Delete</span>
+                            </button>
                             {/* Allow re-upload / replace */}
                             <label className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/80 transition-colors">
                                 <span className="text-[10px] font-bold text-white uppercase tracking-widest">Replace</span>

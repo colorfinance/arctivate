@@ -9,6 +9,7 @@ import Masthead, { MastheadAction } from '../components/Masthead'
 import Button from '../components/Button'
 import WagerPicker from '../components/WagerPicker'
 import { resizeToBlob } from '../lib/imageResize'
+import MeasurementsSheet, { MEASURES, fmtDelta } from '../components/MeasurementsSheet'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart, isFinished, hasStarted,
@@ -58,6 +59,10 @@ export default function Challenges() {
   const [proofFor, setProofFor] = useState(null)   // what the file picker is for
   const [viewProof, setViewProof] = useState(null) // what the viewer is showing
   const [editProof, setEditProof] = useState(false) // the editor's proof toggle
+  // Your tape-measure numbers at the start and the finish of each challenge.
+  const [measures, setMeasures] = useState([])
+  const [measureFor, setMeasureFor] = useState(null) // { ch, kind }
+  const [savingMeasure, setSavingMeasure] = useState(false)
   const proofInputRef = useRef(null)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -120,6 +125,9 @@ export default function Challenges() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
       setUserId(user.id)
+
+      const { data: mm } = await supabase.from('body_measurements').select('*').eq('user_id', user.id)
+      setMeasures(mm || [])
 
       // Every gym has one challenge that is always running, made the first
       // time somebody from that gym opens this page. Before it, a member's
@@ -325,6 +333,8 @@ export default function Challenges() {
       setConfirmJoin(null)
       await fetchAll()
       showToast(`You're in — ${ch.title}`)
+      // The best moment to ask for a starting point is the moment they start.
+      if (!measureOf(ch.id, 'start')) setMeasureFor({ ch, kind: 'start' })
     } catch {
       showToast('Could not join (run migration 031)')
     } finally {
@@ -715,6 +725,57 @@ export default function Challenges() {
     else await tickTask(p.task, p.date, p.tasks, p.ch, file)
   }
 
+  // --- Measurements ------------------------------------------------------------
+
+  const measureOf = (chId, kind) => measures.find(m => m.challenge_id === chId && m.kind === kind) || null
+
+  const saveMeasure = async (values) => {
+    if (!measureFor || savingMeasure) return
+    setSavingMeasure(true)
+    try {
+      const existing = measureOf(measureFor.ch.id, measureFor.kind)
+      const row = { ...values, kind: measureFor.kind, challenge_id: measureFor.ch.id, user_id: userId, taken_on: todayStr() }
+      const q = existing
+        ? supabase.from('body_measurements').update(row).eq('id', existing.id).select().single()
+        : supabase.from('body_measurements').insert(row).select().single()
+      const { data, error } = await q
+      if (error) throw error
+      setMeasures(prev => [...prev.filter(m => m.id !== data.id), data])
+      setMeasureFor(null)
+      showToast(measureFor.kind === 'start' ? 'Starting point saved' : 'Finish saved')
+    } catch {
+      showToast('Could not save those')
+    } finally {
+      setSavingMeasure(false)
+    }
+  }
+
+  // Takes the file off a tick and leaves the tick. If the challenge asks for
+  // proof, the day stops counting until there is a new one.
+  const removeProof = async (task, date, ch) => {
+    const key = `${task.id}:${date}`
+    if (taskBusy) return
+    setTaskBusy(key)
+    const proofKey = `${userId}:${task.id}:${date}`
+    try {
+      const old = proofs[proofKey]
+      const { error } = await supabase
+        .from('challenge_task_logs')
+        .update({ proof_path: null, proof_type: null })
+        .eq('task_id', task.id).eq('user_id', userId).eq('date', date)
+      if (error) throw error
+      if (old?.path) await supabase.storage.from(PROOF_BUCKET).remove([old.path]).then(() => {}, () => {})
+      setProofs(prev => { const n = { ...prev }; delete n[proofKey]; return n })
+      setViewProof(null)
+      if (ch?.proof_required) await rescoreMe()
+      showToast('Proof removed')
+    } catch {
+      showToast('Could not remove that')
+    } finally {
+      setTaskBusy(null)
+    }
+  }
+
   // --- Editing a checklist after creation ------------------------------------
 
   const openTaskEditor = (ch) => {
@@ -978,7 +1039,7 @@ export default function Challenges() {
                   </button>
                   {ticked && url ? (
                     <button
-                      onClick={() => setViewProof({ url, type: proof.type, name: 'You', title: t.title, date })}
+                      onClick={() => setViewProof({ url, type: proof.type, name: 'You', title: t.title, date, mine: true, task: t, ch })}
                       aria-label={`See your proof for ${t.title}`}
                       className="shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-black/40 ring-1 ring-white/10"
                     >
@@ -1034,18 +1095,79 @@ export default function Challenges() {
             </button>
           )}
 
-          {done && (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center space-y-1">
-              <p className="text-sm font-bold text-green-400 flex items-center justify-center gap-2"><TrophyIcon size={16} /> Finished — all {ch.length_days} days</p>
-              {ch.wager && (
-                <p className="text-[11px] text-amber-300 font-bold">
-                  {standings[0]?.user_id === userId
-                    ? `You won. They owe you: ${ch.wager}`
-                    : `${names[standings[0]?.user_id]?.name || 'The winner'} takes it: ${ch.wager}`}
-                </p>
-              )}
-            </div>
-          )}
+          {/* Your starting point. One row, so it is there to add or change
+              without being in the way of the ticking. */}
+          {joined && !done && (() => {
+            const start = measureOf(ch.id, 'start')
+            return (
+              <button
+                onClick={() => setMeasureFor({ ch, kind: 'start' })}
+                className="w-full flex items-center gap-3 rounded-control border border-white/[0.05] bg-arc-surface2/60 px-3 py-2 text-left hover:border-white/15 transition-colors duration-fast"
+              >
+                <span aria-hidden className="text-base leading-none">📏</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-bold text-white">{start ? 'Starting measurements saved' : 'Add your starting measurements'}</span>
+                  <span className="block t-caption text-arc-muted">{start ? 'Tap to change them. You will compare at the finish.' : 'Weight, waist, chest. Two minutes. Only you see them.'}</span>
+                </span>
+                <span className="t-caption font-bold text-arc-muted shrink-0">{start ? 'Edit' : 'Add'}</span>
+              </button>
+            )
+          })()}
+
+          {done && (() => {
+            const start = measureOf(ch.id, 'start')
+            const finish = measureOf(ch.id, 'finish')
+            const rows = start && finish
+              ? MEASURES.map(m => ({ m, from: start[m.key], to: finish[m.key], d: fmtDelta(start[m.key], finish[m.key], m.unit) })).filter(r => r.d)
+              : []
+            return (
+              <div className="space-y-2">
+                <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center space-y-1">
+                  <p className="text-sm font-bold text-green-400 flex items-center justify-center gap-2"><TrophyIcon size={16} /> Finished — all {ch.length_days} days</p>
+                  {ch.wager && (
+                    <p className="text-[11px] text-amber-300 font-bold">
+                      {standings[0]?.user_id === userId
+                        ? `You won. They owe you: ${ch.wager}`
+                        : `${names[standings[0]?.user_id]?.name || 'The winner'} takes it: ${ch.wager}`}
+                    </p>
+                  )}
+                </div>
+
+                {/* What the thirty days did. Both ends measured: the change,
+                    number by number. One end missing: the one thing to do. */}
+                {rows.length > 0 ? (
+                  <div className="rounded-control border border-white/[0.05] bg-arc-surface2/60 px-4 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="t-label text-arc-muted">Start to finish</span>
+                      <button onClick={() => setMeasureFor({ ch, kind: 'finish' })} className="t-caption font-bold text-arc-muted hover:text-white">Edit</button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {rows.map(({ m, from, to, d }) => (
+                        <div key={m.key} className="flex items-baseline gap-3">
+                          <span className="text-[13px] font-bold text-white w-16 shrink-0">{m.label}</span>
+                          <span className="t-num text-[13px] text-arc-muted">{from} → <span className="text-white">{to}</span> {m.unit}</span>
+                          <span className={`ml-auto t-num text-[13px] font-black ${d.tone === 'down' ? 'text-arc-success' : d.tone === 'up' ? 'text-arc-cyan' : 'text-arc-muted'}`}>{d.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {finish?.note && <p className="t-caption text-arc-muted mt-2">“{finish.note}”</p>}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setMeasureFor({ ch, kind: finish ? 'start' : 'finish' })}
+                    className="w-full flex items-center gap-3 rounded-control border border-arc-accent/30 bg-arc-accent/[0.08] px-3 py-2.5 text-left"
+                  >
+                    <span aria-hidden className="text-base leading-none">📏</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-bold text-white">{finish ? 'Add your starting measurements' : 'Add your finish measurements'}</span>
+                      <span className="block t-caption text-arc-muted">{start || finish ? 'Then you will see what changed.' : 'Measure now and add the start from memory, and you still get the comparison.'}</span>
+                    </span>
+                    <span className="t-caption font-bold text-arc-accent shrink-0">Add</span>
+                  </button>
+                )}
+              </div>
+            )
+          })()}
 
           {/* How the group is doing */}
           <div className="grid grid-cols-3 gap-2">
@@ -1131,7 +1253,7 @@ export default function Challenges() {
                           {thumbs.map(x => (
                             <button
                               key={`${x.t.id}-${x.d}`}
-                              onClick={() => setViewProof({ url: proofUrls[x.p.path], type: x.p.type, name: m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member'), title: x.t.title, date: x.d })}
+                              onClick={() => setViewProof({ url: proofUrls[x.p.path], type: x.p.type, name: m.user_id === userId ? 'You' : (names[m.user_id]?.name || 'Member'), title: x.t.title, date: x.d, mine: m.user_id === userId, task: x.t, ch })}
                               aria-label={`Proof: ${x.t.title}`}
                               className="w-7 h-7 rounded-md overflow-hidden ring-2 ring-arc-bg bg-black/40"
                             >
@@ -2061,6 +2183,19 @@ export default function Challenges() {
 
       {/* Leaving */}
       <AnimatePresence>
+        {measureFor && (
+          <MeasurementsSheet
+            key={`${measureFor.ch.id}-${measureFor.kind}`}
+            kind={measureFor.kind}
+            challengeTitle={measureFor.ch.title}
+            initial={measureOf(measureFor.ch.id, measureFor.kind)}
+            previous={measureFor.kind === 'finish' ? measureOf(measureFor.ch.id, 'start') : null}
+            saving={savingMeasure}
+            onSave={saveMeasure}
+            onClose={() => setMeasureFor(null)}
+          />
+        )}
+
         {viewProof && (
           <>
             <motion.div
@@ -2080,7 +2215,12 @@ export default function Challenges() {
                   <p className="text-[14px] font-bold text-white truncate">{viewProof.title}</p>
                   <p className="t-caption text-arc-muted">{viewProof.name} · {viewProof.date === todayStr() ? 'today' : 'yesterday'}</p>
                 </div>
-                <Button variant="tertiary" size="sm" onClick={() => setViewProof(null)}>Close</Button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {viewProof.mine && viewProof.task && (
+                    <Button variant="danger" size="sm" onClick={() => removeProof(viewProof.task, viewProof.date, viewProof.ch)} disabled={!!taskBusy}>Remove</Button>
+                  )}
+                  <Button variant="tertiary" size="sm" onClick={() => setViewProof(null)}>Close</Button>
+                </div>
               </div>
             </motion.div>
           </>
