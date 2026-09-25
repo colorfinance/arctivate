@@ -9,7 +9,7 @@ import Button from '../components/Button'
 import Avatar from '../components/Avatar'
 import { goalFor } from '../lib/challenges'
 import { useSimpleMode } from '../lib/simpleMode'
-import { usePlan, PREMIUM_PRICE, startCheckout, openBillingPortal } from '../lib/plan'
+import { usePlan, gymCovers, PREMIUM_PRICE, startCheckout, openBillingPortal } from '../lib/plan'
 import { ListRow, SectionLabel } from '../components/ui'
 import Field from '../components/Field'
 import { getStoredTheme, setTheme as applyStoredTheme } from '../lib/theme'
@@ -613,7 +613,7 @@ export default function Profile() {
         <section className="mt-8">
           <SectionLabel>Your plan</SectionLabel>
           <div className="space-y-1.5">
-            {!plan.ready ? null : plan.gymPlan === 'pilot' || plan.gymPlan === 'paid' ? (
+            {!plan.ready ? null : gymCovers(plan.gymPlan) ? (
               <ListRow
                 icon={<span aria-hidden>✅</span>}
                 title={`Covered by ${plan.gymName || 'your gym'}`}
@@ -640,7 +640,9 @@ export default function Profile() {
                 onClick={goPremium}
                 icon={<span aria-hidden>✨</span>}
                 title={`Go Premium · ${PREMIUM_PRICE} a month`}
-                caption="Coach, food scanning and history. Cancel any time. Free through a gym on Arctivate."
+                caption={plan.gymPlan === 'lapsed'
+                  ? `${plan.gymName || 'Your gym'}'s plan has ended. Coach and food scanning come back when it renews, or go Premium on your own.`
+                  : 'Coach, food scanning and history. Cancel any time. Free through a gym on Arctivate.'}
               />
             )}
             {billingMsg && <p className="t-caption text-arc-muted px-1">{billingMsg}</p>}

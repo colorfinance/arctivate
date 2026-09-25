@@ -9,6 +9,7 @@ import { Banner, ListRow, EmptyState, SectionLabel } from '../components/ui'
 import { supabase } from '../lib/supabaseClient'
 import { localTimezone } from '../lib/streaks'
 import Field from '../components/Field'
+import { GYM_TIERS, tierFor, effectiveGymPlan, startGymCheckout, openBillingPortal } from '../lib/plan'
 
 // The gym's pulse.
 //
@@ -58,6 +59,14 @@ export default function GymPulse() {
   const [cError, setCError] = useState('')
   const [cNotice, setCNotice] = useState('')
   const [showAllClients, setShowAllClients] = useState(false)
+  // The gym's plan. Only the owner chooses or changes it; a coach sees it.
+  const [isOwner, setIsOwner] = useState(false)
+  const [billing, setBilling] = useState(null)
+  const [choosing, setChoosing] = useState(false)
+  const [tierPick, setTierPick] = useState('gym')
+  const [billBusy, setBillBusy] = useState(false)
+  const [billError, setBillError] = useState('')
+  const [paidNotice, setPaidNotice] = useState(false)
 
   const authHeaders = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -98,11 +107,15 @@ export default function GymPulse() {
     if (!user) { router.replace('/'); return }
     const { data: me } = await supabase.from('profiles').select('gym_id, is_admin').eq('id', user.id).single()
     if (!me?.gym_id) { setLoading(false); return }
-    const { data: g } = await supabase.from('gyms').select('id, name, city, join_code, plan, pilot_ends_at').eq('id', me.gym_id).single()
+    const { data: g } = await supabase.from('gyms').select('id, name, city, join_code, plan, plan_tier, pilot_ends_at').eq('id', me.gym_id).single()
     setGym(g || null)
     const { data: staff } = await supabase.rpc('is_gym_staff', { p_gym: me.gym_id })
     setIsStaff(!!staff)
     if (staff) {
+      const { data: mine } = await supabase.from('gym_staff').select('role').eq('gym_id', me.gym_id).eq('user_id', user.id).maybeSingle()
+      setIsOwner(mine?.role === 'owner' || !!me.is_admin)
+      const { data: b } = await supabase.from('gym_billing').select('stripe_customer_id, renews_at').eq('gym_id', me.gym_id).maybeSingle()
+      setBilling(b || null)
       const { data, error } = await supabase.rpc('gym_pulse', { p_gym: me.gym_id, p_tz: localTimezone() })
       if (error) setError('Could not load the pulse. Pull to try again.')
       else setPulse(data)
@@ -112,6 +125,37 @@ export default function GymPulse() {
   }, [router])
 
   useEffect(() => { load() }, [load])
+
+  // Back from Stripe. The webhook may land a moment after the owner does,
+  // so look again a couple of times.
+  useEffect(() => {
+    if (router.query?.billing !== 'success') return
+    setPaidNotice(true)
+    router.replace('/gym', undefined, { shallow: true })
+    const a = setTimeout(load, 2500)
+    const b = setTimeout(load, 7000)
+    return () => { clearTimeout(a); clearTimeout(b) }
+  }, [router.query?.billing]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openChooser = () => {
+    setTierPick(tierFor(pulse?.members || 0))
+    setBillError('')
+    setChoosing(true)
+  }
+
+  const checkout = async () => {
+    if (billBusy) return
+    setBillBusy(true); setBillError('')
+    const err = await startGymCheckout(tierPick)
+    if (err) { setBillError(err); setBillBusy(false) }
+  }
+
+  const manage = async () => {
+    if (billBusy) return
+    setBillBusy(true); setBillError('')
+    const err = await openBillingPortal('gym')
+    if (err) { setBillError(err); setBillBusy(false) }
+  }
 
   const copyCode = async () => {
     if (!gym?.join_code) return
@@ -161,6 +205,13 @@ export default function GymPulse() {
   const p = pulse || {}
   const pct = (n) => (p.members ? Math.round((n / p.members) * 100) : 0)
   const pilotDays = gym.pilot_ends_at ? Math.ceil((new Date(gym.pilot_ends_at + 'T00:00:00') - new Date()) / 86400000) : null
+  const gymPlan = effectiveGymPlan(gym)
+  const lapsed = gymPlan === 'lapsed'
+  const tier = GYM_TIERS[gym.plan_tier] || null
+  const overCap = gymPlan === 'paid' && tier && (p.members || 0) > tier.members
+  const chooseAction = isOwner
+    ? <Button variant="primary" size="sm" onClick={openChooser}>Choose a plan</Button>
+    : null
 
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
@@ -178,11 +229,41 @@ export default function GymPulse() {
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-6">
         {error && <Banner tone="warning" title={error} />}
 
-        {gym.plan === 'pilot' && (
+        {paidNotice && (
+          <Banner
+            tone="success"
+            title="Thank you. The gym is on the plan."
+            body={gymPlan === 'paid' ? 'Every member has the coach and food scanning. The receipt is in your email.' : 'Stripe is confirming the payment. This page updates in a moment.'}
+            onDismiss={() => setPaidNotice(false)}
+          />
+        )}
+
+        {gymPlan === 'pilot' && (
           <Banner
             tone="info"
-            title={pilotDays > 0 ? `Free pilot · ${pilotDays} day${pilotDays === 1 ? '' : 's'} left` : 'Free pilot'}
-            body="Members stay free. When the pilot ends we will be in touch about the gym plan."
+            title={pilotDays > 0 ? `Free pilot · ${pilotDays} day${pilotDays === 1 ? '' : 's'} left` : 'Free pilot · last day'}
+            body={`Members stay free. After the pilot the gym plan is ${GYM_TIERS.gym.price} a month. Nothing is charged until you choose.`}
+            action={chooseAction}
+          />
+        )}
+
+        {lapsed && (
+          <Banner
+            tone="warning"
+            title={gym.plan === 'pilot' ? 'Your free pilot has ended' : 'The gym plan has ended'}
+            body={isOwner
+              ? 'Streaks, habits and challenges carry on for your members. The coach and food scanning pause for them, and the names below stay hidden until you choose a plan.'
+              : 'Streaks and challenges carry on. Ask the owner to choose a plan to bring back the coach, food scanning and the names below.'}
+            action={chooseAction}
+          />
+        )}
+
+        {gymPlan === 'past_due' && (
+          <Banner
+            tone="warning"
+            title="The last payment did not go through"
+            body={isOwner ? 'Everything stays on for your members while you update the card.' : 'Everything stays on while the owner updates the card.'}
+            action={isOwner ? <Button variant="primary" size="sm" onClick={manage} disabled={billBusy}>Fix payment</Button> : null}
           />
         )}
 
@@ -220,7 +301,14 @@ export default function GymPulse() {
             half lost. */}
         <section>
           <SectionLabel trailing={<span className="t-caption text-arc-muted">{(p.at_risk || []).length}</span>}>Streak at risk today</SectionLabel>
-          {(p.at_risk || []).length === 0 ? (
+          {lapsed && (p.at_risk || []).length > 0 ? (
+            <ListRow
+              onClick={isOwner ? openChooser : undefined}
+              icon={<span aria-hidden>🔒</span>}
+              title={`${p.at_risk.length} member${p.at_risk.length === 1 ? '' : 's'} to message today`}
+              caption={isOwner ? 'Choose a plan to see who.' : 'Names come back when the gym has a plan.'}
+            />
+          ) : (p.at_risk || []).length === 0 ? (
             <p className="t-body text-arc-muted px-1">Nobody. Everyone with a streak has already shown up today.</p>
           ) : (
             <div className="space-y-1.5">
@@ -240,7 +328,14 @@ export default function GymPulse() {
 
         <section>
           <SectionLabel trailing={<span className="t-caption text-arc-muted">{(p.quiet || []).length}</span>}>Gone quiet</SectionLabel>
-          {(p.quiet || []).length === 0 ? (
+          {lapsed && (p.quiet || []).length > 0 ? (
+            <ListRow
+              onClick={isOwner ? openChooser : undefined}
+              icon={<span aria-hidden>🔒</span>}
+              title={`${p.quiet.length} member${p.quiet.length === 1 ? ' has' : 's have'} gone quiet`}
+              caption={isOwner ? 'Choose a plan to see who.' : 'Names come back when the gym has a plan.'}
+            />
+          ) : (p.quiet || []).length === 0 ? (
             <p className="t-body text-arc-muted px-1">Nobody has dropped off this week.</p>
           ) : (
             <div className="space-y-1.5">
@@ -316,6 +411,42 @@ export default function GymPulse() {
           <p className="t-caption text-arc-muted px-1 mt-2">Profile → Your gym → Enter a code. Put it on the wall.</p>
         </section>
 
+        {/* The plan. What the gym pays, and the one button that changes it. */}
+        <section>
+          <SectionLabel>Gym plan</SectionLabel>
+          {gymPlan === 'paid' || gymPlan === 'past_due' ? (
+            <ListRow
+              tone={gymPlan === 'past_due' ? 'warning' : 'default'}
+              icon={<span aria-hidden>🏋️</span>}
+              title={tier ? `${tier.name} · ${tier.price} a month` : 'Gym plan · active'}
+              caption={gymPlan === 'past_due'
+                ? 'Payment did not go through.'
+                : [
+                    tier ? `Up to ${tier.members} members` : 'Every member has everything',
+                    billing?.renews_at ? `renews ${new Date(billing.renews_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}` : null,
+                  ].filter(Boolean).join(' · ')}
+              trailing={isOwner && billing?.stripe_customer_id
+                ? <Button variant="secondary" size="sm" onClick={manage} disabled={billBusy}>Manage</Button>
+                : null}
+            />
+          ) : (
+            <ListRow
+              tone={isOwner ? 'accent' : 'default'}
+              onClick={isOwner ? openChooser : undefined}
+              icon={<span aria-hidden>🏋️</span>}
+              title={isOwner ? 'Choose a plan' : lapsed ? 'No plan' : 'Free pilot'}
+              caption={`From ${GYM_TIERS.gym.price} a month. Members stay free.`}
+            />
+          )}
+          {overCap && (
+            <p className="t-caption text-arc-warning px-1 mt-2">
+              {p.members} members is more than {tier.name} covers ({tier.members}). {isOwner ? `Move to ${GYM_TIERS.gym_large.name} under Manage.` : 'The owner can move the gym up a tier.'}
+            </p>
+          )}
+          {!isOwner && <p className="t-caption text-arc-muted px-1 mt-2">Only the owner changes the plan.</p>}
+          {billError && !choosing && <p role="alert" className="t-caption font-bold text-arc-danger px-1 mt-2">{billError}</p>}
+        </section>
+
         <p className="t-caption text-arc-muted px-1 pb-4">Only staff see this page. Members are never shown each other&apos;s absence.</p>
       </main>
 
@@ -335,6 +466,54 @@ export default function GymPulse() {
                 <Button variant="primary" className="flex-1" onClick={addClient} disabled={cBusy || cName.trim().length < 2 || !cEmail.includes('@')}>{cBusy ? 'Sending…' : 'Send invite'}</Button>
                 <Button variant="tertiary" onClick={() => setAdding(false)} disabled={cBusy}>{cNotice ? 'Done' : 'Cancel'}</Button>
               </div>
+            </div>
+          </div>
+        </>
+      )}
+      {choosing && (
+        <>
+          <div onClick={() => !billBusy && setChoosing(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+          <div role="dialog" aria-label="Choose a gym plan" className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50">
+            <div className="p-6 space-y-4 pb-safe max-w-lg mx-auto">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+              <div>
+                <h2 className="t-title text-white" style={{ fontSize: 20 }}>Choose a plan</h2>
+                <p className="t-caption text-arc-muted mt-0.5">The gym pays. Every member uses Arctivate free, with the coach and food scanning.</p>
+              </div>
+              <div className="space-y-2">
+                {[GYM_TIERS.gym, GYM_TIERS.gym_large].map(t => {
+                  const on = tierPick === t.key
+                  const suggested = tierFor(p.members || 0) === t.key
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setTierPick(t.key)}
+                      className={`w-full text-left rounded-container border px-4 py-3 transition-colors duration-fast ${on ? 'border-arc-accent bg-arc-accent/10' : 'border-white/[0.08] bg-arc-surface2/60'}`}
+                    >
+                      <div className="flex items-baseline gap-2">
+                        <span className="t-body font-bold text-white">{t.name}</span>
+                        {suggested && <span className="t-caption font-bold text-arc-accent">Fits your {p.members || 0}</span>}
+                        <span className="flex-1" />
+                        <span className="t-num text-[22px] font-black text-white">{t.price}</span>
+                        <span className="t-caption text-arc-muted">/month</span>
+                      </div>
+                      <span className="t-caption text-arc-muted block mt-1">
+                        {t.key === 'gym'
+                          ? `Up to ${t.members} members. The pulse, the at-risk and quiet lists, add clients, gym challenges.`
+                          : `Up to ${t.members} members. Everything in ${GYM_TIERS.gym.name}, for a bigger floor.`}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              {billError && <p role="alert" className="t-caption font-bold text-arc-danger">{billError}</p>}
+              <div className="flex gap-2">
+                <Button variant="primary" className="flex-1" onClick={checkout} disabled={billBusy}>{billBusy ? 'Opening…' : `Continue · ${GYM_TIERS[tierPick].price}/month`}</Button>
+                <Button variant="tertiary" onClick={() => setChoosing(false)} disabled={billBusy}>Cancel</Button>
+              </div>
+              <p className="t-caption text-arc-muted text-center">Paid by card on the web through Stripe. Monthly, cancel any time.</p>
             </div>
           </div>
         </>

@@ -68,7 +68,7 @@ export default function StartGym() {
         <Field label="Suburb or city" value={city} onChange={(e) => setCity(e.target.value.slice(0, 60))} placeholder="Optional" />
         {error && <p role="alert" className="t-caption font-bold text-arc-danger">{error}</p>}
         <Button variant="hero" size="lg" block onClick={submit} disabled={busy}>{busy ? 'Setting up…' : 'Open the gym'}</Button>
-        <p className="t-caption text-arc-muted text-center">Members stay free. When the pilot ends we will be in touch about the gym plan.</p>
+        <p className="t-caption text-arc-muted text-center">Members stay free. After 30 days the gym plan is $149 a month, and nothing is charged until you choose it.</p>
       </div>
     </div>
   )
