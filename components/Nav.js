@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { useSimpleMode } from '../lib/simpleMode'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { DumbbellIcon, CoachIcon, UsersIcon, HabitsIcon, FoodIcon, AdminIcon, FlagIcon } from './icons'
 
 export default function Nav() {
+  const { simple } = useSimpleMode()
   const router = useRouter()
   const [isAdmin, setIsAdmin] = useState(false)
   const [pendingInvites, setPendingInvites] = useState(0)
@@ -56,10 +58,12 @@ export default function Nav() {
             <DumbbellIcon size={20} />
             <span className="truncate max-w-full">Train</span>
         </Link>
+        {!simple && (
         <Link href="/coach" aria-label="Coach" aria-current={router.pathname === '/coach' ? 'page' : undefined} className={itemClasses('/coach')}>
             <CoachIcon size={20} />
             <span className="truncate max-w-full">Coach</span>
         </Link>
+        )}
         <Link href="/feed" aria-label="Feed" aria-current={router.pathname === '/feed' ? 'page' : undefined} className={itemClasses('/feed')}>
             <UsersIcon size={20} />
             <span className="truncate max-w-full">Feed</span>
@@ -80,10 +84,12 @@ export default function Nav() {
             </span>
             <span className="truncate max-w-full">Challenge</span>
         </Link>
+        {!simple && (
         <Link href="/food" aria-label="Food" aria-current={router.pathname === '/food' ? 'page' : undefined} className={itemClasses('/food')}>
             <FoodIcon size={20} />
             <span className="truncate max-w-full">Food</span>
         </Link>
+        )}
         {/* Profile lives top-right in each page header now — see ProfileButton */}
         {isAdmin && (
             <Link href="/admin/workouts" aria-label="Admin" aria-current={router.pathname === '/admin/workouts' ? 'page' : undefined} className={itemClasses('/admin/workouts')}>

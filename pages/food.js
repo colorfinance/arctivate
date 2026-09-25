@@ -3,6 +3,8 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import Masthead, { MastheadAction } from '../components/Masthead'
+import { usePlan } from '../lib/plan'
+import Paywall from '../components/Paywall'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { parseCsv, detectColumns, detectDateOrder, buildEntries, summarise, toLogRow, MAX_ROWS, MAX_BYTES } from '../lib/csvImport'
@@ -217,6 +219,8 @@ export default function Food() {
   const [savingGoals, setSavingGoals] = useState(false)
   const [copying, setCopying] = useState(false)
   const [showFavourites, setShowFavourites] = useState(false)
+  const plan = usePlan()
+  const [showPaywall, setShowPaywall] = useState(false)
   const [addingFav, setAddingFav] = useState(null)
   const [myFavourites, setMyFavourites] = useState([])
   const [favForm, setFavForm] = useState({ name: '', brand: '', baseQty: '100', baseUnit: 'g', cals: '', p: '', c: '', f: '' })
@@ -1504,12 +1508,17 @@ export default function Food() {
           </div>
         </div>
 
+        {showPaywall && plan.ready && !plan.entitled && (
+          <div className="mt-4"><Paywall feature="Food scanning" /></div>
+        )}
+
         {/* Action Buttons - Scan, Voice, Manual */}
         <div className="mt-4 grid grid-cols-2 gap-3">
           {/* Scan is the primary way in; voice and manual are beside it. */}
           <button
             onClick={() => {
               setError(null)
+              if (plan.ready && !plan.entitled) { setShowPaywall(true); return }
               if (cameraActive) stopCamera()
               fileInputRef.current?.click()
             }}
@@ -1536,7 +1545,7 @@ export default function Food() {
 
           {/* Voice Note */}
           <button
-            onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+            onClick={() => { if (plan.ready && !plan.entitled) { setShowPaywall(true); return } ; (isRecording ? stopVoiceRecording : startVoiceRecording)() }}
             disabled={scanning || voiceProcessing}
             className={`bg-arc-surface2/60 border rounded-control p-3 flex flex-col items-center gap-1.5 active:scale-95 transition disabled:opacity-50 ${isRecording ? 'border-red-500/50 bg-red-500/5' : 'border-white/[0.05] hover:border-white/15'}`}
           >

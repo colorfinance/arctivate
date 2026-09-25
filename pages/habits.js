@@ -8,6 +8,7 @@ import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
 import { fetchStreaks, streakFor } from '../lib/streaks'
 import StreakBanner from '../components/StreakBanner'
+import { useSimpleMode } from '../lib/simpleMode'
 import { ensureReminderPermission, syncHabitReminders, reminderPermissionState, syncDailyNudge } from '../lib/reminders'
 // Lazy-load confetti to keep initial bundle small
 const fireConfetti = async (opts) => {
@@ -321,6 +322,7 @@ export default function Habits() {
   const [strictMode, setStrictMode] = useState(false)
   // Whether this member runs their gym; if so, the pulse is one row away.
   const [gymStaff, setGymStaff] = useState(false)
+  const { simple } = useSimpleMode()
   const [savingStrict, setSavingStrict] = useState(false)
   const [showStrictConfirm, setShowStrictConfirm] = useState(false)
   const [strictReset, setStrictReset] = useState(null) // date that was missed
@@ -1566,7 +1568,7 @@ export default function Habits() {
             )}
 
             {/* Weekly Habits */}
-            {weeklyHabits.length > 0 && (
+            {!simple && weeklyHabits.length > 0 && (
                 <section className="space-y-2">
                     <SectionLabel trailing={<span className="t-caption text-arc-muted">{weeklyDoneCount}/{weeklyTotal} · resets Monday</span>}>This week</SectionLabel>
                     {weeklyHabits.map(habit => {
@@ -1617,7 +1619,7 @@ export default function Habits() {
 
             {/* Reminders live with the other settings now. A prompt was sitting
                 above the list it was prompting you to tick. */}
-            {remindersBlocked && (
+            {!simple && remindersBlocked && (
                 <Banner
                     tone="info"
                     icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-accent" aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
@@ -1642,6 +1644,7 @@ export default function Habits() {
                     caption={nudgeTime ? `Once a day at ${fmtReminder(nudgeTime)}` : 'Off — tap to get a daily reminder'}
                 />
                 <ListRow
+                    className={simple ? 'hidden' : ''}
                     onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
                     tone={strictMode ? 'warning' : 'default'}
                     icon={<span className={strictMode ? 'text-arc-warning' : ''}>{strictMode ? <LockIcon size={16} /> : <UnlockIcon size={16} />}</span>}
@@ -1677,7 +1680,7 @@ export default function Habits() {
             </section>
 
             {/* Weigh-in trend — only once there's something to show */}
-            {weightLogs.length > 0 && (
+            {!simple && weightLogs.length > 0 && (
                 <section className="space-y-3">
                     <SectionLabel trailing={<span className="t-caption text-arc-muted">{weightLogs.length} logged</span>}>Weigh-in</SectionLabel>
                     <div className="bg-arc-surface2/60 border border-white/[0.05] p-5 rounded-container relative overflow-hidden">
@@ -1712,7 +1715,7 @@ export default function Habits() {
             )}
 
             {/* Progress Photo Section - 75 Hard Style */}
-            <section className="space-y-2 pb-12">
+            <section className={`space-y-2 pb-12 ${simple ? 'hidden' : ''}`}>
                 <SectionLabel trailing={progressPhoto ? (
                     <span className="t-caption font-bold text-arc-success flex items-center gap-1">
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12"/></svg>
