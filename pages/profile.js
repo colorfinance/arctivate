@@ -8,6 +8,8 @@ import Masthead from '../components/Masthead'
 import Button from '../components/Button'
 import Avatar from '../components/Avatar'
 import { goalFor } from '../lib/challenges'
+import { useSimpleMode } from '../lib/simpleMode'
+import { usePlan, PREMIUM_PRICE, startCheckout, openBillingPortal } from '../lib/plan'
 import { ListRow, SectionLabel } from '../components/ui'
 import Field from '../components/Field'
 import { getStoredTheme, setTheme as applyStoredTheme } from '../lib/theme'
@@ -85,6 +87,28 @@ export default function Profile() {
   const [gymCity, setGymCity] = useState('')
   const [gymBusy, setGymBusy] = useState(false)
   const [gymError, setGymError] = useState('')
+  const { simple, setSimpleMode } = useSimpleMode()
+  const plan = usePlan()
+  const [billingBusy, setBillingBusy] = useState(false)
+  const [billingMsg, setBillingMsg] = useState('')
+
+  useEffect(() => {
+    if (router.query?.billing === 'success') {
+      setBillingMsg('Thanks. Premium is on its way to your account; it can take a few seconds.')
+      router.replace('/profile', undefined, { shallow: true })
+    }
+  }, [router])
+
+  const goPremium = async () => {
+    setBillingBusy(true); setBillingMsg('')
+    const err = await startCheckout()
+    if (err) { setBillingMsg(err); setBillingBusy(false) }
+  }
+  const manageBilling = async () => {
+    setBillingBusy(true); setBillingMsg('')
+    const err = await openBillingPortal()
+    if (err) { setBillingMsg(err); setBillingBusy(false) }
+  }
 
   useEffect(() => {
     const gid = profile?.gym_id
@@ -584,6 +608,61 @@ export default function Profile() {
             <span className="text-xs text-arc-muted">{Math.max(0, calorieGoal - dailyCalories)} cal remaining</span>
           </div>
         </motion.div>
+
+        {/* Your plan. A member in a gym is covered; a member on their own can pay. */}
+        <section className="mt-8">
+          <SectionLabel>Your plan</SectionLabel>
+          <div className="space-y-1.5">
+            {!plan.ready ? null : plan.gymPlan === 'pilot' || plan.gymPlan === 'paid' ? (
+              <ListRow
+                icon={<span aria-hidden>✅</span>}
+                title={`Covered by ${plan.gymName || 'your gym'}`}
+                caption="Everything is included through your gym."
+              />
+            ) : plan.plan === 'premium' ? (
+              <ListRow
+                icon={<span aria-hidden>✨</span>}
+                title={`Premium · ${PREMIUM_PRICE} a month`}
+                caption={plan.renewsAt ? `Renews ${new Date(plan.renewsAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}` : 'Coach, food scanning and history.'}
+                trailing={<Button variant="secondary" size="sm" onClick={manageBilling} disabled={billingBusy}>Manage</Button>}
+              />
+            ) : plan.plan === 'past_due' ? (
+              <ListRow
+                tone="warning"
+                icon={<span aria-hidden>⚠️</span>}
+                title="Payment did not go through"
+                caption="Update your card to keep Premium."
+                trailing={<Button variant="primary" size="sm" onClick={manageBilling} disabled={billingBusy}>Fix</Button>}
+              />
+            ) : (
+              <ListRow
+                tone="accent"
+                onClick={goPremium}
+                icon={<span aria-hidden>✨</span>}
+                title={`Go Premium · ${PREMIUM_PRICE} a month`}
+                caption="Coach, food scanning and history. Cancel any time. Free through a gym on Arctivate."
+              />
+            )}
+            {billingMsg && <p className="t-caption text-arc-muted px-1">{billingMsg}</p>}
+          </div>
+        </section>
+
+        {/* Simple mode: only what is necessary. */}
+        <section className="mt-8">
+          <SectionLabel>Simple mode</SectionLabel>
+          <ListRow
+            onClick={() => setSimpleMode(!simple)}
+            tone={simple ? 'accent' : 'default'}
+            icon={<span aria-hidden>🧘</span>}
+            title="Simple mode"
+            caption={simple ? 'On. Just Today, Train, Feed and Challenge.' : 'Hide photos, notes, weigh-in, badges, Coach and Food.'}
+            trailing={
+              <span role="switch" aria-checked={simple} className={`w-10 h-6 rounded-full flex items-center px-0.5 transition-colors duration-fast ${simple ? 'bg-arc-accent justify-end' : 'bg-white/10 justify-start'}`}>
+                <span className="w-5 h-5 rounded-full bg-white shadow" />
+              </span>
+            }
+          />
+        </section>
 
         {/* Your gym: who you are ranked against, and how to run one. */}
         <section className="mt-8">

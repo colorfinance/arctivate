@@ -10,6 +10,7 @@ import Button from '../components/Button'
 import WagerPicker from '../components/WagerPicker'
 import { resizeToBlob } from '../lib/imageResize'
 import MeasurementsSheet, { MEASURES, fmtDelta } from '../components/MeasurementsSheet'
+import { useSimpleMode } from '../lib/simpleMode'
 import { friendIds, VISIBILITY } from '../lib/social'
 import {
   challengeDay, challengeProgress, daysRemaining, daysUntilStart, isFinished, hasStarted,
@@ -63,6 +64,7 @@ export default function Challenges() {
   const [measures, setMeasures] = useState([])
   const [measureFor, setMeasureFor] = useState(null) // { ch, kind }
   const [savingMeasure, setSavingMeasure] = useState(false)
+  const { simple } = useSimpleMode()
   const proofInputRef = useRef(null)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1395,7 +1397,7 @@ export default function Challenges() {
         )}
 
         {/* Calling someone out is the secondary action; the gym challenge is the hero. */}
-        <section className="rounded-container border border-white/[0.06] bg-arc-surface2/50 p-5 space-y-4">
+        <section className={`rounded-container border border-white/[0.06] bg-arc-surface2/50 p-5 space-y-4 ${simple ? 'hidden' : ''}`}>
           <div className="space-y-1">
             <h2 className="t-title text-white">Call someone out</h2>
             <p className="t-body text-arc-muted">
@@ -1432,7 +1434,7 @@ export default function Challenges() {
         </section>
 
         {/* What you've earned */}
-        {myBadges.length > 0 && (
+        {!simple && myBadges.length > 0 && (
           <section className="bg-arc-card border border-white/[0.06] rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Your badges</span>

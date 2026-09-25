@@ -91,6 +91,7 @@ export default function Onboarding() {
         .order('total_points', { ascending: false, nullsFirst: false })
         .limit(24)
       if (me?.gym_id) q = q.eq('gym_id', me.gym_id)
+      else { setGymMates([]); return }
       const { data } = await q
       setGymMates(data || [])
     } catch {

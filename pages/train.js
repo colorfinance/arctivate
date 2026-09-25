@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
 import Masthead from '../components/Masthead'
+import { useSimpleMode } from '../lib/simpleMode'
 import Button from '../components/Button'
 import LoadingState from '../components/LoadingState'
 import { supabase } from '../lib/supabaseClient'
@@ -244,6 +245,15 @@ export default function Train() {
   const [savingWorkout, setSavingWorkout] = useState(false)
   const [editingWorkout, setEditingWorkout] = useState(null) // your own workout being edited
   const [completedPrescribed, setCompletedPrescribed] = useState(() => new Set())
+  // What you did last time, by movement name: the number you want to beat,
+  // prefilled so a set is one tap and a number. Strong and Hevy live on this.
+  const [lastByName, setLastByName] = useState({})
+  // The prescribed movement the logger was opened for, if any.
+  const [loggerDwe, setLoggerDwe] = useState(null)
+  // Rest between sets. Starts when a set lands; the chip counts down.
+  const [restLeft, setRestLeft] = useState(0)
+  const [restSecs, setRestSecs] = useState(90)
+  const { simple } = useSimpleMode()
   const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
   const [expandedId, setExpandedId] = useState(null) // which movement's inline form is open
@@ -285,7 +295,7 @@ export default function Train() {
             return
         }
 
-        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id), fetchWorkoutsForDate(user.id, localDateStr())])
+        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id), fetchLastSets(user.id), fetchWorkoutsForDate(user.id, localDateStr())])
         setIsLoading(false)
     }
     load()
@@ -404,6 +414,69 @@ export default function Train() {
       setCurrentPB(0)
     }
   }
+
+  // Last set and best set per movement, keyed by lowercase name.
+  async function fetchLastSets(userId) {
+    try {
+      const { data } = await supabase
+        .from('workout_logs')
+        .select('value, reps, sets, created_at, exercises(name, metric_type)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(300)
+      const map = {}
+      for (const row of data || []) {
+        const name = (row.exercises?.name || '').trim().toLowerCase()
+        if (!name) continue
+        const isTime = row.exercises?.metric_type === 'time'
+        const v = Number(row.value) || 0
+        if (!map[name]) map[name] = { value: v, reps: row.reps, sets: row.sets, pb: v, metric: row.exercises?.metric_type || 'weight' }
+        else if (v > 0 && (isTime ? (v < map[name].pb || map[name].pb === 0) : v > map[name].pb)) map[name].pb = v
+      }
+      setLastByName(map)
+    } catch { setLastByName({}) }
+  }
+
+  // Rest timer: one interval, ticking down while restLeft > 0.
+  useEffect(() => {
+    if (restLeft <= 0) return
+    const t = setInterval(() => setRestLeft((n) => (n <= 1 ? 0 : n - 1)), 1000)
+    return () => clearInterval(t)
+  }, [restLeft])
+
+  // Open the logger for a prescribed movement, prefilled with what you did
+  // last time. Finds or creates the matching exercise so the PB is right.
+  const openLoggerFor = async (dwe, mode = 'workout') => {
+    let ex = exercises.find((e) => e.name.trim().toLowerCase() === dwe.name.trim().toLowerCase())
+    if (!ex) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const insertData = { user_id: user.id, name: dwe.name, metric_type: dwe.metric_type || 'weight' }
+      let { data, error } = await supabase.from('exercises').insert(insertData).select().single()
+      if (error && error.message?.includes('user_id')) {
+        delete insertData.user_id
+        const retry = await supabase.from('exercises').insert(insertData).select().single()
+        data = retry.data; error = retry.error
+      }
+      if (error || !data) { showToast('Could not open that movement'); return }
+      ex = data
+      setExercises((prev) => [...prev, data])
+    }
+    const last = lastByName[dwe.name.trim().toLowerCase()]
+    setSelectedExId(ex.id)
+    setLoggerDwe(dwe)
+    setLoggerMode(mode)
+    if (mode === 'workout') {
+      setValue(last?.value ? String(last.value) : (dwe.target_value != null ? String(dwe.target_value) : ''))
+      setReps(last?.reps ? String(last.reps) : (dwe.target_reps != null ? String(dwe.target_reps) : ''))
+      setSets(dwe.target_sets != null ? String(dwe.target_sets) : '')
+    } else {
+      setValue('')
+    }
+    setShowLogger(true)
+  }
+
+  const closeLogger = () => { setShowLogger(false); setLoggerDwe(null) }
 
   async function fetchWorkoutHistory(userId) {
     try {
@@ -759,6 +832,7 @@ export default function Train() {
       }
       // Ticking (or un-ticking) a workout changes the day-streak — refresh it.
       fetchWorkoutHistory(user.id)
+      fetchLastSets(user.id)
     } catch {
       setCompletedWorkouts(snapshot); showToast('Something went wrong')
     }
@@ -1619,34 +1693,6 @@ export default function Train() {
 
         <main className="pt-20 px-5 space-y-6 max-w-lg mx-auto">
 
-            {/* Streak and sets. Points live on the leaderboard. */}
-            <section className="flex items-center justify-center gap-5 t-caption font-bold text-arc-muted">
-                <span><span className="t-num text-arc-success font-black">{streakInfo.current}</span> day streak</span>
-                <span className="text-white/10">·</span>
-                <span><span className="t-num text-white font-black">{todaySets}</span> {todaySets === 1 ? 'set' : 'sets'} today</span>
-            </section>
-
-            {/* One primary: log something. PB and notes are secondary. */}
-            <section className="space-y-2">
-                <Button variant="hero" size="lg" block onClick={() => { setLoggerMode('workout'); setShowLogger(true) }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M6.5 17.5l-4 4M17.5 6.5l4-4"/></svg>
-                    Log a workout
-                </Button>
-                <div className="grid grid-cols-2 gap-2">
-                    <Button variant="secondary" onClick={() => { setLoggerMode('pb'); setShowLogger(true) }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-cyan" aria-hidden><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6m12 0h1.5a2.5 2.5 0 0 1 0 5H18M6 4h12v6a6 6 0 0 1-12 0zM8 22h8M12 16v6"/></svg>
-                        Log a PB
-                    </Button>
-                    <Button variant="secondary" onClick={() => openNotes('')} className="relative">
-                        {(notesByWorkout['']?.body || '').trim() && (
-                            <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-arc-accent" />
-                        )}
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70" aria-hidden><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-                        Notes
-                    </Button>
-                </div>
-            </section>
-
             {/* Hidden input used by "Scan a workout" inside the Log Workout sheet */}
             <input
                 ref={scanInputRef} type="file" accept="image/*" capture="environment" className="hidden"
@@ -1679,164 +1725,137 @@ export default function Train() {
                 <button onClick={() => router.push('/history')} className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0 inline-flex items-center gap-1.5">History <ArrowRightIcon size={11} /></button>
             </div>
 
-            {/* Workout(s) for the selected day — tap to see it, tick to complete */}
+            {/* The workout, plain: what it is, then the movements. Tap a
+                movement to put a weight on it; the trophy logs a PB. */}
             {todayWorkouts.map((workout, wIdx) => {
                 const done = completedWorkouts.has(workout.id)
                 const movements = workout.exercises || []
-                const hasDetail = movements.length > 0 || !!workout.description
-                const open = expandedWorkouts.has(workout.id)
                 return (
                     <motion.section
                         key={workout.id}
-                        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 + wIdx * 0.05 }}
-                        className="relative"
+                        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + wIdx * 0.04 }}
+                        className={`rounded-container border overflow-hidden transition-colors ${done ? 'bg-arc-success/[0.06] border-arc-success/30' : 'bg-arc-surface2/60 border-white/[0.06]'}`}
                     >
-                        <div className="absolute -inset-[1px] bg-gradient-to-b from-arc-cyan/20 via-arc-accent/10 to-transparent rounded-[2rem] blur-sm opacity-60" />
-                        <div className={`relative border rounded-[2rem] shadow-card overflow-hidden transition-colors ${done ? 'bg-emerald-500/[0.06] border-emerald-500/30' : 'bg-arc-card border-white/[0.06]'}`}>
-                            <div className="h-[2px] bg-accent-gradient-r" />
-                            <div className="p-5 flex items-center gap-4">
+                        <div className="p-5 space-y-3">
+                            <div className="flex items-start gap-3">
                                 <button
                                     onClick={() => toggleWorkoutComplete(workout)}
                                     aria-label={done ? 'Mark not done' : 'Mark done'}
-                                    className={`w-12 h-12 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-emerald-500 border-emerald-500' : 'border-white/25 hover:border-arc-accent'}`}
+                                    className={`mt-0.5 w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-arc-success border-arc-success' : 'border-white/25 hover:border-arc-accent'}`}
                                 >
                                     {done
-                                        ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                        : <span className="text-[8px] font-black uppercase tracking-wider text-arc-muted">Tick</span>}
+                                        ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                        : <span className="text-[8px] font-black uppercase tracking-wider text-arc-muted">Done</span>}
                                 </button>
-                                <button
-                                    onClick={() => hasDetail && toggleWorkout(workout.id)}
-                                    className="flex-1 min-w-0 text-left"
-                                    aria-expanded={open}
-                                >
-                                    <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
-                                        {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : (selectedDate === localDateStr() ? "Today's Workout" : 'Workout'))}
+                                <div className="flex-1 min-w-0">
+                                    <span className={`t-label ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
+                                        {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : (selectedDate === localDateStr() ? "Today's workout" : 'Workout'))}
                                     </span>
-                                    <h2 className={`text-xl font-black italic tracking-tight mt-0.5 ${done ? 'text-arc-muted line-through' : 'text-white'}`}>{workout.title}</h2>
-                                    {hasDetail && (
-                                        <span className="text-[10px] font-bold text-arc-accent uppercase tracking-[0.15em] mt-1 inline-flex items-center gap-1">
-                                            {open ? 'Hide workout' : 'See the workout'}
-                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${open ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
-                                        </span>
+                                    <h2 className={`t-title mt-0.5 ${done ? 'text-arc-muted line-through' : 'text-white'}`} style={{ fontSize: 20 }}>{workout.title}</h2>
+                                    {workout.description && (
+                                        <p className="t-body text-white/80 whitespace-pre-line mt-1.5">{workout.description}</p>
                                     )}
-                                </button>
+                                </div>
                                 {workout.owner_id && (
-                                    <div className="flex items-center gap-0.5 shrink-0 self-start">
-                                        <button onClick={() => openEditWorkout(workout)} aria-label="Edit workout" className="text-white/20 hover:text-arc-cyan transition-colors p-1">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    <div className="flex items-center gap-0.5 shrink-0">
+                                        <button onClick={() => openEditWorkout(workout)} aria-label="Edit workout" className="w-8 h-8 rounded-full flex items-center justify-center text-white/25 hover:text-white transition-colors">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
                                         </button>
-                                        <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="text-white/20 hover:text-red-400 transition-colors p-1">
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                        <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="w-8 h-8 rounded-full flex items-center justify-center text-white/25 hover:text-arc-danger transition-colors">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                                         </button>
                                     </div>
                                 )}
                             </div>
 
-                            {/* The actual workout — what it is, plain and simple */}
-                            <AnimatePresence initial={false}>
-                                {open && hasDetail && (
-                                    <motion.div
-                                        initial={{ height: 0, opacity: 0 }}
-                                        animate={{ height: 'auto', opacity: 1 }}
-                                        exit={{ height: 0, opacity: 0 }}
-                                        transition={{ duration: 0.22, ease: 'easeOut' }}
-                                        className="overflow-hidden"
-                                    >
-                                        <div className="px-5 pb-5 pt-1 space-y-3 border-t border-white/[0.06] mt-1">
-                                            {workout.description && (
-                                                <p className="text-[13px] text-white/85 leading-relaxed whitespace-pre-line pt-3">{workout.description}</p>
-                                            )}
+                            {movements.length > 0 && (
+                                <div className="space-y-1.5">
+                                    {movements.map((ex, i) => {
+                                        const scheme = movementScheme(ex)
+                                        const last = lastByName[(ex.name || '').trim().toLowerCase()]
+                                        const unit = unitShort(last?.metric || ex.metric_type)
+                                        const logged = completedPrescribed.has(ex.id)
+                                        return (
+                                            <div key={ex.id || i} className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-control border transition-colors ${logged ? 'bg-arc-success/[0.08] border-arc-success/30' : 'bg-arc-surface2/70 border-white/[0.05]'}`}>
+                                                <button
+                                                    onClick={() => openLoggerFor(ex, 'workout')}
+                                                    className="flex-1 min-w-0 flex items-center gap-3 py-1.5 text-left"
+                                                    aria-label={`Log ${ex.name}`}
+                                                >
+                                                    <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center ${logged ? 'bg-arc-success border-arc-success text-black' : 'border-white/25 text-transparent'}`}>
+                                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                                    </span>
+                                                    <span className="min-w-0">
+                                                        <span className={`block text-[14px] font-bold truncate ${logged ? 'text-arc-success/80' : 'text-white'}`}>
+                                                            {ex.name}{scheme && <span className="t-num text-arc-muted font-bold ml-2 text-[12px]">{scheme}</span>}
+                                                        </span>
+                                                        <span className="block t-caption text-arc-muted truncate">
+                                                            {last?.value
+                                                                ? `Last ${last.value}${unit}${last.reps ? ` × ${last.reps}` : ''}${last.pb && last.pb !== last.value ? ` · PB ${last.pb}${unit}` : ''}`
+                                                                : ex.notes || ((last?.metric || ex.metric_type) === 'time' ? 'Tap to add your time' : (last?.metric || ex.metric_type) === 'reps' ? 'Tap to add your reps' : 'Tap to add your weight')}
+                                                        </span>
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    onClick={() => openLoggerFor(ex, 'pb')}
+                                                    aria-label={`Log a PB for ${ex.name}`}
+                                                    className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white/30 hover:text-arc-cyan transition-colors"
+                                                >
+                                                    <TrophyIcon size={16} />
+                                                </button>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
 
-                                            {movements.length > 0 && (
-                                                <div className="space-y-1.5 pt-1">
-                                                    {movements.map((ex, i) => {
-                                                        const scheme = movementScheme(ex)
-                                                        return (
-                                                            <div key={ex.id || i} className="flex items-baseline justify-between gap-3 bg-arc-surface/60 border border-white/[0.04] rounded-xl px-3.5 py-2.5">
-                                                                <div className="min-w-0">
-                                                                    <span className="text-[13px] font-bold text-white">{ex.name}</span>
-                                                                    {ex.notes && <span className="block text-[10px] text-arc-muted mt-0.5 leading-snug">{ex.notes}</span>}
-                                                                </div>
-                                                                {scheme && <span className="text-[11px] font-mono font-bold text-arc-accent shrink-0">{scheme}</span>}
-                                                            </div>
-                                                        )
-                                                    })}
-                                                </div>
-                                            )}
+                            {movements.length === 0 && (
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('workout'); setShowLogger(true) }}>Log a set</Button>
+                                    <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('pb'); setValue(''); setShowLogger(true) }}>Log a PB</Button>
+                                </div>
+                            )}
 
-                                            {/* Photos for this workout — private to you */}
-                                            {(() => {
-                                                const pics = workoutPhotos[workout.id] || []
-                                                const busy = photoUploadFor === workout.id
-                                                return (
-                                                    <div className="pt-1 space-y-2">
-                                                        {pics.length > 0 && (
-                                                            <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
-                                                                {pics.map((p) => (
-                                                                    <div key={p.id} className="relative shrink-0">
-                                                                        {p.url ? (
-                                                                            // eslint-disable-next-line @next/next/no-img-element
-                                                                            <img src={p.url} alt="" className="w-20 h-20 object-cover rounded-xl border border-white/[0.06]" />
-                                                                        ) : (
-                                                                            <div className="w-20 h-20 rounded-xl bg-arc-surface border border-white/[0.06]" />
-                                                                        )}
-                                                                        <button
-                                                                            onClick={() => removeWorkoutPhoto(workout.id, p)}
-                                                                            aria-label="Remove photo"
-                                                                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-arc-bg border border-white/15 text-white/60 hover:text-red-400 flex items-center justify-center"
-                                                                        >
-                                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                                                        </button>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
+                            {!simple && (() => {
+                                const pics = workoutPhotos[workout.id] || []
+                                const busy = photoUploadFor === workout.id
+                                const myNote = (notesByWorkout[workout.id]?.body || '').trim()
+                                return (
+                                    <div className="pt-1 space-y-2">
+                                        {pics.length > 0 && (
+                                            <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                                                {pics.map((p) => (
+                                                    <div key={p.id} className="relative shrink-0">
+                                                        {p.url ? (
+                                                            // eslint-disable-next-line @next/next/no-img-element
+                                                            <img src={p.url} alt="" className="w-20 h-20 object-cover rounded-xl border border-white/[0.06]" />
+                                                        ) : (
+                                                            <div className="w-20 h-20 rounded-xl bg-arc-surface border border-white/[0.06]" />
                                                         )}
                                                         <button
-                                                            onClick={() => pickWorkoutPhoto(workout.id)}
-                                                            disabled={busy}
-                                                            className="w-full bg-arc-surface border border-white/[0.06] text-arc-muted font-bold py-3 rounded-xl text-xs hover:text-white hover:border-arc-accent/30 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                                                            onClick={() => removeWorkoutPhoto(workout.id, p)}
+                                                            aria-label="Remove photo"
+                                                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-arc-bg border border-white/15 text-white/60 hover:text-red-400 flex items-center justify-center"
                                                         >
-                                                            {busy ? (
-                                                                <>
-                                                                    <span className="w-3.5 h-3.5 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-                                                                    Uploading…
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                                                                    {pics.length ? 'Add another photo' : 'Add a photo'}
-                                                                </>
-                                                            )}
+                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
                                                         </button>
                                                     </div>
-                                                )
-                                            })()}
-
-                                            {/* This workout's own notes */}
-                                            {(() => {
-                                                const myNote = (notesByWorkout[workout.id]?.body || '').trim()
-                                                return (
-                                                    <div className="pt-1 space-y-2">
-                                                        {myNote && (
-                                                            <div className="bg-arc-surface/60 border border-white/[0.04] rounded-xl px-3.5 py-2.5">
-                                                                <span className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em]">Your notes</span>
-                                                                <p className="text-[12px] text-white/85 leading-relaxed whitespace-pre-line mt-1">{myNote}</p>
-                                                            </div>
-                                                        )}
-                                                        <button
-                                                            onClick={() => openNotes(workout.id)}
-                                                            className="w-full bg-arc-surface border border-white/[0.06] text-arc-muted font-bold py-3 rounded-xl text-xs hover:text-white hover:border-arc-accent/30 transition-colors flex items-center justify-center gap-2"
-                                                        >
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                                            {myNote ? 'Edit your notes' : 'Add your notes'}
-                                                        </button>
-                                                    </div>
-                                                )
-                                            })()}
+                                                ))}
+                                            </div>
+                                        )}
+                                        {myNote && (
+                                            <div className="bg-arc-surface/60 border border-white/[0.04] rounded-xl px-3.5 py-2.5">
+                                                <span className="t-label text-arc-muted">Your notes</span>
+                                                <p className="text-[12px] text-white/85 leading-relaxed whitespace-pre-line mt-1">{myNote}</p>
+                                            </div>
+                                        )}
+                                        <div className="flex gap-2">
+                                            <Button variant="tertiary" size="sm" onClick={() => pickWorkoutPhoto(workout.id)} disabled={busy}>{busy ? 'Uploading…' : (pics.length ? 'Add photo' : 'Photo')}</Button>
+                                            <Button variant="tertiary" size="sm" onClick={() => openNotes(workout.id)}>{myNote ? 'Edit notes' : 'Notes'}</Button>
                                         </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                                    </div>
+                                )
+                            })()}
                         </div>
                     </motion.section>
                 )
@@ -1844,14 +1863,17 @@ export default function Train() {
 
             {/* Nothing scheduled / logged for this day */}
             {todayWorkouts.length === 0 && (
-                <div className="bg-arc-card border border-white/[0.06] rounded-2xl py-6 text-center">
-                    <p className="text-sm text-arc-muted">{selectedDate === localDateStr() ? 'No workout today yet.' : 'No workout on this day.'}</p>
-                    <p className="text-[11px] text-arc-muted/70 mt-0.5">Add one below, or log sets with “Log Workout”.</p>
+                <div className="rounded-container border border-white/[0.06] bg-arc-surface2/60 py-6 px-5 text-center space-y-3">
+                    <p className="t-body text-arc-muted">{selectedDate === localDateStr() ? 'No workout today yet.' : 'No workout on this day.'}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                        <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('workout'); setShowLogger(true) }}>Log a set</Button>
+                        <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('pb'); setValue(''); setShowLogger(true) }}>Log a PB</Button>
+                    </div>
                 </div>
             )}
 
             {/* The day's note — shown on the day so it isn't lost behind a button */}
-            {(() => {
+            {!simple && (() => {
                 const dayNote = (notesByWorkout['']?.body || '').trim()
                 if (!dayNote) return null
                 return (
@@ -1895,7 +1917,7 @@ export default function Train() {
                 <>
                     <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setShowLogger(false)}
+                        onClick={closeLogger}
                         className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
                     />
                     <motion.div
@@ -1907,19 +1929,21 @@ export default function Train() {
 
                     <div className="p-6 space-y-5">
                         <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
-                        <h2 className="text-center text-lg font-black italic tracking-tight">{loggerMode === 'pb' ? <span className="inline-flex items-center gap-2">LOG A PB <TrophyIcon size={16} /></span> : 'LOG A WORKOUT'}</h2>
+                        <h2 className="text-center text-lg font-black italic tracking-tight">{loggerMode === 'pb' ? <span className="inline-flex items-center gap-2">LOG A PB <TrophyIcon size={16} /></span> : (loggerDwe ? loggerDwe.name.toUpperCase() : 'LOG A SET')}</h2>
+                        {restLeft > 0 && (
+                            <div className="flex items-center justify-between rounded-control border border-arc-accent/30 bg-arc-accent/[0.08] px-4 py-2.5">
+                                <span className="text-[13px] font-bold text-white">Rest <span className="t-num text-arc-accent">{Math.floor(restLeft / 60)}:{String(restLeft % 60).padStart(2, '0')}</span></span>
+                                <button onClick={() => setRestLeft(0)} className="t-caption font-bold text-arc-muted hover:text-white">Skip</button>
+                            </div>
+                        )}
 
                         {/* Exercise Selection Header */}
                         <div className="flex justify-between items-center">
                             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Movement</label>
                             <div className="flex gap-3">
-                                {loggerMode !== 'pb' && (
+                                {loggerMode !== 'pb' && !simple && (
                                     <>
-                                        <button onClick={() => !scanning && scanInputRef.current?.click()} disabled={scanning} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50">
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                                            {scanning ? '…' : 'Scan'}
-                                        </button>
-                                        <button onClick={() => { setShowLogger(false); setShowSession(true) }} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
+                                        <button onClick={() => { closeLogger(); setShowSession(true) }} className="text-[9px] font-bold text-arc-cyan uppercase tracking-[0.15em] hover:text-white transition-colors flex items-center gap-1">
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                                             Session
                                         </button>
@@ -2013,7 +2037,24 @@ export default function Train() {
                         {/* Log Button */}
                         <motion.button
                             whileTap={{ scale: 0.98 }}
-                            onClick={async () => { await handleLog(); if (loggerMode === 'pb') setShowLogger(false) }}
+                            onClick={async () => {
+                                if (loggerMode === 'workout' && loggerDwe) {
+                                    if (isLogging) return
+                                    setIsLogging(true)
+                                    const r = await logMovement(loggerDwe, { value, reps, sets, rpe })
+                                    setIsLogging(false)
+                                    if (r.ok) {
+                                        showToast(r.isPB ? 'New PB! 🎉' : `Logged ${loggerDwe.name}`)
+                                        const { data: { user } } = await supabase.auth.getUser()
+                                        if (user) { fetchLastSets(user.id); fetchWorkoutHistory(user.id) }
+                                        setRestLeft(restSecs)
+                                    }
+                                    return
+                                }
+                                await handleLog()
+                                if (loggerMode === 'pb') closeLogger()
+                                else setRestLeft(restSecs)
+                            }}
                             disabled={(loggerMode === 'pb' ? !value : (!value && !reps)) || isLogging}
                             className="w-full bg-accent-gradient text-white font-black italic tracking-wider py-5 rounded-xl shadow-glow-accent text-lg disabled:opacity-40 disabled:shadow-none transition-all flex items-center justify-center gap-2"
                         >
@@ -2030,15 +2071,23 @@ export default function Train() {
                               loggerMode === 'pb' ? 'LOG PB' : 'LOG SET'
                             )}
                         </motion.button>
-                        <button onClick={() => setShowLogger(false)} className="w-full text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors">Done</button>
+                        {loggerMode !== 'pb' && (
+                            <div className="flex items-center justify-center gap-2 t-caption text-arc-muted">
+                                <span>Rest after a set</span>
+                                {[60, 90, 120].map((n) => (
+                                    <button key={n} onClick={() => setRestSecs(n)} className={`px-2.5 py-1 rounded-full font-bold ${restSecs === n ? 'bg-arc-accent/15 text-arc-accent' : 'bg-white/5 text-arc-muted hover:text-white'}`}>{n}s</button>
+                                ))}
+                            </div>
+                        )}
+                        <button onClick={closeLogger} className="w-full text-[11px] font-bold text-arc-muted hover:text-white uppercase tracking-wider py-1 transition-colors">Done</button>
                     </div>
                     </motion.div>
                 </>
               )}
             </AnimatePresence>
 
-            {/* Private workout photos */}
-            <WorkoutPhotos ref={photosRef} onToast={showToast} onAvailabilityChange={setPhotosAvailable} />
+            {/* Private workout photos. Off in simple mode. */}
+            {!simple && <WorkoutPhotos ref={photosRef} onToast={showToast} onAvailabilityChange={setPhotosAvailable} />}
         </main>
 
         {/* Log Session / Class Modal */}

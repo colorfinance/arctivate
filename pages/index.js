@@ -36,6 +36,12 @@ const COPY = {
     cta: 'Send reset link',
     busy: 'Sending…',
   },
+  gym: {
+    title: 'Sign up your gym',
+    body: 'Create your account. Next you name the gym and get the code your members join with. Free for 30 days.',
+    cta: 'Create gym account',
+    busy: 'Creating account…',
+  },
   recover: {
     title: 'Choose a new password',
     body: 'At least 6 characters. You will stay signed in.',
@@ -179,7 +185,7 @@ export default function Auth() {
     setLoading(true)
 
     try {
-      if (mode === 'signup') {
+      if (mode === 'signup' || mode === 'gym') {
         // Server-side signup: auto-confirms, no email verification.
         let res
         try {
@@ -213,7 +219,8 @@ export default function Auth() {
         if (error) {
           setError('Account created, but sign in failed. Try signing in.')
         } else if (data.session) {
-          await navigateAfterAuth(data.user.id)
+          if (mode === 'gym') router.push('/start-gym')
+          else await navigateAfterAuth(data.user.id)
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
@@ -326,6 +333,7 @@ export default function Auth() {
                   label={mode === 'recover' ? 'New password' : 'Password'}
                   type={showPassword ? 'text' : 'password'}
                   autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                  data-mode={mode}
                   placeholder={mode === 'signin' ? '' : 'At least 6 characters'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -353,11 +361,16 @@ export default function Auth() {
 
             <div className="mt-4 flex items-center justify-center text-[13px]">
               {mode === 'signin' && (
-                <button onClick={() => switchMode('signup')} className="text-arc-muted hover:text-white transition-colors">
-                  New here? <span className="font-bold text-white">Create an account</span>
-                </button>
+                <div className="flex flex-col items-center gap-2">
+                  <button onClick={() => switchMode('signup')} className="text-arc-muted hover:text-white transition-colors">
+                    New here? <span className="font-bold text-white">Create an account</span>
+                  </button>
+                  <button onClick={() => switchMode('gym')} className="t-caption text-arc-muted hover:text-white transition-colors">
+                    Run a gym? <span className="font-bold text-arc-accent">Sign up your gym</span>
+                  </button>
+                </div>
               )}
-              {mode === 'signup' && (
+              {(mode === 'signup' || mode === 'gym') && (
                 <button onClick={() => switchMode('signin')} className="mx-auto text-arc-muted hover:text-white transition-colors">
                   Already a member? <span className="font-bold text-white">Sign in</span>
                 </button>

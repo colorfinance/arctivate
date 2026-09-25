@@ -8,6 +8,7 @@ import LoadingState from '../components/LoadingState'
 import { Banner, ListRow, EmptyState, SectionLabel } from '../components/ui'
 import { supabase } from '../lib/supabaseClient'
 import { localTimezone } from '../lib/streaks'
+import Field from '../components/Field'
 
 // The gym's pulse.
 //
@@ -47,6 +48,50 @@ export default function GymPulse() {
   const [copied, setCopied] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
+  // The members list, with who has not signed in yet, and the sheet that
+  // adds one. Emails come from auth, so both go through a route.
+  const [clients, setClients] = useState(null)
+  const [adding, setAdding] = useState(false)
+  const [cName, setCName] = useState('')
+  const [cEmail, setCEmail] = useState('')
+  const [cBusy, setCBusy] = useState(false)
+  const [cError, setCError] = useState('')
+  const [cNotice, setCNotice] = useState('')
+  const [showAllClients, setShowAllClients] = useState(false)
+
+  const authHeaders = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
+  }
+
+  const loadClients = async () => {
+    try {
+      const res = await fetch('/api/gym/clients/', { headers: await authHeaders() })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok) setClients(body.members || [])
+    } catch {}
+  }
+
+  const addClient = async () => {
+    if (cBusy) return
+    setCBusy(true); setCError(''); setCNotice('')
+    try {
+      const res = await fetch('/api/gym/invite/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ name: cName, email: cEmail }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { setCError(body.error || 'Could not send the invite'); return }
+      setCNotice(`Invite sent to ${cEmail.trim()}.`)
+      setCName(''); setCEmail('')
+      loadClients()
+    } catch {
+      setCError('Could not reach the server')
+    } finally {
+      setCBusy(false)
+    }
+  }
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -61,6 +106,7 @@ export default function GymPulse() {
       const { data, error } = await supabase.rpc('gym_pulse', { p_gym: me.gym_id, p_tz: localTimezone() })
       if (error) setError('Could not load the pulse. Pull to try again.')
       else setPulse(data)
+      loadClients()
     }
     setLoading(false)
   }, [router])
@@ -228,6 +274,36 @@ export default function GymPulse() {
           </section>
         )}
 
+        {/* Your clients. Add one by email and they get a sign-in link that
+            lands them in this gym with their name already on the profile. */}
+        <section>
+          <SectionLabel trailing={<span className="t-caption text-arc-muted">{clients ? clients.length : ''}</span>}>Members</SectionLabel>
+          <Button variant="primary" block onClick={() => { setAdding(true); setCError(''); setCNotice('') }}>Add a client</Button>
+          {clients && clients.length > 0 && (
+            <div className="space-y-1.5 mt-2">
+              {(showAllClients ? clients : clients.slice(0, 6)).map(c => (
+                <ListRow
+                  key={c.id}
+                  icon={<Avatar name={c.name} size={36} />}
+                  title={c.name || 'Member'}
+                  caption={c.email || ''}
+                  trailing={
+                    c.invited
+                      ? <span className="t-caption font-bold text-arc-warning">Invited</span>
+                      : <span className="t-caption font-bold text-arc-success">In</span>
+                  }
+                />
+              ))}
+              {clients.length > 6 && (
+                <button onClick={() => setShowAllClients(v => !v)} className="w-full t-caption font-bold text-arc-muted hover:text-white py-2">
+                  {showAllClients ? 'Show fewer' : `Show all ${clients.length}`}
+                </button>
+              )}
+            </div>
+          )}
+          <p className="t-caption text-arc-muted px-1 mt-2">Or put the code below on the wall and let them join themselves.</p>
+        </section>
+
         {/* The code on the front desk. */}
         <section>
           <SectionLabel>Members join with this code</SectionLabel>
@@ -242,6 +318,27 @@ export default function GymPulse() {
 
         <p className="t-caption text-arc-muted px-1 pb-4">Only staff see this page. Members are never shown each other&apos;s absence.</p>
       </main>
+
+      {adding && (
+        <>
+          <div onClick={() => !cBusy && setAdding(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+          <div className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50">
+            <div className="p-6 space-y-4 pb-safe max-w-lg mx-auto">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+              <div>
+                <h2 className="t-title text-white" style={{ fontSize: 20 }}>Add a client</h2>
+                <p className="t-caption text-arc-muted mt-0.5">They get an email with a sign-in link and land in {gym.name} with their name on the profile.</p>
+              </div>
+              <Field label="Name" value={cName} onChange={(e) => setCName(e.target.value.slice(0, 60))} placeholder="Their first and last name" autoFocus />
+              <Field label="Email" type="email" inputMode="email" autoCapitalize="off" autoCorrect="off" spellCheck="false" value={cEmail} onChange={(e) => setCEmail(e.target.value)} placeholder="them@example.com" error={cError} hint={cNotice} />
+              <div className="flex gap-2">
+                <Button variant="primary" className="flex-1" onClick={addClient} disabled={cBusy || cName.trim().length < 2 || !cEmail.includes('@')}>{cBusy ? 'Sending…' : 'Send invite'}</Button>
+                <Button variant="tertiary" onClick={() => setAdding(false)} disabled={cBusy}>{cNotice ? 'Done' : 'Cancel'}</Button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
       <Nav />
     </div>
   )

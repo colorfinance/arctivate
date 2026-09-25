@@ -7,6 +7,8 @@ import { SegmentedControl } from '../components/ui'
 import { supabase } from '../lib/supabaseClient'
 import { fetchStreaks, streakFor } from '../lib/streaks'
 import { goalFor } from '../lib/challenges'
+import { usePlan } from '../lib/plan'
+import Paywall from '../components/Paywall'
 import { useRouter } from 'next/router'
 
 // ─── Icons ───────────────────────────────────────────
@@ -455,9 +457,12 @@ export default function Coach() {
   }
 
   // ─── Send Message ────────────────────────────────
+  const plan = usePlan()
+
   const sendMessage = async (text) => {
     const msg = text || input.trim()
     if (!msg || isSending) return
+    if (plan.ready && !plan.entitled) return
 
     setInput('')
     const userMsg = { role: 'user', content: msg }
@@ -566,6 +571,9 @@ export default function Coach() {
       />
 
       <main className="pt-[7.25rem] max-w-lg mx-auto">
+        {plan.ready && !plan.entitled && (
+          <div className="px-4 pb-3"><Paywall feature="The coach" /></div>
+        )}
         {activeTab === 'chat' ? (
           /* ─── Chat Tab ─────────────────────────── */
           <div className="flex flex-col h-[calc(100vh-14rem)]">
