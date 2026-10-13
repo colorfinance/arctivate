@@ -254,6 +254,9 @@ export default function Train() {
   const [restLeft, setRestLeft] = useState(0)
   const [restSecs, setRestSecs] = useState(90)
   const { simple } = useSimpleMode()
+  // The workout that is open, if any. The list shows the plan; this shows the
+  // exercises and is where they get logged.
+  const [openWorkoutId, setOpenWorkoutId] = useState(null)
   const [expandedWorkouts, setExpandedWorkouts] = useState(() => new Set()) // workout ids expanded
   const [pInputs, setPInputs] = useState({}) // inline per-movement inputs { [dweId]: {value,reps,sets,rpe} }
   const [expandedId, setExpandedId] = useState(null) // which movement's inline form is open
@@ -630,6 +633,7 @@ export default function Train() {
   // Switch the day being viewed (to finish/tick a missed workout).
   const changeDay = (dateStr) => {
     if (dateStr === selectedDate) return
+    setOpenWorkoutId(null)
     setSelectedDate(dateStr)
     setExpandedId(null)
     setExpandedWorkouts(new Set())
@@ -1019,8 +1023,9 @@ export default function Train() {
       }
       if (sess) payload.session_id = sess.id
       // Fall back to the prescribed target when the field is left blank.
-      const repsNum = vals.reps ? parseInt(vals.reps, 10) : (dwe.target_reps != null ? Number(dwe.target_reps) : null)
-      const setsNum = vals.sets ? parseInt(vals.sets, 10) : (dwe.target_sets != null ? Number(dwe.target_sets) : null)
+      // A PB is one best effort: it does not borrow the workout's sets and reps.
+      const repsNum = vals.pb ? null : vals.reps ? parseInt(vals.reps, 10) : (dwe.target_reps != null ? Number(dwe.target_reps) : null)
+      const setsNum = vals.pb ? 1 : vals.sets ? parseInt(vals.sets, 10) : (dwe.target_sets != null ? Number(dwe.target_sets) : null)
       const rpeNum = vals.rpe ? parseInt(vals.rpe, 10) : null
       if (repsNum) payload.reps = repsNum
       if (setsNum) payload.sets = setsNum
@@ -1536,6 +1541,8 @@ export default function Train() {
   const todaySets = logs.length
   const todayPBs = logs.filter(l => l.isPB).length
 
+  const openWorkout = openWorkoutId ? (todayWorkouts.find(w => w.id === openWorkoutId) || null) : null
+
   if (isLoading) {
     return <LoadingState label="Loading your training…" />
   }
@@ -1732,139 +1739,45 @@ export default function Train() {
                 <button onClick={() => router.push('/history')} className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.15em] hover:text-white transition-colors shrink-0 inline-flex items-center gap-1.5">History <ArrowRightIcon size={11} /></button>
             </div>
 
-            {/* The workout, plain: what it is, then the movements. Tap a
-                movement to put a weight on it; the trophy logs a PB. */}
+            {/* Each workout is a card of plain text: what it is and how it
+                goes. Tap it to open the workout, where every exercise has its
+                own Log and PB. */}
             {todayWorkouts.map((workout, wIdx) => {
                 const done = completedWorkouts.has(workout.id)
-                const movements = workout.exercises || []
+                const count = (workout.exercises || []).length
+                const loggedCount = (workout.exercises || []).filter(ex => completedPrescribed.has(ex.id)).length
                 return (
-                    <motion.section
+                    <motion.button
                         key={workout.id}
+                        type="button"
+                        onClick={() => setOpenWorkoutId(workout.id)}
                         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + wIdx * 0.04 }}
-                        className={`rounded-container border overflow-hidden transition-colors ${done ? 'bg-arc-success/[0.06] border-arc-success/30' : 'bg-arc-surface2/60 border-white/[0.06]'}`}
+                        className={`w-full text-left rounded-container border p-5 transition-colors ${done ? 'bg-arc-success/[0.06] border-arc-success/30' : 'bg-arc-surface2/60 border-white/[0.06] hover:border-white/15'}`}
                     >
-                        <div className="p-5 space-y-3">
-                            <div className="flex items-start gap-3">
-                                <button
-                                    onClick={() => toggleWorkoutComplete(workout)}
-                                    aria-label={done ? 'Mark not done' : 'Mark done'}
-                                    className={`mt-0.5 w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-arc-success border-arc-success' : 'border-white/25 hover:border-arc-accent'}`}
-                                >
-                                    {done
-                                        ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                        : <span className="text-[8px] font-black uppercase tracking-wider text-arc-muted">Done</span>}
-                                </button>
-                                <div className="flex-1 min-w-0">
-                                    <span className={`t-label ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
-                                        {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : (selectedDate === localDateStr() ? "Today's workout" : 'Workout'))}
-                                    </span>
-                                    <h2 className={`t-title mt-0.5 ${done ? 'text-arc-muted line-through' : 'text-white'}`} style={{ fontSize: 20 }}>{workout.title}</h2>
-                                    {workout.description && (
-                                        <p className="t-body text-white/80 whitespace-pre-line mt-1.5">{workout.description}</p>
-                                    )}
-                                </div>
-                                {workout.owner_id && (
-                                    <div className="flex items-center gap-0.5 shrink-0">
-                                        <button onClick={() => openEditWorkout(workout)} aria-label="Edit workout" className="w-8 h-8 rounded-full flex items-center justify-center text-white/25 hover:text-white transition-colors">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-                                        </button>
-                                        <button onClick={() => deletePersonalWorkout(workout.id)} aria-label="Remove workout" className="w-8 h-8 rounded-full flex items-center justify-center text-white/25 hover:text-arc-danger transition-colors">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {movements.length > 0 && (
-                                <div className="space-y-1.5">
-                                    {movements.map((ex, i) => {
-                                        const scheme = movementScheme(ex)
-                                        const last = lastByName[(ex.name || '').trim().toLowerCase()]
-                                        const unit = unitShort(last?.metric || ex.metric_type)
-                                        const logged = completedPrescribed.has(ex.id)
-                                        return (
-                                            <div key={ex.id || i} className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-control border transition-colors ${logged ? 'bg-arc-success/[0.08] border-arc-success/30' : 'bg-arc-surface2/70 border-white/[0.05]'}`}>
-                                                <button
-                                                    onClick={() => openLoggerFor(ex, 'workout')}
-                                                    className="flex-1 min-w-0 flex items-center gap-3 py-1.5 text-left"
-                                                    aria-label={`Log ${ex.name}`}
-                                                >
-                                                    <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center ${logged ? 'bg-arc-success border-arc-success text-black' : 'border-white/25 text-transparent'}`}>
-                                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                                                    </span>
-                                                    <span className="min-w-0">
-                                                        <span className={`block text-[14px] font-bold truncate ${logged ? 'text-arc-success/80' : 'text-white'}`}>
-                                                            {ex.name}{scheme && <span className="t-num text-arc-muted font-bold ml-2 text-[12px]">{scheme}</span>}
-                                                        </span>
-                                                        <span className="block t-caption text-arc-muted truncate">
-                                                            {last?.value
-                                                                ? `Last ${last.value}${unit}${last.reps ? ` × ${last.reps}` : ''}${last.pb && last.pb !== last.value ? ` · PB ${last.pb}${unit}` : ''}`
-                                                                : ex.notes || ((last?.metric || ex.metric_type) === 'time' ? 'Tap to add your time' : (last?.metric || ex.metric_type) === 'reps' ? 'Tap to add your reps' : 'Tap to add your weight')}
-                                                        </span>
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    onClick={() => openLoggerFor(ex, 'pb')}
-                                                    aria-label={`Log a PB for ${ex.name}`}
-                                                    className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white/30 hover:text-arc-cyan transition-colors"
-                                                >
-                                                    <TrophyIcon size={16} />
-                                                </button>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            )}
-
-                            {movements.length === 0 && (
-                                <div className="grid grid-cols-2 gap-2">
-                                    <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('workout'); setShowLogger(true) }}>Log a set</Button>
-                                    <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('pb'); setValue(''); setShowLogger(true) }}>Log a PB</Button>
-                                </div>
-                            )}
-
-                            {!simple && (() => {
-                                const pics = workoutPhotos[workout.id] || []
-                                const busy = photoUploadFor === workout.id
-                                const myNote = (notesByWorkout[workout.id]?.body || '').trim()
-                                return (
-                                    <div className="pt-1 space-y-2">
-                                        {pics.length > 0 && (
-                                            <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
-                                                {pics.map((p) => (
-                                                    <div key={p.id} className="relative shrink-0">
-                                                        {p.url ? (
-                                                            // eslint-disable-next-line @next/next/no-img-element
-                                                            <img src={p.url} alt="" className="w-20 h-20 object-cover rounded-xl border border-white/[0.06]" />
-                                                        ) : (
-                                                            <div className="w-20 h-20 rounded-xl bg-arc-surface border border-white/[0.06]" />
-                                                        )}
-                                                        <button
-                                                            onClick={() => removeWorkoutPhoto(workout.id, p)}
-                                                            aria-label="Remove photo"
-                                                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-arc-bg border border-white/15 text-white/60 hover:text-red-400 flex items-center justify-center"
-                                                        >
-                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {myNote && (
-                                            <div className="bg-arc-surface/60 border border-white/[0.04] rounded-xl px-3.5 py-2.5">
-                                                <span className="t-label text-arc-muted">Your notes</span>
-                                                <p className="text-[12px] text-white/85 leading-relaxed whitespace-pre-line mt-1">{myNote}</p>
-                                            </div>
-                                        )}
-                                        <div className="flex gap-2">
-                                            <Button variant="tertiary" size="sm" onClick={() => pickWorkoutPhoto(workout.id)} disabled={busy}>{busy ? 'Uploading…' : (pics.length ? 'Add photo' : 'Photo')}</Button>
-                                            <Button variant="tertiary" size="sm" onClick={() => openNotes(workout.id)}>{myNote ? 'Edit notes' : 'Notes'}</Button>
-                                        </div>
-                                    </div>
-                                )
-                            })()}
+                        <div className="flex items-center gap-2">
+                            <span className={`t-label ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
+                                {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : (selectedDate === localDateStr() ? "Today's workout" : 'Workout'))}
+                            </span>
+                            <span className="flex-1" />
+                            {done && <span className="t-caption font-bold text-arc-success">✓ Done</span>}
                         </div>
-                    </motion.section>
+                        <h2 className="t-title mt-1 text-white" style={{ fontSize: 20 }}>{workout.title}</h2>
+                        {workout.description && (
+                            <p className="t-body text-white/80 whitespace-pre-line mt-1.5 line-clamp-6">{workout.description}</p>
+                        )}
+                        <div className="mt-3 flex items-center gap-2 t-caption font-bold text-arc-muted">
+                            <span>
+                                {count === 0
+                                    ? 'Open to log it'
+                                    : loggedCount > 0
+                                        ? `${loggedCount} of ${count} exercises logged`
+                                        : `${count} exercise${count === 1 ? '' : 's'}`}
+                            </span>
+                            <span className="flex-1" />
+                            <span className="text-arc-accent">Open</span>
+                            <ArrowRightIcon size={12} />
+                        </div>
+                    </motion.button>
                 )
             })}
 
@@ -1944,7 +1857,10 @@ export default function Train() {
                             </div>
                         )}
 
-                        {/* Exercise Selection Header */}
+                        {/* Exercise Selection Header. Opened from an exercise in a
+                            workout, the sheet is already about that exercise, so
+                            the picker and its extras stay out of the way. */}
+                        {!loggerDwe && (<>
                         <div className="flex justify-between items-center">
                             <label className="text-[9px] font-bold text-arc-muted uppercase tracking-[0.2em]">Movement</label>
                             <div className="flex gap-3">
@@ -1980,13 +1896,16 @@ export default function Train() {
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
                             </div>
                         </div>
+                        </>)}
 
                         {/* Personal Best Display */}
                         <div className="flex items-center justify-between px-1">
                              <span className="text-[10px] text-arc-muted font-medium uppercase tracking-wider">Personal Best</span>
                              <div className="flex items-center gap-1.5">
                                 {currentPB > 0 && <TrophyIcon />}
-                                <span className="font-mono font-bold text-arc-accent text-lg">{currentPB} <span className="text-xs text-arc-muted">{unitLabelLower}</span></span>
+                                {currentPB > 0
+                                    ? <span className="font-mono font-bold text-arc-accent text-lg">{currentPB} <span className="text-xs text-arc-muted">{unitLabelLower}</span></span>
+                                    : <span className="text-[12px] font-bold text-arc-muted">None yet</span>}
                              </div>
                         </div>
 
@@ -2045,16 +1964,22 @@ export default function Train() {
                         <motion.button
                             whileTap={{ scale: 0.98 }}
                             onClick={async () => {
-                                if (loggerMode === 'workout' && loggerDwe) {
+                                // Inside a workout, a set and a PB both log against that
+                                // exercise, so it ticks off either way.
+                                if (loggerDwe) {
                                     if (isLogging) return
+                                    const pbMode = loggerMode === 'pb'
                                     setIsLogging(true)
-                                    const r = await logMovement(loggerDwe, { value, reps, sets, rpe })
+                                    const r = await logMovement(loggerDwe, pbMode ? { value, pb: true } : { value, reps, sets, rpe })
                                     setIsLogging(false)
                                     if (r.ok) {
-                                        showToast(r.isPB ? 'New PB! 🎉' : `Logged ${loggerDwe.name}`)
+                                        showToast(r.isPB ? 'New PB! 🎉' : pbMode ? `Saved. Your best is higher.` : `Logged ${loggerDwe.name}`)
                                         const { data: { user } } = await supabase.auth.getUser()
                                         if (user) { fetchLastSets(user.id); fetchWorkoutHistory(user.id) }
-                                        setRestLeft(restSecs)
+                                        if (pbMode) closeLogger()
+                                        else setRestLeft(restSecs)
+                                    } else {
+                                        showToast(value ? 'Could not save that' : 'Enter a number first')
                                     }
                                     return
                                 }
@@ -2096,6 +2021,139 @@ export default function Train() {
             {/* Private workout photos. Off in simple mode. */}
             {!simple && <WorkoutPhotos ref={photosRef} onToast={showToast} onAvailabilityChange={setPhotosAvailable} />}
         </main>
+
+        {/* The workout, opened: the plan, then every exercise with its own
+            Log and PB, then done. */}
+        {openWorkout && (() => {
+            const workout = openWorkout
+            const done = completedWorkouts.has(workout.id)
+            const movements = workout.exercises || []
+            return (
+                <div role="dialog" aria-label={workout.title} className="fixed inset-0 z-[45] bg-arc-bg overflow-y-auto">
+                    <header className="sticky top-0 z-10 bg-arc-bg border-b border-white/[0.05]" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+                        <div className="max-w-lg mx-auto px-4 h-14 flex items-center gap-2">
+                            <button onClick={() => setOpenWorkoutId(null)} aria-label="Back" className="-ml-1 w-10 h-10 rounded-full flex items-center justify-center text-arc-muted hover:text-white">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+                            </button>
+                            <h1 className="flex-1 min-w-0 t-title text-white truncate" style={{ fontSize: 18 }}>{workout.title}</h1>
+                            {workout.owner_id && (
+                                <>
+                                    <button onClick={() => openEditWorkout(workout)} aria-label="Edit workout" className="w-10 h-10 rounded-full flex items-center justify-center text-arc-muted hover:text-white">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                                    </button>
+                                    <button onClick={() => { setOpenWorkoutId(null); deletePersonalWorkout(workout.id) }} aria-label="Remove workout" className="w-10 h-10 rounded-full flex items-center justify-center text-arc-muted hover:text-arc-danger">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </header>
+
+                    <div className="max-w-lg mx-auto px-5 pt-5 pb-10 space-y-5" style={{ paddingBottom: 'calc(2.5rem + env(safe-area-inset-bottom, 0px))' }}>
+                        {workout.description && (
+                            <p className="t-body text-white/85 whitespace-pre-line">{workout.description}</p>
+                        )}
+
+                        {movements.length > 0 && (
+                            <p className="t-label text-arc-muted">Exercises · tap one to log your weight</p>
+                        )}
+                        {movements.length > 0 && (
+                            <div className="space-y-1.5">
+                                {movements.map((ex, i) => {
+                                    const scheme = movementScheme(ex)
+                                    const last = lastByName[(ex.name || '').trim().toLowerCase()]
+                                    const unit = unitShort(last?.metric || ex.metric_type)
+                                    const logged = completedPrescribed.has(ex.id)
+                                    return (
+                                        <div key={ex.id || i} className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-control border transition-colors ${logged ? 'bg-arc-success/[0.08] border-arc-success/30' : 'bg-arc-surface2/70 border-white/[0.05]'}`}>
+                                            <button
+                                                onClick={() => openLoggerFor(ex, 'workout')}
+                                                className="flex-1 min-w-0 flex items-center gap-3 py-1.5 text-left"
+                                                aria-label={`Log ${ex.name}`}
+                                            >
+                                                <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center ${logged ? 'bg-arc-success border-arc-success text-black' : 'border-white/25 text-transparent'}`}>
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                                </span>
+                                                <span className="min-w-0">
+                                                    <span className={`block text-[14px] font-bold truncate ${logged ? 'text-arc-success/80' : 'text-white'}`}>
+                                                        {ex.name}{scheme && <span className="t-num text-arc-muted font-bold ml-2 text-[12px]">{scheme}</span>}
+                                                    </span>
+                                                    <span className="block t-caption text-arc-muted truncate">
+                                                        {last?.value
+                                                            ? `Last ${last.value}${unit}${last.reps ? ` × ${last.reps}` : ''}${last.pb && last.pb !== last.value ? ` · PB ${last.pb}${unit}` : ''}`
+                                                            : ex.notes || ((last?.metric || ex.metric_type) === 'time' ? 'Tap to add your time' : (last?.metric || ex.metric_type) === 'reps' ? 'Tap to add your reps' : 'Tap to add your weight')}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            <button
+                                                onClick={() => openLoggerFor(ex, 'pb')}
+                                                aria-label={`Log a PB for ${ex.name}`}
+                                                className="shrink-0 h-9 px-3 mr-1 rounded-full border border-arc-cyan/30 text-arc-cyan text-[12px] font-bold hover:bg-arc-cyan/10 transition-colors inline-flex items-center gap-1"
+                                            >
+                                                <TrophyIcon size={13} /> PB
+                                            </button>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+
+                        {movements.length === 0 && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('workout'); setShowLogger(true) }}>Log a set</Button>
+                                <Button variant="secondary" size="sm" onClick={() => { setLoggerDwe(null); setLoggerMode('pb'); setValue(''); setShowLogger(true) }}>Log a PB</Button>
+                            </div>
+                        )}
+
+                        {!simple && (() => {
+                            const pics = workoutPhotos[workout.id] || []
+                            const busy = photoUploadFor === workout.id
+                            const myNote = (notesByWorkout[workout.id]?.body || '').trim()
+                            return (
+                                <div className="pt-1 space-y-2">
+                                    {pics.length > 0 && (
+                                        <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                                            {pics.map((p) => (
+                                                <div key={p.id} className="relative shrink-0">
+                                                    {p.url ? (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img src={p.url} alt="" className="w-20 h-20 object-cover rounded-xl border border-white/[0.06]" />
+                                                    ) : (
+                                                        <div className="w-20 h-20 rounded-xl bg-arc-surface border border-white/[0.06]" />
+                                                    )}
+                                                    <button
+                                                        onClick={() => removeWorkoutPhoto(workout.id, p)}
+                                                        aria-label="Remove photo"
+                                                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-arc-bg border border-white/15 text-white/60 hover:text-red-400 flex items-center justify-center"
+                                                    >
+                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {myNote && (
+                                        <div className="bg-arc-surface/60 border border-white/[0.04] rounded-xl px-3.5 py-2.5">
+                                            <span className="t-label text-arc-muted">Your notes</span>
+                                            <p className="text-[12px] text-white/85 leading-relaxed whitespace-pre-line mt-1">{myNote}</p>
+                                        </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                        <Button variant="tertiary" size="sm" onClick={() => pickWorkoutPhoto(workout.id)} disabled={busy}>{busy ? 'Uploading…' : (pics.length ? 'Add photo' : 'Photo')}</Button>
+                                        <Button variant="tertiary" size="sm" onClick={() => openNotes(workout.id)}>{myNote ? 'Edit notes' : 'Notes'}</Button>
+                                    </div>
+                                </div>
+                            )
+                        })()}
+
+                        <Button variant={done ? 'secondary' : 'hero'} size="lg" block onClick={() => toggleWorkoutComplete(workout)}>
+                            {done ? '✓ Done · tap to undo' : 'Mark workout done'}
+                        </Button>
+                    </div>
+                </div>
+            )
+        })()}
+
 
         {/* Log Session / Class Modal */}
         <AnimatePresence>
