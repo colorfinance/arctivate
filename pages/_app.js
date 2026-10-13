@@ -3,7 +3,6 @@ import Head from 'next/head'
 import { useEffect } from 'react'
 import { initCapacitor } from '../lib/capacitor'
 import { supabase } from '../lib/supabaseClient'
-import MotivationBanner from '../components/MotivationBanner'
 import { getStoredTheme, applyTheme } from '../lib/theme'
 
 function MyApp({ Component, pageProps }) {
@@ -59,7 +58,6 @@ function MyApp({ Component, pageProps }) {
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </Head>
-      <MotivationBanner />
       <Component {...pageProps} />
     </>
   )

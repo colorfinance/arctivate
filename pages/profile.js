@@ -7,12 +7,12 @@ import { useRouter } from 'next/router'
 import Masthead from '../components/Masthead'
 import Button from '../components/Button'
 import Avatar from '../components/Avatar'
-import { goalFor } from '../lib/challenges'
 import { useSimpleMode } from '../lib/simpleMode'
 import { usePlan, gymCovers, PREMIUM_PRICE, startCheckout, openBillingPortal } from '../lib/plan'
 import { ListRow, SectionLabel } from '../components/ui'
 import Field from '../components/Field'
 import { getStoredTheme, setTheme as applyStoredTheme } from '../lib/theme'
+import { ensureReminderPermission, reminderPermissionState, syncDailyNudge } from '../lib/reminders'
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -145,11 +145,19 @@ export default function Profile() {
     router.push('/gym')
   }
 
-  // Stats
+  // Progress: the challenge day, the weigh-ins and the photos. Today asks
+  // for them; this is where you look back at them.
   const [challengeDay, setChallengeDay] = useState(1)
-  const [habitsCompletedToday, setHabitsCompletedToday] = useState(0)
-  const [totalHabitsToday, setTotalHabitsToday] = useState(0)
-  const [dailyCalories, setDailyCalories] = useState(0)
+  const [weights, setWeights] = useState([]) // newest first
+  const [photos, setPhotos] = useState([]) // [{ date, url, name }] newest first
+  const [viewPhoto, setViewPhoto] = useState(null)
+
+  // The one reminder: a daily nudge to tick today off.
+  const [nudgeTime, setNudgeTime] = useState(null)
+  const [nudgeInput, setNudgeInput] = useState('07:00')
+  const [editingNudge, setEditingNudge] = useState(false)
+  const [savingNudge, setSavingNudge] = useState(false)
+  const [notifyPermission, setNotifyPermission] = useState(null)
 
   // Edit modal
   const [showEditModal, setShowEditModal] = useState(false)
@@ -197,7 +205,7 @@ export default function Profile() {
       // Fetch profile (fall back if the newer body-metric columns aren't there)
       let { data: profileData, error: profErr } = await supabase
         .from('profiles')
-        .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal, age, weight, height, gym_id')
+        .select('id, username, avatar_url, total_points, challenge_start_date, challenge_days_goal, completed_onboarding, daily_calorie_goal, age, weight, height, gym_id, daily_reminder_time')
         .eq('id', user.id)
         .single()
       if (profErr) {
@@ -228,11 +236,12 @@ export default function Profile() {
         setChallengeDay(Math.max(1, diff))
       }
 
-      // Fetch today's habits
-      await fetchTodayHabits(user.id)
+      const nudge = profileData?.daily_reminder_time ? profileData.daily_reminder_time.slice(0, 5) : null
+      setNudgeTime(nudge)
+      setNudgeInput(nudge || '07:00')
+      reminderPermissionState().then(setNotifyPermission).catch(() => {})
 
-      // Fetch today's calories
-      await fetchTodayCalories(user.id)
+      await Promise.all([fetchWeights(user.id), fetchPhotos(user.id)])
     } catch (err) {
       // swallow — handled via UI state
     } finally {
@@ -240,43 +249,71 @@ export default function Profile() {
     }
   }
 
-  async function fetchTodayHabits(uid) {
+  async function fetchWeights(uid) {
     try {
-      const now = new Date()
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-
-      const { data: habits } = await supabase
-        .from('habits')
-        .select('id')
-        .eq('user_id', uid)
-
-      const { data: logs } = await supabase
-        .from('habit_logs')
-        .select('habit_id')
-        .eq('user_id', uid)
-        .eq('date', todayStr)
-
-      setTotalHabitsToday(habits?.length || 0)
-      setHabitsCompletedToday(logs?.length || 0)
+      const { data } = await supabase.from('weight_logs')
+        .select('date, weight').eq('user_id', uid).order('date', { ascending: false }).limit(60)
+      setWeights(data || [])
     } catch {}
   }
 
-  async function fetchTodayCalories(uid) {
+  async function fetchPhotos(uid) {
     try {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-
-      const { data: logs } = await supabase
-        .from('food_logs')
-        .select('calories')
-        .eq('user_id', uid)
-        .gte('eaten_at', today.toISOString())
-
-      if (logs) {
-        const totalCals = logs.reduce((sum, log) => sum + (log.calories || 0), 0)
-        setDailyCalories(totalCals)
-      }
+      const { data } = await supabase.storage.from('progress-photos')
+        .list(uid, { limit: 100, sortBy: { column: 'name', order: 'desc' } })
+      const list = (data || [])
+        .filter(f => f.name.endsWith('.jpg'))
+        .sort((x, y) => y.name.localeCompare(x.name))
+        .slice(0, 24)
+        .map(f => ({
+          name: f.name,
+          date: f.name.replace('.jpg', ''),
+          url: supabase.storage.from('progress-photos').getPublicUrl(`${uid}/${f.name}`).data?.publicUrl,
+        }))
+        .filter(x => x.url)
+      setPhotos(list)
     } catch {}
+  }
+
+  async function deletePhoto(photo) {
+    try {
+      const { error } = await supabase.storage.from('progress-photos').remove([`${userId}/${photo.name}`])
+      if (error) throw error
+      setPhotos(prev => prev.filter(x => x.name !== photo.name))
+      setViewPhoto(null)
+      showToast('Photo deleted')
+    } catch {
+      showToast('Could not delete the photo')
+    }
+  }
+
+  const fmtTime = (t) => {
+    if (!t) return ''
+    const [h, m] = t.split(':').map(Number)
+    return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+  }
+
+  async function saveNudge(turnOff = false) {
+    if (savingNudge) return
+    setSavingNudge(true)
+    const value = turnOff ? null : (nudgeInput || null)
+    try {
+      if (value) {
+        const granted = await ensureReminderPermission()
+        setNotifyPermission(await reminderPermissionState())
+        if (!granted) showToast('Saved. Allow notifications to get it.')
+      }
+      const { error } = await supabase.from('profiles').update({ daily_reminder_time: value }).eq('id', userId)
+      if (error) { showToast('Could not save'); return }
+      setNudgeTime(value)
+      setEditingNudge(false)
+      syncDailyNudge(value)
+      if (!value || notifyPermission === 'granted') showToast(turnOff ? 'Reminder off' : `Reminder set for ${fmtTime(value)}`)
+    } catch {
+      showToast('Something went wrong')
+    } finally {
+      setSavingNudge(false)
+    }
   }
 
   async function handleSaveProfile() {
@@ -437,8 +474,6 @@ export default function Profile() {
     setShowEditModal(true)
   }
 
-  const calorieGoal = profile?.daily_calorie_goal || 2800
-  const calorieProgress = Math.min((dailyCalories / calorieGoal) * 100, 100)
   const challengeGoal = profile?.challenge_days_goal || 75
   const challengeProgress = Math.min((challengeDay / challengeGoal) * 100, 100)
 
@@ -499,115 +534,70 @@ export default function Profile() {
           </div>
         </motion.div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          {/* Points Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
-            className="bg-arc-card border border-white/5 rounded-2xl p-4 relative overflow-hidden"
-          >
-            <div className="absolute top-0 right-0 w-16 h-16 bg-arc-accent/10 blur-2xl rounded-full pointer-events-none" />
-            <div className="flex items-center gap-2 mb-2 text-arc-accent">
-              <StarIcon />
-              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Points</span>
-            </div>
-            <div className="text-3xl font-black font-mono text-white">
-              {(profile?.total_points || 0).toLocaleString()}
-            </div>
-            <div className="text-[10px] text-arc-muted font-bold mt-1">LIFETIME EARNED</div>
-          </motion.div>
-
-          {/* Challenge Day Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-arc-card border border-white/5 rounded-2xl p-4 relative overflow-hidden"
-          >
-            <div className="absolute top-0 right-0 w-16 h-16 bg-arc-accent/10 blur-2xl rounded-full pointer-events-none" />
-            <div className="flex items-center gap-2 mb-2 text-arc-accent">
-              <CalendarIcon />
-              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Challenge</span>
-            </div>
-            <div className="text-3xl font-black font-mono text-white">
-              {challengeDay}
-              <span className="text-lg text-white/20">/{challengeGoal}</span>
-            </div>
-            <div className="h-1.5 bg-white/5 rounded-full overflow-hidden mt-2">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${challengeProgress}%` }}
-                className="h-full bg-gradient-to-r from-arc-accent to-arc-cyan rounded-full"
-              />
-            </div>
-          </motion.div>
-
-          {/* Habits Today Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="bg-arc-card border border-white/5 rounded-2xl p-4 relative overflow-hidden"
-          >
-            <div className="absolute top-0 right-0 w-16 h-16 bg-green-500/10 blur-2xl rounded-full pointer-events-none" />
-            <div className="flex items-center gap-2 mb-2 text-green-400">
-              <CheckCircleIcon />
-              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Habits</span>
-            </div>
-            <div className="text-3xl font-black font-mono text-white">
-              <span className={totalHabitsToday > 0 && habitsCompletedToday >= goalFor(totalHabitsToday) ? 'text-green-400' : ''}>
-                {Math.min(habitsCompletedToday, goalFor(totalHabitsToday))}
+        {/* Progress: how far in, and what has changed. */}
+        <section className="mt-6">
+          <SectionLabel>Progress</SectionLabel>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-container bg-arc-surface2/60 border border-white/[0.05] px-4 py-3">
+              <span className="t-label text-arc-muted block">Challenge</span>
+              <span className="t-num block text-[26px] font-black leading-none mt-1.5 text-white">
+                Day {challengeDay}<span className="text-[15px] text-arc-muted"> / {challengeGoal}</span>
               </span>
-              <span className="text-lg text-white/20">/{goalFor(totalHabitsToday)}</span>
+              <div className="h-1.5 bg-white/5 rounded-full overflow-hidden mt-2.5">
+                <div className="h-full bg-arc-accent rounded-full" style={{ width: `${challengeProgress}%` }} />
+              </div>
             </div>
-            <div className="text-[10px] text-arc-muted font-bold mt-1">{totalHabitsToday > 0 && habitsCompletedToday >= goalFor(totalHabitsToday) ? 'DAY BANKED' : 'TO BANK TODAY'}</div>
-          </motion.div>
+            <div className="rounded-container bg-arc-surface2/60 border border-white/[0.05] px-4 py-3">
+              <span className="t-label text-arc-muted block">Weight</span>
+              {weights.length > 0 ? (
+                <>
+                  <span className="t-num block text-[26px] font-black leading-none mt-1.5 text-white">
+                    {weights[0].weight}<span className="text-[15px] text-arc-muted"> kg</span>
+                  </span>
+                  {weights.length > 1 ? (() => {
+                    const diff = Number(weights[0].weight) - Number(weights[weights.length - 1].weight)
+                    return <span className={`t-caption block mt-2 font-bold ${diff < 0 ? 'text-arc-success' : 'text-arc-muted'}`}>{diff > 0 ? '+' : ''}{diff.toFixed(1)} kg since {weights[weights.length - 1].weight} kg</span>
+                  })() : <span className="t-caption block mt-2 text-arc-muted">First weigh-in</span>}
+                </>
+              ) : (
+                <span className="t-caption block mt-2 text-arc-muted">Tick the weekly weigh-in on Today.</span>
+              )}
+            </div>
+          </div>
 
-          {/* Calorie Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-arc-card border border-white/5 rounded-2xl p-4 relative overflow-hidden"
-          >
-            <div className="absolute top-0 right-0 w-16 h-16 bg-yellow-500/10 blur-2xl rounded-full pointer-events-none" />
-            <div className="flex items-center gap-2 mb-2 text-yellow-400">
-              <FireIcon />
-              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Calories</span>
-            </div>
-            <div className="text-3xl font-black font-mono text-white">
-              {dailyCalories}
-            </div>
-            <div className="text-[10px] text-arc-muted font-bold mt-1">/ {calorieGoal} GOAL</div>
-          </motion.div>
-        </div>
+          <div className="mt-2">
+            {photos.length > 0 ? (
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                {photos.map(ph => (
+                  <button key={ph.name} onClick={() => setViewPhoto(ph)} aria-label={`Progress photo ${ph.date}`} className="shrink-0 relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={ph.url} alt="" className="w-20 h-28 object-cover rounded-control border border-white/[0.06]" />
+                    <span className="absolute bottom-1 left-1 right-1 t-caption text-[9px] font-bold text-white bg-black/60 rounded px-1 py-0.5">
+                      {new Date(ph.date + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="t-caption text-arc-muted px-1">Progress photos show here once you take the weekly one on Today.</p>
+            )}
+          </div>
+        </section>
 
-        {/* Calorie Progress Bar */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-          className="bg-arc-card border border-white/5 rounded-2xl p-5 mt-4"
-        >
-          <div className="flex justify-between items-center mb-3">
-            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Today&apos;s Calorie Progress</span>
-            <span className="text-xs font-mono font-bold text-arc-accent">{Math.round(calorieProgress)}%</span>
-          </div>
-          <div className="h-3 bg-white/5 rounded-full overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${calorieProgress}%` }}
-              transition={{ duration: 0.8, ease: 'easeOut' }}
-              className={`h-full rounded-full transition-colors ${calorieProgress >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-arc-accent to-arc-cyan'}`}
-            />
-          </div>
-          <div className="flex justify-between mt-2">
-            <span className="text-xs text-arc-muted">{dailyCalories} cal consumed</span>
-            <span className="text-xs text-arc-muted">{Math.max(0, calorieGoal - dailyCalories)} cal remaining</span>
-          </div>
-        </motion.div>
+        {/* The one reminder. */}
+        <section className="mt-8">
+          <SectionLabel>Reminder</SectionLabel>
+          <ListRow
+            onClick={() => { setNudgeInput(nudgeTime || '07:00'); setEditingNudge(true) }}
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={nudgeTime ? 'text-arc-accent' : ''} aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
+            title="Daily reminder"
+            caption={!nudgeTime
+              ? 'Off. Tap to get one reminder a day.'
+              : notifyPermission === 'denied'
+                ? `${fmtTime(nudgeTime)}, but notifications are blocked in your settings`
+                : `Every day at ${fmtTime(nudgeTime)}`}
+          />
+        </section>
 
         {/* Your plan. A member in a gym is covered; a member on their own can pay. */}
         <section className="mt-8">
@@ -657,7 +647,7 @@ export default function Profile() {
             tone={simple ? 'accent' : 'default'}
             icon={<span aria-hidden>🧘</span>}
             title="Simple mode"
-            caption={simple ? 'On. Just Today, Train, Feed and Challenge.' : 'Hide photos, notes, weigh-in, badges, Coach and Food.'}
+            caption={simple ? 'On. Just Today, Train, Challenge and Feed.' : 'Hide Food, the coach, the weekly habits, and workout photos and notes.'}
             trailing={
               <span role="switch" aria-checked={simple} className={`w-10 h-6 rounded-full flex items-center px-0.5 transition-colors duration-fast ${simple ? 'bg-arc-accent justify-end' : 'bg-white/10 justify-start'}`}>
                 <span className="w-5 h-5 rounded-full bg-white shadow" />
@@ -1012,6 +1002,51 @@ export default function Profile() {
             </div>
           </div>
         </>
+      )}
+
+      {editingNudge && (
+        <>
+          <div onClick={() => !savingNudge && setEditingNudge(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+          <div role="dialog" aria-label="Daily reminder" className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50">
+            <div className="p-6 space-y-4 pb-safe max-w-lg mx-auto">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+              <div>
+                <h2 className="t-title text-white" style={{ fontSize: 20 }}>Daily reminder</h2>
+                <p className="t-caption text-arc-muted mt-0.5">One nudge a day to tick today off.</p>
+              </div>
+              <input
+                id="f-nudge"
+                type="time"
+                value={nudgeInput}
+                onChange={(e) => setNudgeInput(e.target.value)}
+                aria-label="Remind me at"
+                className="w-full h-16 px-4 rounded-control bg-arc-surface2 border border-white/[0.08] text-white text-center text-3xl font-bold outline-none focus:border-arc-accent [color-scheme:dark]"
+              />
+              <div className="flex gap-2">
+                <Button variant="primary" className="flex-1" onClick={() => saveNudge(false)} disabled={savingNudge}>{savingNudge ? 'Saving…' : 'Save'}</Button>
+                {nudgeTime
+                  ? <Button variant="tertiary" onClick={() => saveNudge(true)} disabled={savingNudge}>Turn off</Button>
+                  : <Button variant="tertiary" onClick={() => setEditingNudge(false)} disabled={savingNudge}>Cancel</Button>}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {viewPhoto && (
+        <div role="dialog" aria-label="Progress photo" className="fixed inset-0 z-50 bg-black/95 flex flex-col">
+          <div className="flex items-center gap-2 px-4 h-14 pt-safe">
+            <span className="flex-1 t-body font-bold text-white">
+              {new Date(viewPhoto.date + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
+            <Button variant="tertiary" size="sm" onClick={() => deletePhoto(viewPhoto)}>Delete</Button>
+            <Button variant="secondary" size="sm" onClick={() => setViewPhoto(null)}>Close</Button>
+          </div>
+          <div className="flex-1 min-h-0 flex items-center justify-center p-4" onClick={() => setViewPhoto(null)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={viewPhoto.url} alt="" className="max-w-full max-h-full object-contain rounded-control" />
+          </div>
+        </div>
       )}
 
       <Nav />

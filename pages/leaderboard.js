@@ -10,12 +10,9 @@ import { supabase } from '../lib/supabaseClient'
 import { TrophyIcon, FlameIcon, UsersIcon } from '../components/icons'
 import { rankPeople, findRank, rankGyms, METRICS } from '../lib/social'
 import { fetchStreaks, streakFor } from '../lib/streaks'
-import { fetchMyFollowing } from '../lib/follows'
 
 const TABS = [
-  { key: 'friends', label: 'Following' },
   { key: 'gym', label: 'My gym' },
-  { key: 'gyms', label: 'Gyms' },
   // Segments, for a gym. Ranked on actual lifts rather than points.
   { key: 'lifts', label: 'Lifts' },
 ]
@@ -105,10 +102,6 @@ export default function Leaderboard() {
       if (gymErr) setNotReady(true)
       setGyms(gymRows || [])
 
-      // Following, not friendships. The mutual model needed both sides to
-      // agree and ended the year with zero rows, so this board was always
-      // empty except for you.
-      setFriendships(await fetchMyFollowing(supabase, user.id))
     } catch {
       setNotReady(true)
     } finally {
@@ -180,11 +173,6 @@ export default function Leaderboard() {
       <Masthead
         title="Leaderboard"
         back
-        actions={
-          <MastheadAction href="/friends" label="People">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-          </MastheadAction>
-        }
       />
 
       <main className="pt-20 px-4 max-w-lg mx-auto space-y-4">
@@ -323,9 +311,6 @@ export default function Leaderboard() {
                     ? 'Add a few people and see who actually turns up.'
                     : 'Nobody at your gym has any points on the board yet.'}
                 </p>
-                {tab === 'friends' && (
-                  <Button variant="primary" size="sm" href="/friends" className="mt-2">Find people</Button>
-                )}
               </div>
             )}
 

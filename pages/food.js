@@ -1010,11 +1010,12 @@ export default function Food() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { showToast('Please log in'); setCopying(false); return }
 
+      // The day before the one you are looking at, not the day before today:
+      // on Tuesday's page, "same as yesterday" means Monday.
       let sourceKey = fromDateKey
       if (!sourceKey) {
-        const y = new Date(); y.setDate(y.getDate() - 1)
-        const tz = y.getTimezoneOffset() * 60000
-        sourceKey = new Date(y - tz).toISOString().slice(0, 10)
+        const y = new Date(logDate + 'T12:00:00'); y.setDate(y.getDate() - 1)
+        sourceKey = fmtDay(y)
       }
       const start = new Date(sourceKey + 'T00:00:00')
       const end = new Date(start); end.setDate(end.getDate() + 1)
@@ -1385,16 +1386,6 @@ export default function Food() {
 
       <Masthead
         title="Food"
-        actions={
-          <>
-            <MastheadAction onClick={openGoals} label="Goals">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-            </MastheadAction>
-            <MastheadAction onClick={() => router.push('/calendar?from=food')} label="Calendar">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            </MastheadAction>
-          </>
-        }
       />
 
       <main className="pt-20 px-4 max-w-lg mx-auto">
@@ -1543,94 +1534,46 @@ export default function Food() {
             </span>
           </button>
 
-          {/* Voice Note */}
-          <button
-            onClick={() => { if (plan.ready && !plan.entitled) { setShowPaywall(true); return } ; (isRecording ? stopVoiceRecording : startVoiceRecording)() }}
-            disabled={scanning || voiceProcessing}
-            className={`bg-arc-surface2/60 border rounded-control p-3 flex flex-col items-center gap-1.5 active:scale-95 transition disabled:opacity-50 ${isRecording ? 'border-red-500/50 bg-red-500/5' : 'border-white/[0.05] hover:border-white/15'}`}
-          >
-            {voiceProcessing ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full"
-              />
-            ) : (
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isRecording ? 'bg-red-500/20' : 'bg-purple-500/10'}`}>
-                {isRecording ? (
-                  <motion.div
-                    animate={{ scale: [1, 1.2, 1] }}
-                    transition={{ duration: 1, repeat: Infinity }}
-                  >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="6" y="6" width="12" height="12" rx="2" />
-                    </svg>
-                  </motion.div>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                    <line x1="12" y1="19" x2="12" y2="23"/>
-                    <line x1="8" y1="23" x2="16" y2="23"/>
-                  </svg>
-                )}
-              </div>
-            )}
-            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">
-              {isRecording ? 'Stop' : voiceProcessing ? 'Processing' : 'Voice'}
-            </span>
-          </button>
+        </div>
 
-          {/* Manual Entry */}
+        {/* The other ways in, one row. */}
+        <div className="mt-2 grid grid-cols-3 gap-2">
           <button
             onClick={() => {
               setManualFood(prev => ({ ...prev, meal_type: getDefaultMealType() }))
               setShowManualEntry(true)
             }}
             disabled={scanning || voiceProcessing}
-            className="bg-arc-surface2/60 border border-white/[0.05] rounded-control p-3 flex flex-col items-center gap-1.5 active:scale-95 transition hover:border-white/15 disabled:opacity-50"
+            className="h-12 rounded-control bg-arc-surface2/60 border border-white/[0.06] hover:border-white/15 text-[13px] font-bold text-white disabled:opacity-50"
           >
-            <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-            </div>
-            <span className="text-[10px] font-bold text-arc-muted uppercase tracking-wider">Manual</span>
+            Type it
+          </button>
+          <button
+            onClick={() => { if (plan.ready && !plan.entitled) { setShowPaywall(true); return } ; (isRecording ? stopVoiceRecording : startVoiceRecording)() }}
+            disabled={scanning || voiceProcessing}
+            className={`h-12 rounded-control border text-[13px] font-bold disabled:opacity-50 ${isRecording ? 'border-arc-danger/50 bg-arc-danger/10 text-arc-danger' : 'bg-arc-surface2/60 border-white/[0.06] hover:border-white/15 text-white'}`}
+          >
+            {isRecording ? 'Stop' : voiceProcessing ? 'Listening…' : 'Say it'}
+          </button>
+          <button
+            onClick={() => setShowFavourites(true)}
+            className="h-12 rounded-control bg-arc-surface2/60 border border-white/[0.06] hover:border-white/15 text-[13px] font-bold text-white"
+          >
+            Favourites
           </button>
         </div>
 
-        {/* Quick adds: café favourites + copy yesterday */}
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setShowFavourites(true)}
-            className="bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            Favourites
-          </button>
+        {/* Copying a day only makes sense into an empty one. */}
+        {todayLogs.length === 0 && !scanning && (
           <button
             onClick={() => copyDayToToday()}
             disabled={copying}
-            className="bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold disabled:opacity-50"
+            className="mt-2 w-full h-11 rounded-control border border-dashed border-white/10 text-[13px] font-bold text-arc-muted hover:text-white disabled:opacity-50"
           >
-            {copying ? 'Copying…' : (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                Copy yesterday
-              </>
-            )}
+            {copying ? 'Copying…' : `Same as ${isToday ? 'yesterday' : 'the day before'}`}
           </button>
-        </div>
+        )}
 
-        {/* Bring a diary across from another app */}
-        <button
-          onClick={() => csvInputRef.current?.click()}
-          className="mt-3 w-full bg-arc-card border border-white/5 rounded-2xl py-3 flex items-center justify-center gap-2 text-arc-muted hover:text-white hover:border-arc-accent/30 transition-colors text-sm font-bold"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          Import a food diary
-        </button>
         <input
           ref={csvInputRef}
           type="file"
@@ -1638,17 +1581,6 @@ export default function Food() {
           className="hidden"
           onChange={(e) => { handleCsvFile(e.target.files?.[0]); e.target.value = '' }}
         />
-
-        {/* A member asked how to sync MyFitnessPal and there was nowhere in the
-            app that answered. The importer only ever showed a file picker, so
-            "import a diary" was a dead end unless you already knew where the
-            file came from. */}
-        <button
-          onClick={() => setShowImportHelp(true)}
-          className="mt-2 w-full text-center text-[11px] text-arc-muted hover:text-white transition-colors underline underline-offset-2"
-        >
-          Where do I get the file?
-        </button>
 
         <AnimatePresence>
           {showDayPicker && (
@@ -2039,52 +1971,23 @@ export default function Food() {
                     </div>
                     <div className="space-y-2">
                       {logs.map((log) => (
-                        <motion.div
+                        <button
                           key={log.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="bg-arc-card border border-white/5 rounded-xl px-4 py-3 flex items-center justify-between"
+                          onClick={() => openEdit(log)}
+                          aria-label={`Edit ${log.item_name}`}
+                          className="w-full text-left bg-arc-card border border-white/5 hover:border-white/15 rounded-control px-4 py-3 flex items-center gap-3 transition-colors"
                         >
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-bold text-white truncate block">{log.item_name}</span>
-                            <span className="text-[10px] text-arc-muted">
+                            <span className="t-caption text-arc-muted">
                               {log.quantity != null && (
-                                <span className="text-arc-cyan/80">{log.quantity}{log.unit === 'g' || log.unit === 'ml' ? log.unit : ' ' + unitLabel(log.unit, log.quantity)} · </span>
+                                <span>{log.quantity}{log.unit === 'g' || log.unit === 'ml' ? log.unit : ' ' + unitLabel(log.unit, log.quantity)} · </span>
                               )}
-                              P:{log.macros?.p || 0}g  C:{log.macros?.c || 0}g  F:{log.macros?.f || 0}g
+                              P {log.macros?.p || 0}g · C {log.macros?.c || 0}g · F {log.macros?.f || 0}g
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-black text-arc-cyan">{log.calories} cal</span>
-                            <button
-                              onClick={() => saveLogAsFavourite(log)}
-                              className="text-white/20 hover:text-yellow-400 transition-colors p-1"
-                              title="Save to favourites"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                            </button>
-                            <button
-                              onClick={() => openEdit(log)}
-                              className="text-white/20 hover:text-arc-cyan transition-colors p-1"
-                              title="Edit"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-                            </button>
-                            <button
-                              onClick={() => shareToFeed({ name: log.item_name, cals: log.calories, p: log.macros?.p || 0, c: log.macros?.c || 0, f: log.macros?.f || 0 })}
-                              className="text-white/20 hover:text-arc-accent transition-colors p-1"
-                              title="Share to feed"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                            </button>
-                            <button
-                              onClick={() => deleteLog(log.id, log.calories, log.macros)}
-                              className="text-white/20 hover:text-red-500 transition-colors p-1"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                            </button>
-                          </div>
-                        </motion.div>
+                          <span className="shrink-0 text-sm font-black text-white t-num">{log.calories} cal</span>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -2097,9 +2000,17 @@ export default function Food() {
         {/* Empty state */}
         {todayLogs.length === 0 && !scanning && (
           <div className="mt-6 text-center">
-            <p className="text-arc-muted text-sm">{isToday ? 'No food logged today. Scan, speak, or add food to start tracking!' : `Nothing logged for ${dayLabel(logDate)} yet. Add it below and it lands on that day.`}</p>
+            <p className="text-arc-muted text-sm">{isToday ? 'Nothing logged yet today.' : `Nothing logged for ${dayLabel(logDate)} yet. Anything you add lands on that day.`}</p>
           </div>
         )}
+
+        {/* Moving from another app. Rare, so it is a link, not a button. */}
+        <button
+          onClick={() => setShowImportHelp(true)}
+          className="mt-8 mb-2 w-full text-center t-caption text-arc-muted hover:text-white underline underline-offset-2"
+        >
+          Import a diary from another app
+        </button>
       </main>
 
       {/* Edit Food Modal */}
@@ -2128,7 +2039,28 @@ export default function Food() {
                   toNum={num}
                 />
 
-                <div className="flex gap-3 pt-1">
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  <button
+                    onClick={() => { saveLogAsFavourite(editingLog) }}
+                    className="py-3 rounded-control bg-arc-surface2 border border-white/[0.06] text-[12px] font-bold text-arc-muted hover:text-white"
+                  >
+                    ☆ Favourite
+                  </button>
+                  <button
+                    onClick={() => { shareToFeed({ name: editingLog.item_name, cals: editingLog.calories, p: editingLog.macros?.p || 0, c: editingLog.macros?.c || 0, f: editingLog.macros?.f || 0 }); closeEdit() }}
+                    className="py-3 rounded-control bg-arc-surface2 border border-white/[0.06] text-[12px] font-bold text-arc-muted hover:text-white"
+                  >
+                    Share
+                  </button>
+                  <button
+                    onClick={() => { deleteLog(editingLog.id, editingLog.calories, editingLog.macros); closeEdit() }}
+                    className="py-3 rounded-control bg-arc-danger/10 text-[12px] font-bold text-arc-danger"
+                  >
+                    Delete
+                  </button>
+                </div>
+
+                <div className="flex gap-3">
                   <button
                     onClick={closeEdit}
                     className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl"

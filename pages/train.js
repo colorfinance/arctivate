@@ -1,9 +1,9 @@
-import { ArrowRightIcon } from '../components/icons'
+import { ArrowRightIcon, CoachIcon } from '../components/icons'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Nav from '../components/Nav'
-import Masthead from '../components/Masthead'
+import Masthead, { MastheadAction } from '../components/Masthead'
 import { useSimpleMode } from '../lib/simpleMode'
 import Button from '../components/Button'
 import LoadingState from '../components/LoadingState'
@@ -1689,7 +1689,14 @@ export default function Train() {
         </AnimatePresence>
 
         {/* The title is the tab's name. Points live on the leaderboard. */}
-        <Masthead title="Train" />
+        <Masthead
+            title="Train"
+            actions={!simple ? (
+                <MastheadAction href="/coach" label="Ask the coach">
+                    <CoachIcon size={19} />
+                </MastheadAction>
+            ) : null}
+        />
 
         <main className="pt-20 px-5 space-y-6 max-w-lg mx-auto">
 

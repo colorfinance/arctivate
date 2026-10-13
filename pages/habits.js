@@ -285,18 +285,13 @@ export default function Habits() {
       // alive across reinstalls and time changes.
       const nudge = profile?.daily_reminder_time ? profile.daily_reminder_time.slice(0, 5) : null
       setNudgeTime(nudge)
-      setNudgeInput(nudge || '07:00')
       syncDailyNudge(nudge)
       // A reminder row saves fine whether or not the OS has granted us
       // permission, so check separately -- otherwise members sit with alarms
       // set that can never fire, which is exactly what was happening.
-      reminderPermissionState().then(setNotifyPermission).catch(() => {})
-      try {
-        setDismissedNotifyBanner(localStorage.getItem('arc_notify_banner_dismissed') === '1')
-      } catch {}
 
       // Fetch progress photos + weigh-in history
-      await Promise.all([fetchProgressPhotos(user.id), fetchWeightLogs(user.id)])
+      await fetchWeightLogs(user.id)
     } catch {
       // swallow
     } finally {
@@ -307,6 +302,11 @@ export default function Habits() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [toast, setToast] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  // Edit mode shows the remove buttons; the rest of the time a row is a tick.
+  const [editing, setEditing] = useState(false)
+  // The weekly photo habit opens the camera; the upload ticks it.
+  const photoInputRef = useRef(null)
+  const photoHabitRef = useRef(null)
 
   // Weekly weigh-in — ticking it captures the number so there's a trend.
   const [weighInFor, setWeighInFor] = useState(null) // habit being ticked
@@ -323,59 +323,25 @@ export default function Habits() {
   // Whether this member runs their gym; if so, the pulse is one row away.
   const [gymStaff, setGymStaff] = useState(false)
   const { simple } = useSimpleMode()
-  const [savingStrict, setSavingStrict] = useState(false)
-  const [showStrictConfirm, setShowStrictConfirm] = useState(false)
   const [strictReset, setStrictReset] = useState(null) // date that was missed
 
-  // Habit reminder alarms
-  const [reminderEditId, setReminderEditId] = useState(null)
   // 'granted' | 'denied' | 'default' | 'unsupported' | null (not checked yet)
   const [notifyPermission, setNotifyPermission] = useState(null)
-  const [dismissedNotifyBanner, setDismissedNotifyBanner] = useState(false)
   // The single daily nudge: 'HH:MM' or null when switched off.
   const [nudgeTime, setNudgeTime] = useState(null)
-  const [editingNudge, setEditingNudge] = useState(false)
-  const [nudgeInput, setNudgeInput] = useState('07:00')
-  const [savingNudge, setSavingNudge] = useState(false)
   // Strict mode's one "did you really miss it, or just forget?" prompt.
   const [lastChance, setLastChance] = useState(null)
   const [savingLastChance, setSavingLastChance] = useState(false)
   const profileRef = useRef(null)
-  const [reminderInput, setReminderInput] = useState('07:00')
-  const [savingReminder, setSavingReminder] = useState(false)
 
   // Progress Photo State
   const [progressPhoto, setProgressPhoto] = useState(null) // today's photo URL
-  const [photoGallery, setPhotoGallery] = useState([]) // last 7 days [{date, url}]
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const [photoError, setPhotoError] = useState(null)
 
   const showToast = (msg) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
-  }
-
-  const setStrict = async (on) => {
-    if (savingStrict) return
-    setSavingStrict(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { showToast('Please log in'); return }
-      // Switching strict mode on is the start of a fresh strict run, so the
-      // last chance comes back with it.
-      const patch = { strict_challenge: on, strict_last_checked: getTodayStr() }
-      if (on) patch.strict_saves_used = 0
-      const { error } = await supabase.from('profiles').update(patch).eq('id', user.id)
-      if (error) { showToast('Could not update (run migration 030)'); return }
-      setStrictMode(on)
-      if (!on) setLastChance(null) // turning it off should not leave the prompt up
-      setShowStrictConfirm(false)
-      showToast(on ? 'Strict mode on — no missed days 🔒' : 'Strict mode off')
-    } catch {
-      showToast('Something went wrong')
-    } finally {
-      setSavingStrict(false)
-    }
   }
 
   // --- Strict challenge (75 Hard style) -------------------------------------
@@ -631,6 +597,12 @@ export default function Habits() {
     // history to trend rather than a box that records nothing.
     if (!skipWeighIn && isWeighIn(habit) && !snapshot.has(habitId)) {
       openWeighIn(habit)
+      return
+    }
+    // Same for the progress photo: the tick is the photo.
+    if (!skipWeighIn && isPhotoHabit(habit) && !snapshot.has(habitId)) {
+      photoHabitRef.current = habitId
+      photoInputRef.current?.click()
       return
     }
 
@@ -912,6 +884,7 @@ export default function Habits() {
   // --- Weekly weigh-in ------------------------------------------------------
 
   const isWeighIn = (habit) => /weigh\s*-?\s*in/i.test(habit?.title || '')
+  const isPhotoHabit = (habit) => /progress\s*photo/i.test(habit?.title || '')
 
   const openWeighIn = (habit) => {
     // Prefill with the most recent figure so it's a nudge, not a blank box.
@@ -982,36 +955,6 @@ export default function Habits() {
     return `${h12}:${m} ${ampm}`
   }
 
-  const openReminder = (habit) => {
-    setReminderInput(habit.reminder_time ? habit.reminder_time.slice(0, 5) : '07:00')
-    setReminderEditId(habit.id)
-  }
-
-  const saveReminder = async (clear = false) => {
-    if (savingReminder || !reminderEditId) return
-    setSavingReminder(true)
-    const value = clear ? null : (reminderInput || null)
-    try {
-      if (value) {
-        const granted = await ensureReminderPermission()
-        if (!granted) showToast('Saved — allow notifications to get alerts')
-      }
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { showToast('Please log in'); return }
-      const { error } = await supabase.from('habits').update({ reminder_time: value }).eq('id', reminderEditId)
-      if (error) { showToast('Could not save reminder'); return }
-      const next = habits.map(h => h.id === reminderEditId ? { ...h, reminder_time: value } : h)
-      setHabits(next)
-      setReminderEditId(null)
-      showToast(clear ? 'Reminder removed' : `Reminder set for ${fmtReminder(reminderInput)}`)
-      syncHabitReminders(next)
-    } catch {
-      showToast('Something went wrong')
-    } finally {
-      setSavingReminder(false)
-    }
-  }
-
   const deleteHabit = async (id) => {
     // Optimistic update
     const previousHabits = habits
@@ -1038,69 +981,6 @@ export default function Habits() {
   }
 
   // --- Progress Photo Functions ---
-
-  async function fetchProgressPhotos(userId) {
-    try {
-      const today = getTodayStr()
-
-      // Check if today's photo exists by trying to get its public URL
-      const todayPath = `${userId}/${today}.jpg`
-      const { data: todayData } = supabase.storage
-        .from('progress-photos')
-        .getPublicUrl(todayPath)
-
-      // We need to verify the file actually exists by listing
-      const { data: listData, error: listError } = await supabase.storage
-        .from('progress-photos')
-        .list(userId, { limit: 100, sortBy: { column: 'name', order: 'desc' } })
-
-      if (listError) {
-        setPhotoError('Could not load progress photos')
-        return
-      }
-
-      if (!listData || listData.length === 0) {
-        setProgressPhoto(null)
-        setPhotoGallery([])
-        return
-      }
-
-      // Filter to only .jpg files and get last 7 days
-      const photoFiles = listData
-        .filter(f => f.name.endsWith('.jpg'))
-        .sort((a, b) => b.name.localeCompare(a.name))
-        .slice(0, 7)
-
-      // Check if today's photo exists in the list
-      const todayFile = photoFiles.find(f => f.name === `${today}.jpg`)
-      if (todayFile) {
-        const { data: urlData } = supabase.storage
-          .from('progress-photos')
-          .getPublicUrl(`${userId}/${today}.jpg`)
-        setProgressPhoto(urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : null)
-      } else {
-        setProgressPhoto(null)
-      }
-
-      // Build gallery
-      const gallery = photoFiles.map(f => {
-        const date = f.name.replace('.jpg', '')
-        const { data: urlData } = supabase.storage
-          .from('progress-photos')
-          .getPublicUrl(`${userId}/${f.name}`)
-        return {
-          date,
-          url: urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : null,
-          name: f.name
-        }
-      }).filter(item => item.url)
-
-      setPhotoGallery(gallery)
-      setPhotoError(null)
-    } catch {
-      setPhotoError('Could not load progress photos')
-    }
-  }
 
   function resizeImage(file, maxWidth = 800) {
     return new Promise((resolve, reject) => {
@@ -1158,6 +1038,7 @@ export default function Habits() {
     if (!file) return
     setIsUploadingPhoto(true)
     setPhotoError(null)
+    showToast('Saving your photo…')
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -1195,11 +1076,13 @@ export default function Habits() {
         setProgressPhoto(`${urlData.publicUrl}?t=${Date.now()}`)
       }
 
-      // Refresh gallery
-      await fetchProgressPhotos(user.id)
-
-      showToast('Progress photo saved!')
-      fireConfetti({ particleCount: 60, spread: 50, origin: { y: 0.7 }, colors: ['#00D4AA', '#22c55e'] })
+      const tickId = photoHabitRef.current || habits.find(h => isPhotoHabit(h))?.id
+      photoHabitRef.current = null
+      if (tickId && !weeklyDone.has(tickId) && !logs.has(tickId)) {
+        await toggleHabit(tickId, true)
+      } else {
+        showToast('Progress photo saved')
+      }
     } catch {
       setPhotoError('Something went wrong during upload')
       showToast('Photo upload failed')
@@ -1214,54 +1097,44 @@ export default function Habits() {
   const dailyHabits = habits.filter(h => (h.frequency || 'daily') !== 'weekly')
   const weeklyHabits = habits.filter(h => (h.frequency || 'daily') === 'weekly')
 
-  // The daily nudge counts too -- it is the reminder most members will have.
-  const remindersSetCount = habits.filter(h => h.reminder_time).length + (nudgeTime ? 1 : 0)
-  // Only worth saying anything if they actually have reminders waiting to fire.
-  const remindersBlocked =
-    remindersSetCount > 0 &&
-    !dismissedNotifyBanner &&
-    (notifyPermission === 'default' || notifyPermission === 'denied')
-
-  const enableNotifications = async () => {
-    const granted = await ensureReminderPermission()
-    setNotifyPermission(await reminderPermissionState())
-    if (granted) {
-      syncHabitReminders(habits)
-      showToast('Reminders on')
-    } else {
-      showToast('Notifications are blocked in your device settings')
-    }
-  }
-
-  const saveNudge = async (turnOff = false) => {
-    if (savingNudge) return
-    setSavingNudge(true)
-    const value = turnOff ? null : (nudgeInput || null)
-    try {
-      if (value) {
-        const granted = await ensureReminderPermission()
-        setNotifyPermission(await reminderPermissionState())
-        if (!granted) showToast('Saved — allow notifications to get it')
-      }
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { showToast('Please log in'); return }
-      const { error } = await supabase.from('profiles')
-        .update({ daily_reminder_time: value }).eq('id', user.id)
-      if (error) { showToast('Could not save'); return }
-      setNudgeTime(value)
-      setEditingNudge(false)
-      syncDailyNudge(value)
-      showToast(turnOff ? 'Daily nudge off' : `Daily nudge set for ${fmtReminder(value)}`)
-    } catch {
-      showToast('Something went wrong')
-    } finally {
-      setSavingNudge(false)
-    }
-  }
-
-  const dismissNotifyBanner = () => {
-    setDismissedNotifyBanner(true)
-    try { localStorage.setItem('arc_notify_banner_dismissed', '1') } catch {}
+  // One row for a habit, daily or weekly. A tap ticks it; in edit mode the
+  // tap does nothing and the × removes it.
+  const renderHabit = (habit, isDone, kind) => {
+    const on = kind === 'weekly'
+      ? { row: 'bg-arc-cyan/[0.08] border-arc-cyan/30', box: 'bg-arc-cyan border-arc-cyan', text: 'text-arc-cyan/80' }
+      : { row: 'bg-arc-success/[0.08] border-arc-success/30', box: 'bg-arc-success border-arc-success', text: 'text-arc-success/80' }
+    const hint = !isDone && !editing
+      ? (isWeighIn(habit) ? 'Tap to enter your weight' : isPhotoHabit(habit) ? 'Tap to take the photo' : null)
+      : null
+    return (
+      <div
+        key={habit.id}
+        onClick={() => { if (!editing) toggleHabit(habit.id) }}
+        onKeyDown={(e) => { if (!editing && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleHabit(habit.id) } }}
+        role={editing ? undefined : 'checkbox'}
+        aria-checked={editing ? undefined : isDone}
+        tabIndex={editing ? -1 : 0}
+        aria-label={habit.title}
+        className={`flex items-center gap-3 pl-4 pr-1 min-h-[52px] rounded-control border transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${editing ? 'bg-arc-surface2/60 border-white/[0.05]' : isDone ? `cursor-pointer ${on.row}` : 'cursor-pointer bg-arc-surface2/60 border-white/[0.05] hover:border-white/15'}`}
+      >
+        <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors duration-fast ${isDone ? on.box : 'border-white/25'}`}>
+          {isDone && <svg className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>}
+        </span>
+        <span className="flex-1 min-w-0 py-2.5">
+          <span className={`block text-[15px] font-bold leading-snug line-clamp-2 transition-colors ${isDone ? `${on.text} line-through decoration-2` : 'text-white'}`}>{habit.title}</span>
+          {hint && <span className="block t-caption text-arc-muted mt-0.5">{hint}</span>}
+        </span>
+        {editing && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id) }}
+            aria-label={`Remove ${habit.title}`}
+            className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-arc-danger hover:bg-arc-danger/10 transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        )}
+      </div>
+    )
   }
 
   // Days you can still put right, most recent first, with what's outstanding
@@ -1357,9 +1230,15 @@ export default function Habits() {
         <Masthead
             title="Today"
             actions={
-                <MastheadAction onClick={() => setIsAdding(true)} label="Add a habit">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
-                </MastheadAction>
+                habits.length > 0 ? (
+                    <button
+                        onClick={() => setEditing(v => !v)}
+                        aria-pressed={editing}
+                        className={`h-9 px-3 rounded-full text-[13px] font-bold transition-colors duration-fast ${editing ? 'bg-arc-accent text-black' : 'text-arc-muted hover:text-white hover:bg-white/5'}`}
+                    >
+                        {editing ? 'Done' : 'Edit'}
+                    </button>
+                ) : null
             }
         />
 
@@ -1415,48 +1294,8 @@ export default function Habits() {
 
             {/* The list. Above the fold, because it is what you came for. */}
             <section className="space-y-2">
-                <SectionLabel>Daily habits</SectionLabel>
-                {dailyHabits.map(habit => {
-                    const isDone = logs.has(habit.id)
-                    return (
-                        <motion.div
-                            key={habit.id}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            onClick={() => toggleHabit(habit.id)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
-                            role="checkbox"
-                            aria-checked={isDone}
-                            tabIndex={0}
-                            aria-label={habit.title}
-                            className={`flex items-center gap-3 pl-4 pr-1 py-2 rounded-control border cursor-pointer transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-arc-success/[0.08] border-arc-success/30' : 'bg-arc-surface2/60 border-white/[0.05] hover:border-white/15'}`}
-                        >
-                            <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors duration-fast ${isDone ? 'bg-arc-success border-arc-success' : 'border-white/25'}`}>
-                                {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></motion.svg>}
-                            </span>
-                            <span className={`flex-1 min-w-0 py-1.5 text-[15px] font-bold leading-snug line-clamp-2 transition-colors ${isDone ? 'text-arc-success/80 line-through decoration-2' : 'text-white'}`}>
-                                {habit.title}
-                            </span>
-                            <span className="shrink-0 flex items-center">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
-                                    aria-label={habit.reminder_time ? `Reminder at ${fmtReminder(habit.reminder_time)} for ${habit.title}` : `Set a reminder for ${habit.title}`}
-                                    className={`w-10 h-10 rounded-full flex items-center justify-center gap-1 transition-colors ${habit.reminder_time ? 'text-arc-accent' : 'text-white/25 hover:text-arc-accent'}`}
-                                >
-                                    {habit.reminder_time && <span className="text-[9px] font-bold">{fmtReminder(habit.reminder_time)}</span>}
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
-                                    aria-label={`Delete ${habit.title}`}
-                                    className="w-10 h-10 rounded-full flex items-center justify-center text-white/20 hover:text-arc-danger transition-colors"
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                </button>
-                            </span>
-                        </motion.div>
-                    )
-                })}
+                <SectionLabel trailing={editing ? <span className="t-caption text-arc-muted">Tap × to remove</span> : null}>Daily habits</SectionLabel>
+                {dailyHabits.map(habit => renderHabit(habit, logs.has(habit.id), 'daily'))}
                 {dailyHabits.length === 0 && !loading && (
                     <EmptyState
                         title="No habits yet"
@@ -1567,279 +1406,37 @@ export default function Habits() {
                 </section>
             )}
 
-            {/* Weekly Habits */}
+            {/* The week. The weigh-in asks for the number and the photo opens
+                the camera, so ticking them records the thing itself. */}
             {!simple && weeklyHabits.length > 0 && (
                 <section className="space-y-2">
                     <SectionLabel trailing={<span className="t-caption text-arc-muted">{weeklyDoneCount}/{weeklyTotal} · resets Monday</span>}>This week</SectionLabel>
-                    {weeklyHabits.map(habit => {
-                        const isDone = weeklyDone.has(habit.id)
-                        return (
-                            <motion.div
-                                key={habit.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                onClick={() => toggleHabit(habit.id)}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHabit(habit.id) } }}
-                                role="checkbox"
-                                aria-checked={isDone}
-                                tabIndex={0}
-                                aria-label={habit.title}
-                                className={`flex items-center gap-3 pl-4 pr-1 py-2 rounded-control border cursor-pointer transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-arc-accent ${isDone ? 'bg-arc-cyan/[0.08] border-arc-cyan/30' : 'bg-arc-surface2/60 border-white/[0.05] hover:border-white/15'}`}
-                            >
-                                <span className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors duration-fast ${isDone ? 'bg-arc-cyan border-arc-cyan' : 'border-white/25'}`}>
-                                    {isDone && <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></motion.svg>}
-                                </span>
-                                <span className={`flex-1 min-w-0 py-1.5 text-[15px] font-bold leading-snug line-clamp-2 transition-colors ${isDone ? 'text-arc-cyan/80 line-through decoration-2' : 'text-white'}`}>
-                                    {habit.title}
-                                </span>
-                                <span className="shrink-0 flex items-center">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); openReminder(habit); }}
-                                        aria-label={habit.reminder_time ? `Reminder at ${fmtReminder(habit.reminder_time)} for ${habit.title}` : `Set a reminder for ${habit.title}`}
-                                        className={`w-10 h-10 rounded-full flex items-center justify-center gap-1 transition-colors ${habit.reminder_time ? 'text-arc-accent' : 'text-white/25 hover:text-arc-accent'}`}
-                                    >
-                                        {habit.reminder_time && <span className="text-[9px] font-bold">{fmtReminder(habit.reminder_time)}</span>}
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill={habit.reminder_time ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                                    </button>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(habit.id); }}
-                                        aria-label={`Delete ${habit.title}`}
-                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white/20 hover:text-arc-danger transition-colors"
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                    </button>
-                                </span>
-                            </motion.div>
-                        )
-                    })}
+                    {weeklyHabits.map(habit => renderHabit(habit, weeklyDone.has(habit.id), 'weekly'))}
                 </section>
             )}
 
-
-
-            {/* Reminders live with the other settings now. A prompt was sitting
-                above the list it was prompting you to tick. */}
-            {!simple && remindersBlocked && (
-                <Banner
-                    tone="info"
-                    icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-arc-accent" aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
-                    title={notifyPermission === 'denied' ? 'Reminders are switched off' : 'Turn on reminders'}
-                    body={notifyPermission === 'denied'
-                        ? 'You have reminders set, but notifications are blocked. Turn them back on in your device settings.'
-                        : `You have ${remindersSetCount} reminder${remindersSetCount === 1 ? '' : 's'} set. Allow notifications and we will nudge you.`}
-                    action={notifyPermission !== 'denied' && <Button variant="primary" size="sm" onClick={enableNotifications}>Allow notifications</Button>}
-                    onDismiss={dismissNotifyBanner}
+            {gymStaff && (
+                <ListRow
+                    href="/gym"
+                    tone="accent"
+                    icon={<span aria-hidden>🏋️</span>}
+                    title="Your gym"
+                    caption="Who is active, at risk and quiet today"
                 />
             )}
 
-            {/* Strict mode, and where to go next. These used to sit directly
-                under the day counter, which put three rows of settings and
-                signposting above the five things people open this page to
-                tick. */}
-            <section className="space-y-2">
-                <ListRow
-                    onClick={() => { setNudgeInput(nudgeTime || '07:00'); setEditingNudge(true) }}
-                    icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={nudgeTime ? 'text-arc-accent' : ''} aria-hidden><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
-                    title="Daily nudge"
-                    caption={nudgeTime ? `Once a day at ${fmtReminder(nudgeTime)}` : 'Off — tap to get a daily reminder'}
-                />
-                <ListRow
-                    className={simple ? 'hidden' : ''}
-                    onClick={() => (strictMode ? setStrict(false) : setShowStrictConfirm(true))}
-                    tone={strictMode ? 'warning' : 'default'}
-                    icon={<span className={strictMode ? 'text-arc-warning' : ''}>{strictMode ? <LockIcon size={16} /> : <UnlockIcon size={16} />}</span>}
-                    title="Strict mode"
-                    caption={strictMode ? 'Miss a day and you go back to Day 1' : 'Off — a missed day won’t reset you'}
-                    trailing={
-                        <span role="switch" aria-checked={strictMode} className={`w-10 h-6 rounded-full flex items-center px-0.5 transition-colors duration-fast ${strictMode ? 'bg-arc-warning justify-end' : 'bg-white/10 justify-start'} ${savingStrict ? 'opacity-50' : ''}`}>
-                            <span className="w-5 h-5 rounded-full bg-white shadow" />
-                        </span>
-                    }
-                />
-                <ListRow
-                    href="/challenges"
-                    icon={<FlagIcon size={16} />}
-                    title="Challenges"
-                    caption="Join one, or start your own"
-                />
-                <ListRow
-                    href="/leaderboard"
-                    icon={<TrophyIcon size={16} />}
-                    title="Leaderboard"
-                    caption="You vs your friends, your gym, other gyms"
-                />
-                {gymStaff && (
-                    <ListRow
-                        href="/gym"
-                        tone="accent"
-                        icon={<span aria-hidden>🏋️</span>}
-                        title="Your gym"
-                        caption="Who is active, at risk and quiet today"
-                    />
-                )}
-            </section>
-
-            {/* Weigh-in trend — only once there's something to show */}
-            {!simple && weightLogs.length > 0 && (
-                <section className="space-y-3">
-                    <SectionLabel trailing={<span className="t-caption text-arc-muted">{weightLogs.length} logged</span>}>Weigh-in</SectionLabel>
-                    <div className="bg-arc-surface2/60 border border-white/[0.05] p-5 rounded-container relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-arc-cyan/5 blur-3xl rounded-full pointer-events-none" />
-                        <div className="flex items-end justify-between">
-                            <div>
-                                <div className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Current</div>
-                                <div className="text-4xl font-black italic tracking-tighter">
-                                    {weightLogs[0].weight}<span className="text-lg text-white/30 ml-1">kg</span>
-                                </div>
-                                <div className="text-[10px] text-arc-muted mt-1">
-                                    {new Date(weightLogs[0].date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                </div>
-                            </div>
-                            {weightLogs.length > 1 && (() => {
-                                const first = weightLogs[weightLogs.length - 1]
-                                const diff = Number(weightLogs[0].weight) - Number(first.weight)
-                                const down = diff < 0
-                                return (
-                                    <div className="text-right">
-                                        <div className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-1">Since start</div>
-                                        <div className={`text-2xl font-black italic tracking-tighter ${down ? 'text-green-500' : diff > 0 ? 'text-arc-cyan' : 'text-arc-muted'}`}>
-                                            {diff > 0 ? '+' : ''}{diff.toFixed(1)}<span className="text-sm ml-0.5">kg</span>
-                                        </div>
-                                        <div className="text-[10px] text-arc-muted mt-1">from {first.weight}kg</div>
-                                    </div>
-                                )
-                            })()}
-                        </div>
-                    </div>
-                </section>
-            )}
-
-            {/* Progress Photo Section - 75 Hard Style */}
-            <section className={`space-y-2 pb-12 ${simple ? 'hidden' : ''}`}>
-                <SectionLabel trailing={progressPhoto ? (
-                    <span className="t-caption font-bold text-arc-success flex items-center gap-1">
-                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12"/></svg>
-                        Done today
-                    </span>
-                ) : <span className="t-caption text-arc-muted">One a day</span>}>Progress photo</SectionLabel>
-
-                {/* Today's Photo or Upload */}
-                <div className="bg-arc-surface2/60 border border-white/[0.05] rounded-container p-4 relative overflow-hidden">
-
-                    {progressPhoto ? (
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="relative"
-                        >
-                            <img
-                                src={progressPhoto}
-                                alt={`Progress photo for ${getTodayStr()}`}
-                                className="w-full rounded-xl object-cover max-h-80"
-                            />
-                            <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full">
-                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">
-                                    {getTodayStr()}
-                                </span>
-                            </div>
-                            <button
-                                onClick={deleteProgressPhoto}
-                                className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full hover:bg-arc-danger/80 transition-colors"
-                            >
-                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Delete</span>
-                            </button>
-                            {/* Allow re-upload / replace */}
-                            <label className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full cursor-pointer hover:bg-black/80 transition-colors">
-                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Replace</span>
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                        if (e.target.files?.[0]) uploadProgressPhoto(e.target.files[0])
-                                    }}
-                                />
-                            </label>
-                        </motion.div>
-                    ) : (
-                        <label className={`flex flex-col items-center justify-center py-6 cursor-pointer group ${isUploadingPhoto ? 'pointer-events-none' : ''}`}>
-                            {isUploadingPhoto ? (
-                                <div className="flex flex-col items-center gap-3">
-                                    <div className="w-8 h-8 border-2 border-arc-accent border-t-transparent rounded-full animate-spin" />
-                                    <span className="text-xs text-arc-muted font-bold">Uploading...</span>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="w-12 h-12 rounded-control border-2 border-dashed border-white/15 group-hover:border-arc-accent/50 flex items-center justify-center transition-colors mb-3">
-                                        <svg className="w-5 h-5 text-white/30 group-hover:text-arc-accent/50 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                            <circle cx="8.5" cy="8.5" r="1.5"/>
-                                            <polyline points="21 15 16 10 5 21"/>
-                                        </svg>
-                                    </div>
-                                    <span className="text-[14px] font-bold text-white/70 group-hover:text-white transition-colors">
-                                        Add today&apos;s photo
-                                    </span>
-                                    <span className="t-caption text-arc-muted mt-1">
-                                        Not posted to the feed
-                                    </span>
-                                </>
-                            )}
-                            <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                disabled={isUploadingPhoto}
-                                onChange={(e) => {
-                                    if (e.target.files?.[0]) uploadProgressPhoto(e.target.files[0])
-                                }}
-                            />
-                        </label>
-                    )}
-
-                    {/* Error Message */}
-                    {photoError && (
-                        <motion.p
-                            initial={{ opacity: 0, y: 5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-xs text-red-400 mt-3 text-center"
-                        >
-                            {photoError}
-                        </motion.p>
-                    )}
-                </div>
-
-                {/* Photo Gallery - Last 7 Days */}
-                {photoGallery.length > 0 && (
-                    <div>
-                        <h3 className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-3">Recent Progress</h3>
-                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
-                            {photoGallery.map((photo) => (
-                                <motion.div
-                                    key={photo.date}
-                                    initial={{ opacity: 0, scale: 0.9 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    className="flex-shrink-0 relative group"
-                                >
-                                    <img
-                                        src={photo.url}
-                                        alt={`Progress ${photo.date}`}
-                                        className="w-24 h-32 object-cover rounded-xl border border-white/5 group-hover:border-arc-accent/30 transition-colors"
-                                    />
-                                    <div className="absolute bottom-1.5 left-1.5 right-1.5 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
-                                        <span className="text-[8px] font-bold text-white/80 tracking-wider">
-                                            {new Date(photo.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                        </span>
-                                    </div>
-                                    {photo.date === getTodayStr() && (
-                                        <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
-                                    )}
-                                </motion.div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </section>
+            <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    e.target.value = ''
+                    if (f) uploadProgressPhoto(f)
+                }}
+            />
+            <div className="h-8" />
         </main>
 
         {/* Challenge complete — congratulations */}
@@ -1950,58 +1547,6 @@ export default function Habits() {
             )}
         </AnimatePresence>
 
-        {/* Edit Goal Sheet */}
-        <AnimatePresence>
-            {isEditingGoal && (
-                <>
-                    <motion.div 
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setIsEditingGoal(false)}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
-                    />
-                    <motion.div 
-                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
-                    >
-                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
-                        <h2 className="text-xl font-black italic tracking-tighter text-center">SET CHALLENGE GOAL</h2>
-                        
-                        <div>
-                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Duration (Days)</label>
-                            <input 
-                                type="number" 
-                                value={newGoal}
-                                onChange={(e) => setNewGoal(e.target.value)}
-                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl"
-                                autoFocus
-                            />
-                        </div>
-
-                        <div className="space-y-3">
-                            <button 
-                                onClick={() => updateGoal(false)}
-                                className="w-full bg-white/10 text-white font-bold py-4 rounded-xl text-lg hover:bg-white/20 transition-colors"
-                            >
-                                UPDATE GOAL ONLY
-                            </button>
-                            
-                            <button 
-                                onClick={() => { if(confirm("Restart challenge to Day 1?")) updateGoal(true) }}
-                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform"
-                            >
-                                LOCK IN & RESTART
-                            </button>
-                        </div>
-                        
-                        <p className="text-center text-xs text-arc-muted">
-                            "Lock In" resets your counter to Day 1.
-                        </p>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-
         {/* Strict mode was triggered — you missed a day */}
         <AnimatePresence>
             {/* Strict mode's one question. Shown instead of a reset, once per run. */}
@@ -2107,124 +1652,6 @@ export default function Habits() {
             )}
         </AnimatePresence>
 
-        {/* Turning strict mode on */}
-        <AnimatePresence>
-            {showStrictConfirm && (
-                <>
-                    <motion.div
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setShowStrictConfirm(false)}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
-                    />
-                    <motion.div
-                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
-                    >
-                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
-                        <div className="text-center">
-                            <div className="mb-3 flex justify-center text-amber-400"><LockIcon size={36} /></div>
-                            <h2 className="text-xl font-black italic tracking-tighter">TURN ON STRICT MODE?</h2>
-                            <p className="text-sm text-arc-muted mt-2 leading-relaxed">
-                                A real challenge, 75 Hard style. Miss a single day of your daily habits and you go <span className="text-white font-bold">back to Day 1</span>.
-                            </p>
-                        </div>
-
-                        <div className="bg-arc-surface border border-white/5 rounded-xl p-4 space-y-2">
-                            <div className="flex items-start gap-2.5">
-                                <span className="text-amber-400 text-xs mt-0.5">!</span>
-                                <span className="text-[12px] text-arc-muted leading-snug">Checked when you open the app — miss days away and it resets on your return</span>
-                            </div>
-                            <div className="flex items-start gap-2.5">
-                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
-                                <span className="text-[12px] text-arc-muted leading-snug">Today and your first day are safe — only completed days count against you</span>
-                            </div>
-                            <div className="flex items-start gap-2.5">
-                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
-                                <span className="text-[12px] text-arc-muted leading-snug">Points, photos and history are never lost — and you can switch it off anytime</span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-3">
-                            <button
-                                onClick={() => setStrict(true)}
-                                disabled={savingStrict}
-                                className="w-full bg-amber-500 text-arc-bg font-bold py-4 rounded-xl text-lg active:scale-95 transition-transform disabled:opacity-50"
-                            >
-                                {savingStrict ? 'SAVING…' : "I'M IN — LOCK IT"}
-                            </button>
-                            <button
-                                onClick={() => setShowStrictConfirm(false)}
-                                disabled={savingStrict}
-                                className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
-                            >
-                                Not for me
-                            </button>
-                        </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-
-        {/* Restart the challenge */}
-        <AnimatePresence>
-            {showRestartConfirm && (
-                <>
-                    <motion.div
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setShowRestartConfirm(false)}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
-                    />
-                    <motion.div
-                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
-                    >
-                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
-                        <div className="text-center">
-                            <div className="mb-3 flex justify-center text-arc-cyan"><RestartIcon size={36} /></div>
-                            <h2 className="text-xl font-black italic tracking-tighter">START AGAIN?</h2>
-                            <p className="text-sm text-arc-muted mt-2 leading-relaxed">
-                                Missed a few days? No drama — take a clean run at it. You&apos;ll go back to <span className="text-white font-bold">Day 1</span> of your {challengeGoal}-day challenge.
-                            </p>
-                        </div>
-
-                        <div className="bg-arc-surface border border-white/5 rounded-xl p-4 space-y-2">
-                            <div className="flex items-start gap-2.5">
-                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
-                                <span className="text-[12px] text-arc-muted leading-snug">Your points, photos and history all stay</span>
-                            </div>
-                            <div className="flex items-start gap-2.5">
-                                <CheckIcon size={13} className="text-green-500 mt-0.5 shrink-0" />
-                                <span className="text-[12px] text-arc-muted leading-snug">Your habits stay exactly as you&apos;ve set them up</span>
-                            </div>
-                            <div className="flex items-start gap-2.5">
-                                <RestartIcon size={13} className="text-arc-cyan mt-0.5 shrink-0" />
-                                <span className="text-[12px] text-arc-muted leading-snug">Only the day counter goes back to 1</span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-3">
-                            <button
-                                onClick={restartChallenge}
-                                disabled={isRestarting}
-                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
-                            >
-                                {isRestarting ? 'RESTARTING…' : 'RESTART FROM DAY 1'}
-                            </button>
-                            <button
-                                onClick={() => setShowRestartConfirm(false)}
-                                disabled={isRestarting}
-                                className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
-                            >
-                                Keep going as I am
-                            </button>
-                        </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-
         {/* Weigh-in Sheet */}
         <AnimatePresence>
             {weighInFor && (
@@ -2278,115 +1705,6 @@ export default function Habits() {
                                 Skip — just tick it off
                             </button>
                         </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-
-        {/* Daily Nudge Sheet */}
-        <AnimatePresence>
-            {editingNudge && (
-                <>
-                    <motion.div
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => !savingNudge && setEditingNudge(false)}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
-                    />
-                    <motion.div
-                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
-                    >
-                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
-                        <div className="text-center">
-                            <h2 className="text-xl font-black italic tracking-tighter">DAILY NUDGE</h2>
-                            <p className="text-xs text-arc-muted mt-1">One reminder a day to tick today off. Just one.</p>
-                        </div>
-
-                        <div>
-                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Nudge me at</label>
-                            <input
-                                type="time"
-                                value={nudgeInput}
-                                onChange={(e) => setNudgeInput(e.target.value)}
-                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl [color-scheme:dark]"
-                            />
-                        </div>
-
-                        <div className="space-y-3">
-                            <button
-                                onClick={() => saveNudge(false)}
-                                disabled={savingNudge}
-                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
-                            >
-                                {savingNudge ? 'SAVING…' : 'SAVE'}
-                            </button>
-                            {nudgeTime && (
-                                <button
-                                    onClick={() => saveNudge(true)}
-                                    disabled={savingNudge}
-                                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
-                                >
-                                    Turn it off
-                                </button>
-                            )}
-                        </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-
-        {/* Reminder Sheet */}
-        <AnimatePresence>
-            {reminderEditId && (
-                <>
-                    <motion.div
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setReminderEditId(null)}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
-                    />
-                    <motion.div
-                        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-8 z-50 space-y-6 pb-safe"
-                    >
-                        <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4" />
-                        <div className="text-center">
-                            <h2 className="text-xl font-black italic tracking-tighter">SET A REMINDER</h2>
-                            <p className="text-xs text-arc-muted mt-1">A daily alarm to nudge you to do this.</p>
-                        </div>
-
-                        <div>
-                            <label className="text-[10px] font-bold text-arc-muted uppercase tracking-widest mb-2 block">Remind me at</label>
-                            <input
-                                type="time"
-                                value={reminderInput}
-                                onChange={(e) => setReminderInput(e.target.value)}
-                                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors font-bold text-center text-3xl [color-scheme:dark]"
-                            />
-                        </div>
-
-                        <div className="space-y-3">
-                            <button
-                                onClick={() => saveReminder(false)}
-                                disabled={savingReminder}
-                                className="w-full bg-arc-accent text-white font-bold py-4 rounded-xl text-lg shadow-glow active:scale-95 transition-transform disabled:opacity-50"
-                            >
-                                {savingReminder ? 'SAVING…' : 'SET REMINDER'}
-                            </button>
-                            {habits.find(h => h.id === reminderEditId)?.reminder_time && (
-                                <button
-                                    onClick={() => saveReminder(true)}
-                                    disabled={savingReminder}
-                                    className="w-full bg-white/5 text-arc-muted font-bold py-3 rounded-xl text-sm hover:text-white transition-colors disabled:opacity-50"
-                                >
-                                    Remove reminder
-                                </button>
-                            )}
-                        </div>
-                        <p className="text-center text-[11px] text-arc-muted/70 leading-relaxed">
-                            Reminders ring on the installed app. In a web browser they only fire while the app is open.
-                        </p>
                     </motion.div>
                 </>
             )}

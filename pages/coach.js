@@ -3,7 +3,6 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Nav from '../components/Nav'
 import Masthead from '../components/Masthead'
-import { SegmentedControl } from '../components/ui'
 import { supabase } from '../lib/supabaseClient'
 import { fetchStreaks, streakFor } from '../lib/streaks'
 import { goalFor } from '../lib/challenges'
@@ -183,7 +182,7 @@ function calculateReadiness(wearableData, workoutLogs) {
 const QUICK_PROMPTS = [
   { label: 'Plateau check', prompt: 'Am I plateauing on any exercises? Check my recent workout history.' },
   { label: 'Program update', prompt: "Based on my recent training and recovery data, suggest updates to my program." },
-  { label: 'Recovery advice', prompt: "How should I train today based on my readiness and recovery data?" },
+  { label: 'Recovery advice', prompt: "How should I train today given my last few sessions?" },
   { label: 'Form tips', prompt: "Give me tips to improve my weakest lifts based on my workout history." },
 ]
 
@@ -558,19 +557,11 @@ export default function Coach() {
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
       {/* A conversation, not a dashboard: the readiness score has its own tab. */}
-      <Masthead
-        title="Coach"
-        below={
-          <SegmentedControl
-            size="sm"
-            value={activeTab}
-            onChange={setActiveTab}
-            options={[{ value: 'chat', label: 'Coach' }, { value: 'readiness', label: 'Readiness' }]}
-          />
-        }
-      />
+      {/* Readiness (wearable HRV, resting heart rate, sleep) was a second tab
+          here. One member entered data, four times. The coach is the tab. */}
+      <Masthead title="Coach" back />
 
-      <main className="pt-[7.25rem] max-w-lg mx-auto">
+      <main className="pt-20 max-w-lg mx-auto">
         {plan.ready && !plan.entitled && (
           <div className="px-4 pb-3"><Paywall feature="The coach" /></div>
         )}

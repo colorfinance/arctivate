@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import { useSimpleMode } from '../lib/simpleMode'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { DumbbellIcon, CoachIcon, UsersIcon, HabitsIcon, FoodIcon, AdminIcon, FlagIcon } from './icons'
+import { DumbbellIcon, UsersIcon, HabitsIcon, FoodIcon, AdminIcon, FlagIcon } from './icons'
 
 export default function Nav() {
   const { simple } = useSimpleMode()
@@ -59,15 +59,11 @@ export default function Nav() {
             <span className="truncate max-w-full">Train</span>
         </Link>
         {!simple && (
-        <Link href="/coach" aria-label="Coach" aria-current={router.pathname === '/coach' ? 'page' : undefined} className={itemClasses('/coach')}>
-            <CoachIcon size={20} />
-            <span className="truncate max-w-full">Coach</span>
+        <Link href="/food" aria-label="Food" aria-current={router.pathname === '/food' ? 'page' : undefined} className={itemClasses('/food')}>
+            <FoodIcon size={20} />
+            <span className="truncate max-w-full">Food</span>
         </Link>
         )}
-        <Link href="/feed" aria-label="Feed" aria-current={router.pathname === '/feed' ? 'page' : undefined} className={itemClasses('/feed')}>
-            <UsersIcon size={20} />
-            <span className="truncate max-w-full">Feed</span>
-        </Link>
         <Link
           href="/challenges"
           aria-label={pendingInvites > 0 ? `Challenges, ${pendingInvites} waiting for you` : 'Challenges'}
@@ -84,12 +80,10 @@ export default function Nav() {
             </span>
             <span className="truncate max-w-full">Challenge</span>
         </Link>
-        {!simple && (
-        <Link href="/food" aria-label="Food" aria-current={router.pathname === '/food' ? 'page' : undefined} className={itemClasses('/food')}>
-            <FoodIcon size={20} />
-            <span className="truncate max-w-full">Food</span>
+        <Link href="/feed" aria-label="Feed" aria-current={router.pathname === '/feed' ? 'page' : undefined} className={itemClasses('/feed')}>
+            <UsersIcon size={20} />
+            <span className="truncate max-w-full">Feed</span>
         </Link>
-        )}
         {/* Profile lives top-right in each page header now — see ProfileButton */}
         {isAdmin && (
             <Link href="/admin/workouts" aria-label="Admin" aria-current={router.pathname === '/admin/workouts' ? 'page' : undefined} className={itemClasses('/admin/workouts')}>
