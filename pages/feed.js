@@ -1,1262 +1,394 @@
-import { useState, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import Nav from '../components/Nav'
-import Masthead, { MastheadAction } from '../components/Masthead'
-import Button from '../components/Button'
-import { SegmentedControl } from '../components/ui'
-import LoadingState from '../components/LoadingState'
-import { supabase } from '../lib/supabaseClient'
-import SessionCard from '../components/feed/SessionCard'
-import PostMenu from '../components/feed/PostMenu'
-import Avatar from '../components/Avatar'
-import { toggleKudos, addComment } from '../lib/sessions'
-import { fetchMyFollowing, toggleFollow } from '../lib/follows'
-import { filterContent } from '../lib/contentFilter'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/router'
+import Nav from '../components/Nav'
+import Masthead from '../components/Masthead'
+import Button from '../components/Button'
+import { EmptyState } from '../components/ui'
+import LoadingState from '../components/LoadingState'
+import Avatar from '../components/Avatar'
+import SessionCard, { timeAgo } from '../components/feed/SessionCard'
+import PostMenu from '../components/feed/PostMenu'
+import { supabase } from '../lib/supabaseClient'
+import { filterContent } from '../lib/contentFilter'
 
-// Session photos sit in the same private bucket the training page uses; the
-// feed only ever reads them, through short-lived signed URLs.
+// The feed: what your gym has been doing, newest first.
+//
+// It used to be two tabs, a Following filter, direct messages, groups, high
+// fives, kudos and comments. In a year nobody sent a message, followed anyone,
+// gave kudos or wrote a comment, and groups had not been touched since
+// February. So it is one list: workouts people shared and posts people wrote,
+// with one Post button.
+
+// Session photos sit in the same private bucket Train uses; the feed only
+// reads them, through short-lived signed URLs.
 const SESSION_PHOTO_BUCKET = 'workout-photos'
 const SESSION_PHOTO_TTL = 60 * 60
 
-// Icons
-const HighFiveIcon = ({ filled }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v5" />
-    <path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v6" />
-    <path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8" />
-    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-  </svg>
-)
-
-const FireIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 23c-3.866 0-7-3.134-7-7 0-2.084.784-3.987 2.07-5.427l3.93-4.39 3.93 4.39C16.216 12.013 17 13.916 17 16c0 3.866-3.134 7-7 7z" />
-  </svg>
-)
-
-const MessageIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-  </svg>
-)
-
-const SendIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="22" y1="2" x2="11" y2="13" />
-    <polygon points="22 2 15 22 11 13 2 9 22 2" />
-  </svg>
-)
-
-const GroupIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-  </svg>
-)
-
-const TwitterIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-  </svg>
-)
-
-const FacebookIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/>
-  </svg>
-)
-
-const ImageIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-    <circle cx="8.5" cy="8.5" r="1.5" />
-    <polyline points="21 15 16 10 5 21" />
-  </svg>
-)
-
-const InboxIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-    <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
-  </svg>
-)
-
-const ArrowLeftIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
-  </svg>
-)
-
-const CameraIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-    <circle cx="12" cy="13" r="4" />
-  </svg>
-)
+const unitOf = (m) => (m === 'time' ? 'min' : m === 'distance' ? 'km' : m === 'reps' ? ' reps' : 'kg')
 
 export default function Feed() {
   const router = useRouter()
-  const [posts, setPosts] = useState([])
-  const [messages, setMessages] = useState([])
-  const [userLikes, setUserLikes] = useState(new Set())
-  const [isLoading, setIsLoading] = useState(true)
-  const [currentUserId, setCurrentUserId] = useState(null)
-  const [activeTab, setActiveTab] = useState('workouts')
-  // Gym sessions -- the thing the feed is actually about now. The old
-  // public_feed posts still render underneath so nobody's history vanishes.
+  const [loading, setLoading] = useState(true)
+  const [me, setMe] = useState(null)
   const [sessions, setSessions] = useState([])
-  const [myKudos, setMyKudos] = useState(new Set())
-  const [commentsBySession, setCommentsBySession] = useState({})
-  // Who you follow, and whether the feed is showing everyone at the gym or
-  // only them. A filter, not a permission -- what you may see is unchanged.
-  const [following, setFollowing] = useState(new Set())
-  // session id -> [signed url]
   const [sessionPhotos, setSessionPhotos] = useState({})
-  const [feedScope, setFeedScope] = useState('gym')
-  const [newMessage, setNewMessage] = useState('')
-  const [isPosting, setIsPosting] = useState(false)
-  const [showComposer, setShowComposer] = useState(false)
+  const [messages, setMessages] = useState([])
+  const [legacy, setLegacy] = useState([]) // single-lift posts from before sessions
+  const [blocked, setBlocked] = useState(new Set())
   const [toast, setToast] = useState(null)
 
-  // Image upload state
-  const [composerImage, setComposerImage] = useState(null)
-  const [composerImagePreview, setComposerImagePreview] = useState(null)
-  const [uploadingImage, setUploadingImage] = useState(false)
+  const [composing, setComposing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [image, setImage] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
+  const [posting, setPosting] = useState(false)
   const imageInputRef = useRef(null)
 
-  // DM state
-  const [showDMs, setShowDMs] = useState(false)
-  const [conversations, setConversations] = useState([])
-  const [activeDM, setActiveDM] = useState(null)
-  const [dmMessages, setDmMessages] = useState([])
-  const [newDM, setNewDM] = useState('')
-  const [sendingDM, setSendingDM] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
-  const dmScrollRef = useRef(null)
-
-  // Safety: blocked users + moderation
-  const [blockedUsers, setBlockedUsers] = useState(new Set())
-  const [showReportModal, setShowReportModal] = useState(null)
+  const [reporting, setReporting] = useState(null) // { type, id }
   const [reportReason, setReportReason] = useState('inappropriate')
-  const [reportSubmitting, setReportSubmitting] = useState(false)
+  const [reportBusy, setReportBusy] = useState(false)
 
   const showToast = (msg) => {
     setToast(msg)
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), 2500)
   }
 
   useEffect(() => {
-    const load = async () => {
+    ;(async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/')
-        return
-      }
+      if (!user) { router.push('/'); return }
+      const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
+      if (profile && profile.completed_onboarding === false) { router.push('/onboarding'); return }
+      setMe(user.id)
+      await Promise.all([fetchSessions(), fetchMessages(), fetchLegacy(), fetchBlocked(user.id)])
+      setLoading(false)
+    })()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-      const { data: profile } = await supabase.from('profiles').select('completed_onboarding, username, avatar_url').eq('id', user.id).single()
-      if (profile && profile.completed_onboarding === false) {
-        router.push('/onboarding')
-        return
-      }
-
-      setCurrentUserId(user.id)
-      await Promise.all([fetchSessions(user.id), fetchFollowing(user.id), fetchWorkoutFeed(), fetchCommunityMessages(), fetchUserLikes(user.id), fetchUnreadCount(user.id), fetchBlockedUsers(user.id)])
-      setIsLoading(false)
-    }
-    load()
-  }, [])
-
-  async function fetchBlockedUsers(userId) {
-    try {
-      const { data } = await supabase.from('blocked_users').select('blocked_id').eq('user_id', userId)
-      if (data) setBlockedUsers(new Set(data.map(b => b.blocked_id)))
-    } catch {}
-  }
-
-  async function blockUser(blockedId) {
-    if (!currentUserId || blockedId === currentUserId) return
-    try {
-      await supabase.from('blocked_users').insert({ user_id: currentUserId, blocked_id: blockedId })
-      setBlockedUsers(prev => new Set([...prev, blockedId]))
-      showToast('User blocked')
-    } catch { showToast('Could not block user') }
-  }
-
-  async function reportContent(contentType, contentId) {
-    setReportSubmitting(true)
-    try {
-      await supabase.from('content_reports').insert({
-        reporter_id: currentUserId,
-        content_type: contentType,
-        content_id: contentId,
-        reason: reportReason,
-      })
-      showToast('Reported — we will review this content')
-      setShowReportModal(null)
-    } catch { showToast('Could not submit report') }
-    finally { setReportSubmitting(false) }
-  }
-
-  async function deleteOwnPost(postId, type) {
-    const table = type === 'feed' ? 'public_feed' : 'community_messages'
-    const { error } = await supabase.from(table).delete().eq('id', postId).eq('user_id', currentUserId)
-    if (error) { showToast('Could not delete'); return }
-    if (type === 'feed') setPosts(prev => prev.filter(p => p.id !== postId))
-    else setMessages(prev => prev.filter(m => m.id !== postId))
-    showToast('Post deleted')
-  }
+  // content_reports only takes 'feed', 'message', 'user' and 'dm'. The old
+  // feed sent 'feed_post' and 'community_message', every report bounced off
+  // the check constraint, and the member was told it had been sent.
 
   // RLS decides what comes back: your own sessions, plus gym-visible ones from
-  // your gym. Nothing here filters on visibility, because the database already
-  // has and a client-side filter would be the wrong place to enforce it.
-  async function fetchSessions(userId) {
+  // your gym. A session shows once it has a lift in it, finished or not --
+  // almost nobody taps Finish, and waiting for it meant the feed stayed empty.
+  async function fetchSessions() {
     try {
       const { data, error } = await supabase
         .from('workout_sessions')
         .select(`
-          id, user_id, title, notes, started_at, ended_at, visibility,
-          kudos_count, comments_count,
+          id, user_id, title, started_at, ended_at, visibility,
           profiles:user_id (username, avatar_url),
           logs:workout_logs (id, value, sets, reps, is_new_pb, exercise:exercise_id (name, metric_type))
         `)
-        .not('ended_at', 'is', null)
         .order('started_at', { ascending: false })
-        .limit(50)
-      // Swallowing this silently is how a broken embed looked like an empty
-      // feed for far too long. It still must not break the page.
+        .limit(40)
       if (error) { console.error('[Arctivate] session feed failed:', error); return }
-      setSessions(data || [])
-
-      const ids = (data || []).map(d => d.id)
-      if (ids.length) {
-        const { data: mine } = await supabase
-          .from('session_kudos').select('session_id').eq('user_id', userId).in('session_id', ids)
-        setMyKudos(new Set((mine || []).map(k => k.session_id)))
-        await fetchSessionPhotos(ids)
-      }
+      // Only sessions shared with the gym. RLS also returns your own private
+      // ones; those stay in your history on Train, not here.
+      const withLifts = (data || []).filter(s => s.visibility === 'gym' && (s.logs || []).length > 0)
+      setSessions(withLifts)
+      if (withLifts.length) fetchSessionPhotos(withLifts.map(s => s.id))
     } catch {}
   }
 
-  // Photos live in a private bucket and are read through signed URLs. Which
-  // rows come back is decided by RLS -- a photo on a private session simply
-  // isn't in the result -- so there is no visibility rule to repeat here.
-  async function fetchSessionPhotos(sessionIds) {
+  async function fetchSessionPhotos(ids) {
     try {
-      const { data, error } = await supabase
-        .from('workout_photos')
-        .select('id, storage_path, session_id')
-        .in('session_id', sessionIds)
-      if (error || !data?.length) return
+      const { data } = await supabase.from('workout_photos').select('storage_path, session_id').in('session_id', ids)
+      if (!data?.length) return
       const paths = data.map(r => r.storage_path)
-      const { data: signed } = await supabase.storage
-        .from(SESSION_PHOTO_BUCKET).createSignedUrls(paths, SESSION_PHOTO_TTL)
-      const urlByPath = {}
-      ;(signed || []).forEach((sg, i) => { if (sg?.signedUrl) urlByPath[paths[i]] = sg.signedUrl })
+      const { data: signed } = await supabase.storage.from(SESSION_PHOTO_BUCKET).createSignedUrls(paths, SESSION_PHOTO_TTL)
+      const byPath = {}
+      ;(signed || []).forEach((sg, i) => { if (sg?.signedUrl) byPath[paths[i]] = sg.signedUrl })
       const map = {}
-      data.forEach(r => {
-        const url = urlByPath[r.storage_path]
-        if (url) (map[r.session_id] || (map[r.session_id] = [])).push(url)
-      })
+      data.forEach(r => { if (byPath[r.storage_path]) (map[r.session_id] ||= []).push(byPath[r.storage_path]) })
       setSessionPhotos(map)
     } catch {}
   }
 
-  async function fetchFollowing(userId) {
-    setFollowing(await fetchMyFollowing(supabase, userId))
-  }
-
-  const handleFollow = async (targetId, already) => {
-    // Optimistic, and reverted if the write fails.
-    setFollowing(prev => {
-      const next = new Set(prev)
-      if (already) next.delete(targetId); else next.add(targetId)
-      return next
-    })
-    const ok = await toggleFollow(supabase, currentUserId, targetId, already)
-    if (!ok) {
-      setFollowing(prev => {
-        const next = new Set(prev)
-        if (already) next.add(targetId); else next.delete(targetId)
-        return next
-      })
-      showToast('Could not do that')
-      return
-    }
-    showToast(already ? 'Unfollowed' : 'Following')
-  }
-
-  // Your own sessions always show: a feed that hides your workout from you
-  // reads as the app having lost it.
-  const visibleSessions = sessions
-    .filter(s => !blockedUsers.has(s.user_id))
-    .filter(s => feedScope === 'gym' || s.user_id === currentUserId || following.has(s.user_id))
-
-  const loadComments = async (sessionId) => {
-    const { data } = await supabase
-      .from('session_comments')
-      .select('*, profiles:user_id (username, avatar_url)')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: true })
-    setCommentsBySession(prev => ({ ...prev, [sessionId]: data || [] }))
-  }
-
-  const handleKudos = async (sessionId, already) => {
-    // Optimistic: a high five that waits on the network feels broken.
-    setMyKudos(prev => {
-      const next = new Set(prev)
-      if (already) next.delete(sessionId); else next.add(sessionId)
-      return next
-    })
-    setSessions(prev => prev.map(s => s.id === sessionId
-      ? { ...s, kudos_count: Math.max(0, (s.kudos_count || 0) + (already ? -1 : 1)) }
-      : s))
-
-    const ok = await toggleKudos(supabase, sessionId, currentUserId, already)
-    if (!ok) {
-      setMyKudos(prev => {
-        const next = new Set(prev)
-        if (already) next.add(sessionId); else next.delete(sessionId)
-        return next
-      })
-      setSessions(prev => prev.map(s => s.id === sessionId
-        ? { ...s, kudos_count: Math.max(0, (s.kudos_count || 0) + (already ? 1 : -1)) }
-        : s))
-      showToast('Could not do that')
-    }
-  }
-
-  const handleComment = async (sessionId, body) => {
-    const row = await addComment(supabase, sessionId, currentUserId, body)
-    if (!row) { showToast('Could not post that'); return false }
-    setCommentsBySession(prev => ({ ...prev, [sessionId]: [...(prev[sessionId] || []), row] }))
-    setSessions(prev => prev.map(s => s.id === sessionId
-      ? { ...s, comments_count: (s.comments_count || 0) + 1 } : s))
-    return true
-  }
-
-  const deleteSession = async (sessionId) => {
-    const snapshot = sessions
-    setSessions(prev => prev.filter(s => s.id !== sessionId))
-    const { error } = await supabase.from('workout_sessions').delete().eq('id', sessionId)
-    if (error) { setSessions(snapshot); showToast('Could not delete that'); return }
-    showToast('Session deleted')
-  }
-
-  async function fetchWorkoutFeed() {
-    const { data } = await supabase
-      .from('public_feed')
-      .select(`*, profiles:user_id (username, avatar_url)`)
-      .order('created_at', { ascending: false })
-      .limit(50)
-    if (data) setPosts(data)
-  }
-
-  async function fetchCommunityMessages() {
-    try {
-      const { data, error } = await supabase
-        .from('community_messages')
-        .select(`*, profiles:user_id (username, avatar_url)`)
-        .is('group_id', null)
-        .order('created_at', { ascending: false })
-        .limit(50)
-      if (error) return
-      if (data) setMessages(data)
-    } catch {}
-  }
-
-  async function fetchUserLikes(userId) {
-    const { data: workoutLikes } = await supabase.from('high_fives').select('feed_id').eq('user_id', userId)
-    const likes = new Set()
-    workoutLikes?.forEach(l => likes.add(`workout:${l.feed_id}`))
-
-    try {
-      const { data: messageLikes } = await supabase.from('message_likes').select('message_id').eq('user_id', userId)
-      messageLikes?.forEach(l => likes.add(`message:${l.message_id}`))
-    } catch (err) {}
-
-    setUserLikes(likes)
-  }
-
-  async function fetchUnreadCount(userId) {
-    try {
-      const { count } = await supabase
-        .from('direct_messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('receiver_id', userId)
-        .eq('is_read', false)
-      setUnreadCount(count || 0)
-    } catch (err) {}
-  }
-
-  // --- DM Functions ---
-  async function fetchConversations() {
-    try {
-      const { data: sent } = await supabase
-        .from('direct_messages')
-        .select('*, profiles:receiver_id (username, avatar_url)')
-        .eq('sender_id', currentUserId)
-        .order('created_at', { ascending: false })
-
-      const { data: received } = await supabase
-        .from('direct_messages')
-        .select('*, profiles:sender_id (username, avatar_url)')
-        .eq('receiver_id', currentUserId)
-        .order('created_at', { ascending: false })
-
-      const convMap = new Map()
-
-      const processDM = (dm, otherUserId, otherProfile, isSent) => {
-        if (!convMap.has(otherUserId)) {
-          convMap.set(otherUserId, {
-            userId: otherUserId,
-            username: otherProfile?.username || 'User',
-            avatar_url: otherProfile?.avatar_url,
-            lastMessage: dm.content,
-            lastTime: dm.created_at,
-            unread: !isSent && !dm.is_read ? 1 : 0
-          })
-        } else {
-          const conv = convMap.get(otherUserId)
-          if (new Date(dm.created_at) > new Date(conv.lastTime)) {
-            conv.lastMessage = dm.content
-            conv.lastTime = dm.created_at
-          }
-          if (!isSent && !dm.is_read) conv.unread++
-        }
-      }
-
-      sent?.forEach(dm => processDM(dm, dm.receiver_id, dm.profiles, true))
-      received?.forEach(dm => processDM(dm, dm.sender_id, dm.profiles, false))
-
-      const sorted = [...convMap.values()].sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime))
-      setConversations(sorted)
-    } catch {}
-  }
-
-  async function openDM(userId, username, avatarUrl) {
-    setActiveDM({ userId, username, avatarUrl })
-    await fetchDMThread(userId)
-
-    try {
-      await supabase.rpc('mark_dms_read', { p_sender_id: userId })
-      setUnreadCount(prev => Math.max(0, prev - (conversations.find(c => c.userId === userId)?.unread || 0)))
-    } catch (err) {}
-  }
-
-  async function fetchDMThread(otherUserId) {
+  async function fetchMessages() {
     try {
       const { data } = await supabase
-        .from('direct_messages')
-        .select('*')
-        .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUserId})`)
-        .order('created_at', { ascending: true })
-        .limit(100)
-
-      setDmMessages(data || [])
-      setTimeout(() => {
-        if (dmScrollRef.current) {
-          dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight
-        }
-      }, 100)
+        .from('community_messages')
+        .select('*, profiles:user_id (username, avatar_url)')
+        .is('group_id', null)
+        .order('created_at', { ascending: false })
+        .limit(40)
+      setMessages(data || [])
     } catch {}
   }
 
-  async function sendDirectMessage() {
-    if (!newDM.trim() || sendingDM || !activeDM) return
-    setSendingDM(true)
+  async function fetchLegacy() {
     try {
-      const { data, error } = await supabase.rpc('send_dm', {
-        p_receiver_id: activeDM.userId,
-        p_content: newDM.trim()
-      })
-
-      if (error) throw error
-
-      if (data?.success) {
-        const newMsg = {
-          id: data.dm_id,
-          sender_id: currentUserId,
-          receiver_id: activeDM.userId,
-          content: newDM.trim(),
-          created_at: new Date().toISOString(),
-          is_read: false
-        }
-        setDmMessages(prev => [...prev, newMsg])
-        setNewDM('')
-        setTimeout(() => {
-          if (dmScrollRef.current) {
-            dmScrollRef.current.scrollTop = dmScrollRef.current.scrollHeight
-          }
-        }, 50)
-      }
-    } catch {
-      showToast('Failed to send message')
-    } finally {
-      setSendingDM(false)
-    }
-  }
-
-  // --- Post Functions ---
-  async function handleHighFive(postId) {
-    try {
-      const { data, error } = await supabase.rpc('increment_high_five', { post_id: postId })
-      if (error) {
-        showToast('Failed to high five')
-        return
-      }
-      if (data?.success) {
-        setPosts(posts.map(post => post.id === postId ? { ...post, likes_count: data.likes_count } : post))
-        const likeKey = `workout:${postId}`
-        if (data.action === 'added') {
-          setUserLikes(prev => new Set([...prev, likeKey]))
-        } else {
-          setUserLikes(prev => { const next = new Set(prev); next.delete(likeKey); return next })
-        }
-      }
-    } catch {
-      showToast('Something went wrong')
-    }
-  }
-
-  async function handleMessageLike(messageId) {
-    try {
-      const { data } = await supabase.rpc('toggle_message_like', { p_message_id: messageId })
-      if (data?.success) {
-        setMessages(messages.map(msg => msg.id === messageId ? { ...msg, likes_count: data.likes_count } : msg))
-        const likeKey = `message:${messageId}`
-        if (data.action === 'liked') {
-          setUserLikes(prev => new Set([...prev, likeKey]))
-        } else {
-          setUserLikes(prev => { const next = new Set(prev); next.delete(likeKey); return next })
-        }
-      }
+      const { data } = await supabase
+        .from('public_feed')
+        .select('*, profiles:user_id (username, avatar_url)')
+        .order('created_at', { ascending: false })
+        .limit(20)
+      setLegacy(data || [])
     } catch {}
   }
 
-  // Image handling for composer
-  function handleComposerImage(e) {
+  async function fetchBlocked(uid) {
+    try {
+      const { data } = await supabase.from('blocked_users').select('blocked_id').eq('user_id', uid)
+      setBlocked(new Set((data || []).map(b => b.blocked_id)))
+    } catch {}
+  }
+
+  // One timeline, newest first.
+  const items = useMemo(() => {
+    const list = [
+      ...sessions.map(s => ({ kind: 'session', id: `s:${s.id}`, at: s.started_at, user: s.user_id, row: s })),
+      ...messages.map(m => ({ kind: 'post', id: `m:${m.id}`, at: m.created_at, user: m.user_id, row: m })),
+      ...legacy.map(p => ({ kind: 'lift', id: `l:${p.id}`, at: p.created_at, user: p.user_id, row: p })),
+    ]
+    return list.filter(i => !blocked.has(i.user)).sort((a, b) => new Date(b.at) - new Date(a.at))
+  }, [sessions, messages, legacy, blocked])
+
+  async function blockUser(uid) {
+    if (!me || uid === me) return
+    const { error } = await supabase.from('blocked_users').insert({ user_id: me, blocked_id: uid })
+    if (error && error.code !== '23505') { showToast('Could not block them'); return }
+    setBlocked(prev => new Set([...prev, uid]))
+    showToast('Blocked. You will not see their posts.')
+  }
+
+  async function submitReport() {
+    if (!reporting || reportBusy) return
+    setReportBusy(true)
+    const { error } = await supabase.from('content_reports').insert({
+      reporter_id: me, content_type: reporting.type, content_id: reporting.id, reason: reportReason,
+    })
+    setReportBusy(false)
+    if (error) { showToast('Could not send the report'); return }
+    setReporting(null)
+    showToast('Reported. We will review it.')
+  }
+
+  async function deleteSession(id) {
+    const snapshot = sessions
+    setSessions(prev => prev.filter(s => s.id !== id))
+    const { error } = await supabase.from('workout_sessions').delete().eq('id', id)
+    if (error) { setSessions(snapshot); showToast('Could not delete that') }
+  }
+
+  async function deletePost(kind, id) {
+    const table = kind === 'lift' ? 'public_feed' : 'community_messages'
+    const { error } = await supabase.from(table).delete().eq('id', id).eq('user_id', me)
+    if (error) { showToast('Could not delete that'); return }
+    if (kind === 'lift') setLegacy(prev => prev.filter(p => p.id !== id))
+    else setMessages(prev => prev.filter(m => m.id !== id))
+  }
+
+  function pickImage(e) {
     const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
-
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('Image must be under 5MB')
-      return
-    }
-
-    setComposerImage(file)
+    if (file.size > 5 * 1024 * 1024) { showToast('That photo is over 5MB'); return }
+    setImage(file)
     const reader = new FileReader()
-    reader.onloadend = () => setComposerImagePreview(reader.result)
+    reader.onloadend = () => setImagePreview(reader.result)
     reader.readAsDataURL(file)
   }
 
-  function removeComposerImage() {
-    setComposerImage(null)
-    setComposerImagePreview(null)
-    if (imageInputRef.current) imageInputRef.current.value = ''
+  function closeComposer() {
+    if (posting) return
+    setComposing(false)
+    setDraft('')
+    setImage(null)
+    setImagePreview(null)
   }
 
-  async function uploadImage(file) {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-
-    const ext = file.name.split('.').pop()
-    const fileName = `${user.id}/${Date.now()}.${ext}`
-
-    const { data, error } = await supabase.storage
-      .from('post-images')
-      .upload(fileName, file, { cacheControl: '3600', upsert: false })
-
-    if (error) return null
-
-    const { data: urlData } = supabase.storage
-      .from('post-images')
-      .getPublicUrl(data.path)
-
-    return urlData?.publicUrl || null
-  }
-
-  async function postMessage() {
-    if ((!newMessage.trim() && !composerImage) || isPosting) return
-
-    if (newMessage.trim()) {
-      const { clean } = filterContent(newMessage)
-      if (!clean) {
-        showToast('Your message contains inappropriate content. Please revise.')
-        return
-      }
-    }
-
-    setIsPosting(true)
+  async function post() {
+    const text = draft.trim()
+    if ((!text && !image) || posting) return
+    if (text && !filterContent(text).clean) { showToast('That has words we do not allow. Change them and try again.'); return }
+    setPosting(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        showToast('Please log in to post')
-        return
-      }
-
       let imageUrl = null
-      if (composerImage) {
-        setUploadingImage(true)
-        imageUrl = await uploadImage(composerImage)
-        setUploadingImage(false)
+      if (image) {
+        const ext = (image.name.split('.').pop() || 'jpg').toLowerCase()
+        const path = `${me}/${Date.now()}.${ext}`
+        const { data, error } = await supabase.storage.from('post-images').upload(path, image, { cacheControl: '3600', upsert: false })
+        if (error) { showToast('Could not upload the photo'); return }
+        imageUrl = supabase.storage.from('post-images').getPublicUrl(data.path).data?.publicUrl || null
       }
-
-      const insertData = {
-        user_id: user.id,
-        content: newMessage.trim() || (imageUrl ? 'Shared a photo' : ''),
-        message_type: 'text'
-      }
-
-      if (imageUrl) {
-        insertData.image_url = imageUrl
-      }
-
-      const { data, error } = await supabase
-        .from('community_messages')
-        .insert(insertData)
-        .select(`*, profiles:user_id (username, avatar_url)`)
-        .single()
-
-      if (error) {
-        // If image_url column doesn't exist yet, retry without it
-        if (error.message?.includes('image_url')) {
-          const { data: retryData, error: retryError } = await supabase
-            .from('community_messages')
-            .insert({ user_id: user.id, content: newMessage.trim() || 'Shared a post', message_type: 'text' })
-            .select(`*, profiles:user_id (username, avatar_url)`)
-            .single()
-
-          if (retryError) {
-            showToast('Failed to post. Please try again.')
-            return
-          }
-          if (retryData) {
-            setMessages([retryData, ...messages])
-          }
-        } else {
-          showToast('Failed to post. Please try again.')
-          return
-        }
-      } else if (data) {
-        setMessages([data, ...messages])
-      }
-
-      setNewMessage('')
-      setShowComposer(false)
-      removeComposerImage()
-      showToast('Posted!')
-    } catch {
-      showToast('Something went wrong')
+      const row = { user_id: me, content: text || 'Shared a photo', message_type: 'text' }
+      if (imageUrl) row.image_url = imageUrl
+      const { data, error } = await supabase.from('community_messages').insert(row)
+        .select('*, profiles:user_id (username, avatar_url)').single()
+      if (error) { showToast('Could not post. Try again.'); return }
+      setMessages(prev => [data, ...prev])
+      setPosting(false)
+      closeComposer()
+      showToast('Posted')
     } finally {
-      setIsPosting(false)
-      setUploadingImage(false)
+      setPosting(false)
     }
   }
 
-  const shareToTwitter = (content) => {
-    if (typeof window === 'undefined') return
-    const text = encodeURIComponent(content)
-    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(window.location.origin)}`, '_blank')
-  }
+  if (loading) return <LoadingState label="Loading the feed…" />
 
-  const shareToFacebook = (content) => {
-    if (typeof window === 'undefined') return
-    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.origin)}&quote=${encodeURIComponent(content)}`, '_blank')
-  }
-
-  const formatTimeAgo = (dateStr) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const diffMs = now - date
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
-    const diffDays = Math.floor(diffMs / 86400000)
-    if (diffMins < 1) return 'just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    if (diffDays < 7) return `${diffDays}d ago`
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
-
-  const getUnit = (metricType) => metricType === 'time' ? 'min' : 'kg'
-
-  // --- DM Inbox View ---
-  if (showDMs && !activeDM) {
-    return (
-      <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
-        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setShowDMs(false)} className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
-              <ArrowLeftIcon />
-            </button>
-            <h1 className="text-xl font-black italic tracking-tighter">MESSAGES</h1>
-          </div>
-        </header>
-
-        <main className="pt-20 px-4 max-w-lg mx-auto">
-          {conversations.length === 0 ? (
-            <div className="text-center py-20">
-              <div className="w-16 h-16 bg-arc-surface rounded-full flex items-center justify-center mx-auto mb-4 text-arc-muted">
-                <InboxIcon />
-              </div>
-              <h3 className="text-lg font-bold text-white mb-2">No Messages Yet</h3>
-              <p className="text-arc-muted text-sm">Tap on a user&apos;s avatar in the feed to start a conversation</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {conversations.map((conv) => (
-                <motion.button
-                  key={conv.userId}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  onClick={() => openDM(conv.userId, conv.username, conv.avatar_url)}
-                  className="w-full flex items-center gap-3 bg-arc-card border border-white/5 rounded-2xl p-4 text-left hover:border-white/10 transition-colors"
-                >
-                  <div className="w-12 h-12 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold shrink-0">
-                    {conv.username?.[0]?.toUpperCase() || '?'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm text-white">{conv.username}</span>
-                      <span className="text-[11px] text-arc-muted">{formatTimeAgo(conv.lastTime)}</span>
-                    </div>
-                    <p className="text-sm text-arc-muted truncate mt-0.5">{conv.lastMessage}</p>
-                  </div>
-                  {conv.unread > 0 && (
-                    <div className="w-5 h-5 bg-arc-accent rounded-full flex items-center justify-center shrink-0">
-                      <span className="text-[10px] font-bold text-white">{conv.unread}</span>
-                    </div>
-                  )}
-                </motion.button>
-              ))}
-            </div>
-          )}
-        </main>
-        <Nav />
-      </div>
-    )
-  }
-
-  // --- Active DM Thread View ---
-  if (showDMs && activeDM) {
-    return (
-      <div className="min-h-screen bg-arc-bg text-white font-sans flex flex-col">
-        <header className="fixed top-0 inset-x-0 z-40 bg-arc-bg/80 backdrop-blur-xl border-b border-white/5 p-4">
-          <div className="flex items-center gap-3">
-            <button onClick={() => { setActiveDM(null); fetchConversations() }} className="p-2 -ml-2 text-arc-muted hover:text-white transition-colors">
-              <ArrowLeftIcon />
-            </button>
-            <div className="w-8 h-8 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold text-sm">
-              {activeDM.username?.[0]?.toUpperCase() || '?'}
-            </div>
-            <span className="font-bold text-white">{activeDM.username}</span>
-          </div>
-        </header>
-
-        <div ref={dmScrollRef} className="flex-1 overflow-y-auto pt-20 pb-24 px-4 max-w-lg mx-auto w-full">
-          {dmMessages.length === 0 ? (
-            <div className="text-center py-20">
-              <p className="text-arc-muted text-sm">Start a conversation with {activeDM.username}</p>
-            </div>
-          ) : (
-            <div className="space-y-3 py-4">
-              {dmMessages.map((msg) => {
-                const isMine = msg.sender_id === currentUserId
-                return (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className={`max-w-[75%] px-4 py-3 rounded-2xl ${isMine ? 'bg-arc-accent text-white rounded-br-md' : 'bg-arc-card border border-white/5 text-white rounded-bl-md'}`}>
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                      <span className={`text-[10px] mt-1 block ${isMine ? 'text-white/60' : 'text-arc-muted'}`}>
-                        {formatTimeAgo(msg.created_at)}
-                      </span>
-                    </div>
-                  </motion.div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="fixed bottom-0 inset-x-0 bg-arc-bg/90 backdrop-blur-xl border-t border-white/5 p-4">
-          <div className="flex gap-2 max-w-lg mx-auto">
-            <input
-              type="text"
-              value={newDM}
-              onChange={(e) => setNewDM(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDirectMessage() } }}
-              placeholder="Type a message..."
-              className="flex-1 bg-arc-surface border border-white/10 px-4 py-3 rounded-xl text-white outline-none focus:border-arc-accent transition-colors text-sm"
-            />
-            <button
-              onClick={sendDirectMessage}
-              disabled={!newDM.trim() || sendingDM}
-              className="bg-arc-accent text-white p-3 rounded-xl disabled:opacity-50 shrink-0"
-            >
-              {sendingDM ? (
-                <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
-              ) : (
-                <SendIcon />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // --- Main Feed View ---
   return (
     <div className="min-h-screen bg-arc-bg text-white pb-24 font-sans">
-      {/* Toast */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 20 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-0 left-1/2 -translate-x-1/2 z-50 bg-arc-surface border border-white/10 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md"
-          >
-            <div className="w-2 h-2 rounded-full bg-arc-accent animate-pulse" />
-            <span className="text-sm font-medium">{toast}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {toast && (
+        <div role="status" className="fixed top-16 left-1/2 -translate-x-1/2 z-[60] bg-arc-surface border border-white/10 text-white px-5 py-2.5 rounded-full shadow-2xl text-sm font-medium">
+          {toast}
+        </div>
+      )}
 
-      {/* The title matches the tab. Post is the one primary on this screen. */}
       <Masthead
         title="Feed"
-        actions={
-          <>
-            <MastheadAction onClick={() => { setShowDMs(true); fetchConversations() }} label="Messages" badge={unreadCount}>
-              <InboxIcon />
-            </MastheadAction>
-            <MastheadAction href="/groups" label="Groups">
-              <GroupIcon />
-            </MastheadAction>
-            <Button variant="primary" size="sm" onClick={() => setShowComposer(true)} className="ml-1">
-              <MessageIcon />
-              Post
-            </Button>
-          </>
-        }
-        below={
-          <SegmentedControl
-            size="sm"
-            value={activeTab}
-            onChange={setActiveTab}
-            options={[{ value: 'workouts', label: 'Workouts' }, { value: 'community', label: 'Posts' }]}
-          />
-        }
+        actions={<Button variant="primary" size="sm" onClick={() => setComposing(true)}>Post</Button>}
       />
 
-      <main className="pt-[7.25rem] px-4 max-w-lg mx-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-8 h-8 border-2 border-arc-accent/30 border-t-arc-accent rounded-full" />
-          </div>
-        ) : (
-          <div className="space-y-4 pb-10">
-            {/* Workouts Tab */}
-            {activeTab === 'workouts' && (
-              <>
-                {/* Everyone at the gym, or only the people you follow. */}
-                {sessions.length > 0 && (
-                  <div className="flex gap-2 mb-4">
-                    {[
-                      { key: 'gym', label: 'My gym' },
-                      { key: 'following', label: `Following${following.size ? ` (${following.size})` : ''}` },
-                    ].map(o => (
-                      <button
-                        key={o.key}
-                        onClick={() => setFeedScope(o.key)}
-                        className={`flex-1 py-2 rounded-lg text-[11px] font-bold transition-colors border ${
-                          feedScope === o.key
-                            ? 'bg-arc-surface text-white border-white/10'
-                            : 'text-arc-muted border-transparent hover:text-white'
-                        }`}
-                      >
-                        {o.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {feedScope === 'following' && visibleSessions.length === 0 && (
-                  <div className="bg-arc-card border border-white/[0.06] rounded-2xl p-6 text-center space-y-1 mb-4">
-                    <h3 className="text-base font-black italic tracking-tighter">
-                      {following.size === 0 ? 'NOT FOLLOWING ANYONE YET' : 'NOTHING FROM THEM YET'}
-                    </h3>
-                    <p className="text-[12px] text-arc-muted leading-relaxed max-w-xs mx-auto">
-                      {following.size === 0
-                        ? 'Tap Follow on anyone’s workout and their sessions show up here.'
-                        : 'Nobody you follow has shared a session yet.'}
-                    </p>
-                  </div>
-                )}
-
-                {/* Sessions: whole workouts, shared automatically when finished. */}
-                <div className="space-y-4 mb-4">
-                  {visibleSessions.map((s) => (
-                    <SessionCard
-                      key={s.id}
-                      session={s}
-                      currentUserId={currentUserId}
-                      hasKudos={myKudos.has(s.id)}
-                      onKudos={handleKudos}
-                      onComment={handleComment}
-                      onDelete={deleteSession}
-                      comments={commentsBySession[s.id] || []}
-                      onLoadComments={loadComments}
-                      photos={sessionPhotos[s.id]}
-                      isFollowing={following.has(s.user_id)}
-                      onToggleFollow={handleFollow}
-                    />
-                  ))}
-                </div>
-
-                {sessions.length === 0 && posts.length === 0 ? (
-                  <div className="text-center py-20">
-                    <div className="w-16 h-16 bg-arc-surface rounded-full flex items-center justify-center mx-auto mb-4 text-arc-muted">
-                      <HighFiveIcon />
-                    </div>
-                    <h3 className="text-lg font-bold text-white mb-2">No workouts yet</h3>
-                    <p className="text-arc-muted text-sm max-w-xs mx-auto">
-                      Finish a session on the Train screen and it shows up here for your gym.
-                    </p>
-                  </div>
-                ) : (
-                  <AnimatePresence initial={false}>
-                    {posts.filter(p => !blockedUsers.has(p.user_id)).map((post, index) => {
-                      const workout = post.workout_data
-                      const hasHighFived = userLikes.has(`workout:${post.id}`)
-                      const isOwnPost = post.user_id === currentUserId
-                      const displayName = post.profiles?.username || 'User'
-                      const shareText = `Just logged ${workout.exercise_name}: ${workout.value}${getUnit(workout.metric_type)}${workout.is_new_pb ? ' - NEW PB!' : ''} on Arctivate!`
-
-                      return (
-                        <motion.div key={post.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/[0.06] rounded-2xl overflow-hidden">
-                          {/* A single logged exercise, from before sessions existed.
-                              Same chrome as a session card so the feed reads as one
-                              thing: these used to be centred, twice the type size, and
-                              shouted a points total the session card doesn't show. */}
-                          <div className="flex items-center gap-3 p-4 pb-3">
-                            <button
-                              onClick={() => {
-                                if (!isOwnPost) {
-                                  setShowDMs(true)
-                                  openDM(post.user_id, post.profiles?.username, post.profiles?.avatar_url)
-                                }
-                              }}
-                              disabled={isOwnPost}
-                              aria-label={isOwnPost ? undefined : `Message ${displayName}`}
-                              className="shrink-0 disabled:cursor-default"
-                            >
-                              <Avatar src={post.profiles?.avatar_url} name={displayName} size={38} />
-                            </button>
-                            <div className="flex-1 min-w-0">
-                              <span className="block font-bold text-sm text-white truncate">{displayName}</span>
-                              <span className="block text-[11px] text-arc-muted">{formatTimeAgo(post.created_at)}</span>
-                            </div>
-                            {workout.is_new_pb && (
-                              <span className="shrink-0 flex items-center gap-1 text-[10px] bg-arc-accent/20 text-arc-accent px-2.5 py-1 rounded-full font-black">
-                                PB
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="px-4 pb-3">
-                            <div className="flex items-center gap-2 text-[13px]">
-                              <span className={`flex-1 min-w-0 truncate font-bold ${workout.is_new_pb ? 'text-arc-accent' : 'text-white'}`}>
-                                {workout.exercise_name}
-                              </span>
-                              <span className="shrink-0 text-arc-muted font-mono text-[12px]">
-                                {workout.value}{getUnit(workout.metric_type)}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between px-3 py-2.5 border-t border-white/[0.04]">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleHighFive(post.id)}
-                                disabled={isOwnPost}
-                                aria-label={hasHighFived ? 'Take back your high five' : 'High five'}
-                                className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${hasHighFived ? 'bg-arc-accent/20 text-arc-accent' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnPost ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              >
-                                <HighFiveIcon filled={hasHighFived} />
-                                <span className="font-bold text-sm">{post.likes_count || 0}</span>
-                              </button>
-                              {!isOwnPost && (
-                                <button
-                                  onClick={() => { setShowDMs(true); openDM(post.user_id, post.profiles?.username, post.profiles?.avatar_url) }}
-                                  aria-label={`Message ${displayName}`}
-                                  className="flex items-center gap-1 px-3 py-2 rounded-xl bg-arc-surface text-arc-muted hover:text-white transition-all"
-                                >
-                                  <MessageIcon />
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              {isOwnPost ? (
-                                <button onClick={() => deleteOwnPost(post.id, 'feed')} className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
-                                  Delete
-                                </button>
-                              ) : (
-                                /* Report and Block used to sit here on every post, as
-                                   loud as the actions. Moderation matters and stays one
-                                   tap away, but it is not what a feed is for. */
-                                <PostMenu
-                                  onReport={() => setShowReportModal({ type: 'feed_post', id: post.id })}
-                                  onBlock={() => blockUser(post.user_id)}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      )
-                    })}
-                  </AnimatePresence>
-                )}
-              </>
-            )}
-
-            {/* Community Tab */}
-            {activeTab === 'community' && (
-              <>
-                {messages.length === 0 ? (
-                  <div className="text-center py-20">
-                    <div className="w-16 h-16 bg-arc-surface rounded-full flex items-center justify-center mx-auto mb-4 text-arc-muted">
-                      <MessageIcon />
-                    </div>
-                    <h3 className="text-lg font-bold text-white mb-2">No Posts Yet</h3>
-                    <p className="text-arc-muted text-sm">Start the conversation!</p>
-                    <button onClick={() => setShowComposer(true)} className="mt-4 bg-arc-accent text-white font-bold px-6 py-3 rounded-xl">
-                      Create Post
-                    </button>
-                  </div>
-                ) : (
-                  <AnimatePresence initial={false}>
-                    {messages.filter(m => !blockedUsers.has(m.user_id)).map((msg, index) => {
-                      const hasLiked = userLikes.has(`message:${msg.id}`)
-                      const isOwnMessage = msg.user_id === currentUserId
-                      const msgDisplayName = msg.profiles?.username || 'User'
-
-                      return (
-                        <motion.div key={msg.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }} className="bg-arc-card border border-white/5 rounded-2xl overflow-hidden">
-                          <div className="p-4">
-                            <div className="flex gap-3">
-                              <button
-                                onClick={() => {
-                                  if (!isOwnMessage) {
-                                    setShowDMs(true)
-                                    openDM(msg.user_id, msg.profiles?.username, msg.profiles?.avatar_url)
-                                  }
-                                }}
-                                disabled={isOwnMessage}
-                                className="w-10 h-10 bg-arc-surface rounded-full flex items-center justify-center text-arc-accent font-bold shrink-0 disabled:cursor-default"
-                              >
-                                {msgDisplayName[0]?.toUpperCase() || '?'}
-                              </button>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-bold text-sm text-white">{msgDisplayName}</span>
-                                  <span className="text-[11px] text-arc-muted">{formatTimeAgo(msg.created_at)}</span>
-                                  {msg.metadata?.type === 'meal' && (
-                                    <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded font-bold">Meal</span>
-                                  )}
-                                </div>
-                                <p className="text-white/90 text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-
-                                {/* Meal macro card */}
-                                {msg.metadata?.type === 'meal' && (
-                                  <div className="mt-2 grid grid-cols-4 gap-1.5 text-center">
-                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
-                                      <div className="text-[10px] text-arc-muted">Cal</div>
-                                      <div className="font-bold text-sm text-white">{msg.metadata.cals}</div>
-                                    </div>
-                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
-                                      <div className="text-[10px] text-arc-muted">Prot</div>
-                                      <div className="font-bold text-sm text-blue-400">{msg.metadata.p}g</div>
-                                    </div>
-                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
-                                      <div className="text-[10px] text-arc-muted">Carb</div>
-                                      <div className="font-bold text-sm text-yellow-400">{msg.metadata.c}g</div>
-                                    </div>
-                                    <div className="bg-arc-surface/50 p-2 rounded-lg">
-                                      <div className="text-[10px] text-arc-muted">Fat</div>
-                                      <div className="font-bold text-sm text-orange-400">{msg.metadata.f}g</div>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Image attachment */}
-                            {msg.image_url && (
-                              <div className="mt-3 ml-13 rounded-xl overflow-hidden">
-                                <img src={msg.image_url} alt="" className="w-full max-h-80 object-cover rounded-xl" />
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Actions */}
-                          <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
-                            <div className="flex items-center gap-3">
-                              <button onClick={() => handleMessageLike(msg.id)} disabled={isOwnMessage} className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm transition-all ${hasLiked ? 'bg-arc-accent/20 text-arc-accent' : 'bg-arc-surface text-arc-muted hover:text-white'} ${isOwnMessage ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                <HighFiveIcon filled={hasLiked} />
-                                <span className="font-bold">{msg.likes_count || 0}</span>
-                              </button>
-                              {!isOwnMessage && (
-                                <button
-                                  onClick={() => { setShowDMs(true); openDM(msg.user_id, msg.profiles?.username, msg.profiles?.avatar_url) }}
-                                  className="flex items-center gap-1 px-3 py-2 rounded-xl bg-arc-surface text-arc-muted hover:text-white transition-all text-sm"
-                                >
-                                  <MessageIcon />
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              {isOwnMessage ? (
-                                <button onClick={() => deleteOwnPost(msg.id, 'message')} className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold">
-                                  Delete
-                                </button>
-                              ) : (
-                                <PostMenu
-                                  onReport={() => setShowReportModal({ type: 'community_message', id: msg.id })}
-                                  onBlock={() => blockUser(msg.user_id)}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      )
-                    })}
-                  </AnimatePresence>
-                )}
-              </>
-            )}
-          </div>
+      <main className="pt-20 px-4 max-w-lg mx-auto space-y-3 pb-6">
+        {items.length === 0 && (
+          <EmptyState
+            title="Nothing here yet"
+            body="Workouts you log on Train show up here for your gym. Say hello with a post."
+            action={<Button variant="primary" size="sm" onClick={() => setComposing(true)}>Write a post</Button>}
+          />
         )}
+
+        {items.map(item => {
+          if (item.kind === 'session') {
+            return (
+              <SessionCard
+                key={item.id}
+                session={item.row}
+                currentUserId={me}
+                photos={sessionPhotos[item.row.id]}
+                onDelete={deleteSession}
+                onReport={(id) => setReporting({ type: 'feed', id })}
+                onBlock={blockUser}
+              />
+            )
+          }
+          const r = item.row
+          const mine = r.user_id === me
+          const name = r.profiles?.username || 'Member'
+          const w = item.kind === 'lift' ? (r.workout_data || {}) : null
+          return (
+            <article key={item.id} className="bg-arc-card border border-white/[0.06] rounded-container overflow-hidden">
+              <div className="flex items-center gap-3 p-4 pb-2">
+                <Avatar src={r.profiles?.avatar_url} name={name} size={38} />
+                <div className="flex-1 min-w-0">
+                  <span className="block font-bold text-sm text-white truncate">{name}</span>
+                  <span className="block t-caption text-arc-muted">{timeAgo(r.created_at)}{w ? ' · logged a lift' : r.metadata?.type === 'meal' ? ' · ate' : ''}</span>
+                </div>
+                {w?.is_new_pb && <span className="shrink-0 t-caption font-black bg-arc-accent/20 text-arc-accent px-2.5 py-1 rounded-full">PB</span>}
+                <PostMenu
+                  onDelete={mine ? () => deletePost(item.kind, r.id) : undefined}
+                  onReport={mine ? undefined : () => setReporting({ type: w ? 'feed' : 'message', id: r.id })}
+                  onBlock={mine ? undefined : () => blockUser(r.user_id)}
+                />
+              </div>
+              <div className="px-4 pb-4">
+                {w ? (
+                  <div className="flex items-center gap-2 text-[14px]">
+                    <span className={`flex-1 min-w-0 truncate font-bold ${w.is_new_pb ? 'text-arc-accent' : 'text-white'}`}>{w.exercise_name}</span>
+                    <span className="shrink-0 t-num text-arc-muted">{w.value}{unitOf(w.metric_type)}</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* A shared meal carries its numbers in metadata; the text
+                        version repeats them, so show the meal once. */}
+                    {r.metadata?.type === 'meal' ? (
+                      <div className="flex items-baseline gap-2">
+                        <span className="flex-1 min-w-0 font-bold text-[14px] text-white break-words">{r.metadata.name || 'A meal'}</span>
+                        <span className="shrink-0 t-num text-arc-muted text-[13px]">{r.metadata.cals} cal</span>
+                      </div>
+                    ) : r.content && !(r.image_url && r.content === 'Shared a photo') && (
+                      <p className="t-body text-white/90 whitespace-pre-wrap break-words">{r.content}</p>
+                    )}
+                    {r.metadata?.type === 'meal' && (
+                      <p className="t-caption text-arc-muted mt-1">
+                        Protein {r.metadata.p}g · Carbs {r.metadata.c}g · Fat {r.metadata.f}g
+                      </p>
+                    )}
+                    {r.image_url && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={r.image_url} alt="" loading="lazy" className="mt-3 w-full max-h-80 object-cover rounded-control" />
+                    )}
+                  </>
+                )}
+              </div>
+            </article>
+          )
+        })}
       </main>
 
-      {/* Compose Modal */}
-      <AnimatePresence>
-        {showComposer && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowComposer(false); removeComposerImage() }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 max-h-[85vh] overflow-y-auto">
-              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
-              <h2 className="text-xl font-black italic tracking-tighter text-center mb-6">CREATE POST</h2>
-
+      {composing && (
+        <>
+          <div onClick={closeComposer} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+          <div role="dialog" aria-label="Write a post" className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50 max-h-[85vh] overflow-y-auto">
+            <div className="p-6 space-y-4 pb-safe max-w-lg mx-auto">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+              <h2 className="t-title text-white" style={{ fontSize: 20 }}>Post to your gym</h2>
               <textarea
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Share your thoughts, motivation, or progress..."
+                id="f-post"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
+                placeholder="How did it go?"
                 rows={4}
-                className="w-full bg-arc-surface border border-white/10 p-4 rounded-xl text-white outline-none focus:border-arc-accent transition-colors resize-none"
                 autoFocus
+                className="w-full p-4 rounded-control bg-arc-surface2 border border-white/[0.08] text-[15px] text-white outline-none focus:border-arc-accent resize-none"
               />
-
-              {/* Image Preview */}
-              {composerImagePreview && (
-                <div className="mt-3 relative">
-                  <img src={composerImagePreview} alt="Preview" className="w-full max-h-48 object-cover rounded-xl" />
-                  <button
-                    onClick={removeComposerImage}
-                    className="absolute top-2 right-2 w-8 h-8 bg-black/70 rounded-full flex items-center justify-center text-white"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              {imagePreview && (
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={imagePreview} alt="" className="w-full max-h-48 object-cover rounded-control" />
+                  <button onClick={() => { setImage(null); setImagePreview(null) }} aria-label="Remove photo" className="absolute top-2 right-2 w-8 h-8 bg-black/70 rounded-full flex items-center justify-center text-white">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden><path d="M18 6L6 18M6 6l12 12"/></svg>
                   </button>
                 </div>
               )}
-
-              {/* Toolbar */}
-              <div className="flex items-center justify-between mt-4">
-                <div className="flex gap-2">
-                  <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleComposerImage} />
-                  <button
-                    onClick={() => imageInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 bg-arc-surface border border-white/10 rounded-xl text-arc-muted hover:text-white transition-colors text-sm"
-                  >
-                    <ImageIcon />
-                    Photo
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (imageInputRef.current) {
-                        imageInputRef.current.setAttribute('capture', 'environment')
-                        imageInputRef.current.click()
-                        imageInputRef.current.removeAttribute('capture')
-                      }
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-arc-surface border border-white/10 rounded-xl text-arc-muted hover:text-white transition-colors text-sm"
-                  >
-                    <CameraIcon />
-                  </button>
-                </div>
+              <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={pickImage} />
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={() => imageInputRef.current?.click()} disabled={posting}>{image ? 'Change photo' : 'Add a photo'}</Button>
+                <Button variant="primary" className="flex-1" onClick={post} disabled={posting || (!draft.trim() && !image)}>{posting ? 'Posting…' : 'Post'}</Button>
               </div>
+            </div>
+          </div>
+        </>
+      )}
 
-              <div className="flex gap-3 mt-4">
-                <button onClick={() => { setShowComposer(false); removeComposerImage() }} className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl">Cancel</button>
+      {reporting && (
+        <>
+          <div onClick={() => !reportBusy && setReporting(null)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+          <div role="dialog" aria-label="Report" className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] z-50">
+            <div className="p-6 space-y-3 pb-safe max-w-lg mx-auto">
+              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto" />
+              <div>
+                <h2 className="t-title text-white" style={{ fontSize: 20 }}>Report this</h2>
+                <p className="t-caption text-arc-muted mt-0.5">We review every report.</p>
+              </div>
+              {[
+                ['spam', 'Spam'],
+                ['harassment', 'Harassment or bullying'],
+                ['hate_speech', 'Hate speech'],
+                ['inappropriate', 'Inappropriate'],
+                ['other', 'Something else'],
+              ].map(([value, label]) => (
                 <button
-                  onClick={postMessage}
-                  disabled={(!newMessage.trim() && !composerImage) || isPosting}
-                  className="flex-1 bg-arc-accent text-white font-bold py-4 rounded-xl shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
+                  key={value}
+                  onClick={() => setReportReason(value)}
+                  aria-pressed={reportReason === value}
+                  className={`w-full text-left px-4 py-3 rounded-control text-[14px] font-bold border transition-colors ${reportReason === value ? 'border-arc-danger/40 bg-arc-danger/10 text-white' : 'border-white/[0.06] bg-arc-surface2/60 text-arc-muted'}`}
                 >
-                  {isPosting ? (
-                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" />
-                  ) : uploadingImage ? (
-                    <span>Uploading...</span>
-                  ) : (
-                    <><SendIcon /> Post</>
-                  )}
+                  {label}
                 </button>
+              ))}
+              <div className="flex gap-2 pt-1">
+                <Button variant="danger" className="flex-1" onClick={submitReport} disabled={reportBusy}>{reportBusy ? 'Sending…' : 'Send report'}</Button>
+                <Button variant="tertiary" onClick={() => setReporting(null)} disabled={reportBusy}>Cancel</Button>
               </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Report Modal */}
-      <AnimatePresence>
-        {showReportModal && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowReportModal(null)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-arc-card border-t border-white/10 rounded-t-[2rem] p-6 z-50 pb-safe">
-              <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-6" />
-              <h2 className="text-xl font-black italic tracking-tighter text-center mb-4">REPORT CONTENT</h2>
-              <p className="text-arc-muted text-sm text-center mb-6">This will be reviewed by our moderation team.</p>
-              <div className="space-y-2 mb-6">
-                {[
-                  { value: 'spam', label: 'Spam' },
-                  { value: 'harassment', label: 'Harassment or bullying' },
-                  { value: 'hate_speech', label: 'Hate speech' },
-                  { value: 'inappropriate', label: 'Inappropriate content' },
-                  { value: 'other', label: 'Other' },
-                ].map(opt => (
-                  <button key={opt.value} onClick={() => setReportReason(opt.value)} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-sm transition-all ${reportReason === opt.value ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-arc-surface text-arc-muted hover:text-white border border-transparent'}`}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => setShowReportModal(null)} className="flex-1 bg-arc-surface text-white font-bold py-4 rounded-xl">Cancel</button>
-                <button onClick={() => reportContent(showReportModal.type, showReportModal.id)} disabled={reportSubmitting} className="flex-1 bg-red-500 text-white font-bold py-4 rounded-xl disabled:opacity-50">
-                  {reportSubmitting ? 'Reporting…' : 'Submit Report'}
-                </button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+            </div>
+          </div>
+        </>
+      )}
 
       <Nav />
     </div>

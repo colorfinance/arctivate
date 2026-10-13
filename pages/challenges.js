@@ -1303,7 +1303,6 @@ export default function Challenges() {
         title="Challenge"
         actions={
           <>
-            <MastheadAction href="/friends" label="Friends"><UsersIcon size={18} /></MastheadAction>
             <MastheadAction href="/leaderboard" label="Leaderboard"><TrophyIcon size={18} /></MastheadAction>
           </>
         }
@@ -1396,62 +1395,6 @@ export default function Challenges() {
           </section>
         )}
 
-        {/* Calling someone out is the secondary action; the gym challenge is the hero. */}
-        <section className={`rounded-container border border-white/[0.06] bg-arc-surface2/50 p-5 space-y-4 ${simple ? 'hidden' : ''}`}>
-          <div className="space-y-1">
-            <h2 className="t-title text-white">Call someone out</h2>
-            <p className="t-body text-arc-muted">
-              Pick who you&apos;re up against, set something on it, and see who&apos;s still standing.
-            </p>
-          </div>
-
-          <Button variant={gymChallengeToJoin ? 'secondary' : 'primary'} block onClick={() => openCreate([])}>
-            Challenge someone
-          </Button>
-
-          {quickTargets.length > 0 && (
-            <div className="space-y-2">
-              <p className="t-label text-arc-muted">Or go straight at</p>
-              {/* -mx-5 px-5 lets the row bleed to the card edges as it scrolls */}
-              <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-1">
-                {quickTargets.map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => openCreate([p.id])}
-                    className="shrink-0 w-14 flex flex-col items-center gap-1.5 group"
-                  >
-                    <span className="rounded-full ring-2 ring-transparent group-hover:ring-arc-accent/50 transition-all">
-                      <Avatar src={p.avatar_url} name={p.username} size={44} />
-                    </span>
-                    <span className="text-[9px] text-arc-muted group-hover:text-white transition-colors truncate w-full text-center">
-                      {p.username || 'Member'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* What you've earned */}
-        {!simple && myBadges.length > 0 && (
-          <section className="bg-arc-card border border-white/[0.06] rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold text-arc-muted uppercase tracking-widest">Your badges</span>
-              <span className="text-[10px] font-bold text-arc-muted">{myBadges.length} of 8</span>
-            </div>
-            <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4">
-              {myBadges.map(bg => (
-                <div key={bg.key} className="shrink-0 w-16 flex flex-col items-center gap-1 text-center" title={bg.description}>
-                  <span className="w-12 h-12 rounded-full bg-arc-surface border border-arc-accent/25 flex items-center justify-center text-xl">
-                    {bg.icon}
-                  </span>
-                  <span className="text-[9px] text-arc-muted leading-tight">{bg.name}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* The rules live on the hero card; the full sheet is a line there.
             Members already in the gym challenge get the link here instead. */}
@@ -1497,6 +1440,12 @@ export default function Challenges() {
             </h2>
             {openChallenges.map(renderChallenge)}
           </section>
+        )}
+        {/* Starting your own is the secondary action; the gym challenge is the hero. */}
+        {!simple && (
+          <Button variant="secondary" block onClick={() => openCreate([])}>
+            Start your own challenge
+          </Button>
         )}
       </main>
 
