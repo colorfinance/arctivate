@@ -1,9 +1,17 @@
 import '../styles/globals.css'
 import Head from 'next/head'
+import { Inter, JetBrains_Mono } from 'next/font/google'
 import { useEffect } from 'react'
 import { initCapacitor } from '../lib/capacitor'
 import { supabase } from '../lib/supabaseClient'
 import { getStoredTheme, applyTheme } from '../lib/theme'
+
+// Fonts ship with the app and are preloaded. They used to come from an
+// @import at the top of the stylesheet, which made every first load wait on
+// three requests in a row (our CSS, Google's CSS, then the font files) before
+// any text could render.
+const inter = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-inter' })
+const mono = JetBrains_Mono({ subsets: ['latin'], display: 'swap', variable: '--font-mono' })
 
 function MyApp({ Component, pageProps }) {
   useEffect(() => {
@@ -54,11 +62,10 @@ function MyApp({ Component, pageProps }) {
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
         <meta name="apple-mobile-web-app-title" content="Arctivate" />
-        {/* Preconnect to speed up first API call */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </Head>
-      <Component {...pageProps} />
+      <div className={`${inter.className} ${inter.variable} ${mono.variable}`}>
+        <Component {...pageProps} />
+      </div>
     </>
   )
 }

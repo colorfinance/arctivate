@@ -8,6 +8,7 @@ import Masthead from '../components/Masthead'
 import Button from '../components/Button'
 import Avatar from '../components/Avatar'
 import { useSimpleMode } from '../lib/simpleMode'
+import { patchMe } from '../lib/me'
 import { usePlan, gymCovers, PREMIUM_PRICE, startCheckout, openBillingPortal } from '../lib/plan'
 import { ListRow, SectionLabel } from '../components/ui'
 import Field from '../components/Field'
@@ -202,6 +203,10 @@ export default function Profile() {
         return
       }
 
+      // Weigh-ins and photos only need your id, so they load alongside the
+      // profile instead of after it.
+      const sideLoads = Promise.all([fetchWeights(user.id), fetchPhotos(user.id)])
+
       // Fetch profile (fall back if the newer body-metric columns aren't there)
       let { data: profileData, error: profErr } = await supabase
         .from('profiles')
@@ -241,7 +246,7 @@ export default function Profile() {
       setNudgeInput(nudge || '07:00')
       reminderPermissionState().then(setNotifyPermission).catch(() => {})
 
-      await Promise.all([fetchWeights(user.id), fetchPhotos(user.id)])
+      await sideLoads
     } catch (err) {
       // swallow — handled via UI state
     } finally {
@@ -373,6 +378,7 @@ export default function Profile() {
 
       const dropped = Object.keys(payload).filter((k) => attempt[k] === undefined)
       setProfile((prev) => ({ ...prev, ...attempt }))
+      patchMe({ username: attempt.username, ...(attempt.avatar_url ? { avatar_url: attempt.avatar_url } : {}) })
       setShowEditModal(false)
       showToast(dropped.length ? `Saved — run migration 016 for: ${dropped.join(', ')}` : 'Profile updated!')
     } catch (err) {

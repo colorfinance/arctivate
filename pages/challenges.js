@@ -128,73 +128,51 @@ export default function Challenges() {
       if (!user) { setLoading(false); return }
       setUserId(user.id)
 
-      const { data: mm } = await supabase.from('body_measurements').select('*').eq('user_id', user.id)
-      setMeasures(mm || [])
-
-      // Every gym has one challenge that is always running, made the first
-      // time somebody from that gym opens this page. Before it, a member's
-      // first tab read "nothing running yet" and the only way forward was to
-      // start one yourself — which is why, across 49 members, nobody had.
-      await supabase.rpc('ensure_gym_challenge').then(() => {}, () => {})
-
-      const { data: chData, error: chErr } = await supabase
-        .from('group_challenges')
-        .select('*')
-        .order('start_date', { ascending: false })
-
+      // Everything that does not depend on anything else, at once. These used
+      // to run one after another: about sixteen round trips before the page
+      // showed. The gym challenge is made (if it is missing) in the same wave,
+      // and the challenge list waits only for that.
+      const ensured = supabase.rpc('ensure_gym_challenge').then(() => {}, () => {})
+      const [
+        { data: mm },
+        { data: me },
+        { data: everyone },
+        { data: inv },
+        { data: taskData },
+        { data: tickData },
+      ] = await Promise.all([
+        supabase.from('body_measurements').select('*').eq('user_id', user.id),
+        supabase.from('profiles').select('gym_id, is_admin').eq('id', user.id).single(),
+        supabase.from('profiles').select('id, username, avatar_url, total_points, gym_id'),
+        supabase.from('challenge_invites').select('*').or(`invitee_id.eq.${user.id},inviter_id.eq.${user.id}`),
+        supabase.from('challenge_tasks').select('*').order('position'),
+        // Everyone's ticks in the challenges I'm in (the policy scopes it),
+        // so the standings can show what people have to show for themselves.
+        supabase.from('challenge_task_logs')
+          .select('task_id, user_id, date, proof_path, proof_type')
+          .gte('date', backfillFrom(todayStr())),
+      ])
+      await ensured
+      const [{ data: chData, error: chErr }, { data: memberData }] = await Promise.all([
+        supabase.from('group_challenges').select('*').order('start_date', { ascending: false }),
+        supabase.from('group_challenge_members').select('*'),
+      ])
       if (chErr) { setMissingTables(true); setLoading(false); return }
-      setChallenges(chData || [])
 
-      const { data: memberData } = await supabase
-        .from('group_challenge_members')
-        .select('*')
-      setMembers(memberData || [])
-
-      // Names and faces for the standings. profiles carries `username`; there
-      // is no full_name/email column, and asking for one errors the whole
-      // query, which is what left every entrant showing as "Member".
-      const ids = [...new Set((memberData || []).map(m => m.user_id))]
-      if (ids.length) {
-        const { data: profs } = await supabase
-          .from('profiles')
-          .select('id, username, avatar_url')
-          .in('id', ids)
-        const map = {}
-        ;(profs || []).forEach(p => { map[p.id] = { name: p.username || 'Member', avatar: p.avatar_url } })
-        setNames(map)
-      }
-
-      // Everything the create and invite flows need.
-      const { data: me } = await supabase
-        .from('profiles').select('gym_id, is_admin').eq('id', user.id).single()
+      setMeasures(mm || [])
       setMyGymId(me?.gym_id || null)
       setIsAdmin(!!me?.is_admin)
-
-      const { data: everyone } = await supabase
-        .from('profiles').select('id, username, avatar_url, total_points, gym_id')
       setPeople(everyone || [])
-
-      const { data: fr } = await supabase
-        .from('friendships').select('*')
-        .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
-      setFriendships(fr || [])
-
-      const { data: inv } = await supabase
-        .from('challenge_invites').select('*')
-        .or(`invitee_id.eq.${user.id},inviter_id.eq.${user.id}`)
       setInvites(inv || [])
-
-      // The checklists, and my ticks on the days still open for editing.
-      const { data: taskData } = await supabase
-        .from('challenge_tasks').select('*').order('position')
       setChTasks(taskData || [])
+      setChallenges(chData || [])
+      setMembers(memberData || [])
 
-      // Everyone's ticks in the challenges I'm in (the policy scopes it),
-      // so the standings can show what people have to show for themselves.
-      const { data: tickData } = await supabase
-        .from('challenge_task_logs')
-        .select('task_id, user_id, date, proof_path, proof_type')
-        .gte('date', backfillFrom(todayStr()))
+      // Names and faces for the standings, from the profiles already loaded.
+      const map = {}
+      ;(everyone || []).forEach(p => { map[p.id] = { name: p.username || 'Member', avatar: p.avatar_url } })
+      setNames(map)
+
       const allTicks = tickData || []
       setMyTicks(new Set(allTicks.filter(t => t.user_id === user.id).map(t => `${t.task_id}:${t.date}`)))
       const proofMap = {}
@@ -206,23 +184,13 @@ export default function Challenges() {
 
       await enforceStrict(user.id, chData || [], memberData || [], taskData || [])
 
-      // The database counts completed days — a browser can only see its own
-      // owner's ticks, so it is in no position to score anyone. Runs after the
-      // strict check so a reset is reflected in the same pass.
-      await supabase.rpc('recalc_my_challenge_progress')
-      const { data: scored } = await supabase.from('group_challenge_members').select('*')
-      if (scored) setMembers(scored)
-
-      const { data: fresh } = await supabase.rpc('award_my_badges')
-      if (fresh?.length) setJustEarned(fresh)
-
-
-      const { data: mine } = await supabase
-        .from('user_badges')
-        .select('badge_key, earned_at, badges(key, name, description, icon, sort_order)')
-        .eq('user_id', user.id)
-      setMyBadges((mine || []).map(r => r.badges).filter(Boolean)
-        .sort((a, b) => a.sort_order - b.sort_order))
+      // The page can show now. The database recounts completed days (a
+      // browser can only see its own owner's ticks, so it is in no position
+      // to score anyone) and the standings update when it answers.
+      setLoading(false)
+      supabase.rpc('recalc_my_challenge_progress')
+        .then(() => supabase.from('group_challenge_members').select('*'))
+        .then(({ data: scored }) => { if (scored) setMembers(scored) }, () => {})
     } catch {
       setMissingTables(true)
     } finally {

@@ -3,34 +3,42 @@ import { useRouter } from 'next/router'
 import { useSimpleMode } from '../lib/simpleMode'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { loadMe } from '../lib/me'
 import { DumbbellIcon, UsersIcon, HabitsIcon, FoodIcon, AdminIcon, FlagIcon } from './icons'
+
+// Survives navigation between tabs (the module stays loaded); a reload or a
+// sign-out starts it again.
+const navCache = { isAdmin: false, invites: 0, at: 0 }
 
 export default function Nav() {
   const { simple } = useSimpleMode()
   const router = useRouter()
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [pendingInvites, setPendingInvites] = useState(0)
+  const [isAdmin, setIsAdmin] = useState(navCache.isAdmin)
+  const [pendingInvites, setPendingInvites] = useState(navCache.invites)
 
-  // Refetched on every navigation so the badge clears as soon as someone deals
-  // with the invite, rather than sitting there until a reload.
+  // The badge and the admin tab, kept between tabs. They used to be two
+  // queries on every tap of the tab bar, on top of whatever the page itself
+  // loads. Now they refresh at most once a minute, and always on Challenge,
+  // where invites get dealt with, so the badge still clears straight away.
   useEffect(() => {
     let active = true
-    const load = async () => {
+    const fresh = Date.now() - navCache.at < 60000
+    if (fresh && router.pathname !== '/challenges') return
+    ;(async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
-        const { data } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
-        if (active && data?.is_admin) setIsAdmin(true)
-
-        const { count } = await supabase
-          .from('challenge_invites')
-          .select('id', { count: 'exact', head: true })
-          .eq('invitee_id', user.id)
-          .eq('status', 'pending')
-        if (active) setPendingInvites(count || 0)
+        const [data, { count }] = await Promise.all([
+          loadMe(),
+          supabase.from('challenge_invites').select('id', { count: 'exact', head: true })
+            .eq('invitee_id', user.id).eq('status', 'pending'),
+        ])
+        navCache.isAdmin = !!data?.is_admin
+        navCache.invites = count || 0
+        navCache.at = Date.now()
+        if (active) { setIsAdmin(navCache.isAdmin); setPendingInvites(navCache.invites) }
       } catch {}
-    }
-    load()
+    })()
     return () => { active = false }
   }, [router.pathname])
 
