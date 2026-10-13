@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabaseClient'
+import { refreshMe } from '../lib/me'
 import LoadingState from '../components/LoadingState'
 import BrandMark from '../components/BrandMark'
 import Button from '../components/Button'
@@ -46,6 +47,7 @@ export default function StartGym() {
       if (pe) throw pe
       const { error: ge } = await supabase.rpc('create_gym', { p_name: gymName.trim(), p_city: city.trim() || null })
       if (ge) throw ge
+      refreshMe()
       router.replace('/gym')
     } catch (e) {
       setError(e?.message?.includes('name') ? 'Give the gym a name.' : 'Could not set up the gym. Try again.')

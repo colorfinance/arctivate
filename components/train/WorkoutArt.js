@@ -1,6 +1,18 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
+// The canvas needs the real font family names; the app's fonts are loaded
+// by next/font under generated names exposed as CSS variables.
+const fontVar = (name, fallback) => {
+  try {
+    const el = document.querySelector('[class*="__variable"]') || document.documentElement
+    const v = getComputedStyle(el).getPropertyValue(name).trim()
+    return v ? `${v}, ${fallback}` : fallback
+  } catch { return fallback }
+}
+const monoFamily = () => fontVar('--font-mono', 'monospace')
+const sansFamily = () => fontVar('--font-inter', 'sans-serif')
+
 const DownloadIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -88,12 +100,12 @@ function renderWorkoutArt(canvas, workoutData, style) {
   roundRect(ctx, 40, 40, W - 80, 70, 16)
   ctx.fill()
 
-  ctx.font = '700 italic 24px Inter, sans-serif'
+  ctx.font = `700 italic 24px ${sansFamily()}`
   ctx.fillStyle = s.accent
   ctx.textAlign = 'left'
   ctx.fillText('ARCTIVATE', 70, 85)
 
-  ctx.font = '600 18px Inter, sans-serif'
+  ctx.font = `600 18px ${sansFamily()}`
   ctx.fillStyle = s.muted
   ctx.textAlign = 'right'
   ctx.fillText(formatArtDate(date), W - 70, 85)
@@ -115,18 +127,18 @@ function renderWorkoutArt(canvas, workoutData, style) {
 
   // Points
   ctx.textAlign = 'center'
-  ctx.font = '900 64px "JetBrains Mono", monospace'
+  ctx.font = `900 64px ${monoFamily()}`
   ctx.fillStyle = s.accent
   ctx.fillText(`+${totalPoints}`, W / 2, statsY + 80)
 
-  ctx.font = '800 14px Inter, sans-serif'
+  ctx.font = `800 14px ${sansFamily()}`
   ctx.fillStyle = s.muted
   ctx.letterSpacing = '4px'
   ctx.fillText('POINTS EARNED', W / 2, statsY + 115)
 
   // Sub-stats row
   const subY = statsY + 145
-  ctx.font = '700 20px "JetBrains Mono", monospace'
+  ctx.font = `700 20px ${monoFamily()}`
   ctx.fillStyle = s.text
 
   const subStats = [
@@ -139,10 +151,10 @@ function renderWorkoutArt(canvas, workoutData, style) {
   subStats.forEach((stat, i) => {
     const x = 60 + subW * i + subW / 2
     ctx.textAlign = 'center'
-    ctx.font = '700 22px "JetBrains Mono", monospace'
+    ctx.font = `700 22px ${monoFamily()}`
     ctx.fillStyle = s.text
     ctx.fillText(stat.value, x, subY)
-    ctx.font = '700 10px Inter, sans-serif'
+    ctx.font = `700 10px ${sansFamily()}`
     ctx.fillStyle = s.muted
     ctx.fillText(stat.label, x, subY + 18)
   })
@@ -158,7 +170,7 @@ function renderWorkoutArt(canvas, workoutData, style) {
   ctx.fill()
 
   ctx.textAlign = 'left'
-  ctx.font = '800 12px Inter, sans-serif'
+  ctx.font = `800 12px ${sansFamily()}`
   ctx.fillStyle = s.muted
   ctx.fillText('MOVEMENTS', 80, listY + 30)
 
@@ -174,7 +186,7 @@ function renderWorkoutArt(canvas, workoutData, style) {
       ctx.stroke()
     }
 
-    ctx.font = '700 22px Inter, sans-serif'
+    ctx.font = `700 22px ${sansFamily()}`
     ctx.fillStyle = s.text
     ctx.textAlign = 'left'
     ctx.fillText(truncateText(ctx, ex.name, 500), 80, y + 10)
@@ -184,19 +196,19 @@ function renderWorkoutArt(canvas, workoutData, style) {
       ctx.fillStyle = s.accent
       roundRect(ctx, 90 + nameWidth, y - 5, 60, 22, 4)
       ctx.fill()
-      ctx.font = '900 10px Inter, sans-serif'
+      ctx.font = `900 10px ${sansFamily()}`
       ctx.fillStyle = '#000'
       ctx.fillText('NEW PB', 95 + nameWidth, y + 10)
     }
 
     ctx.textAlign = 'right'
-    ctx.font = '700 22px "JetBrains Mono", monospace'
+    ctx.font = `700 22px ${monoFamily()}`
     ctx.fillStyle = s.accent
     const unit = ex.metricType === 'time' ? 'min' : 'kg'
     ctx.fillText(`${ex.value}${unit}`, W - 80, y + 10)
 
     if (ex.reps || ex.sets) {
-      ctx.font = '600 14px Inter, sans-serif'
+      ctx.font = `600 14px ${sansFamily()}`
       ctx.fillStyle = s.muted
       const details = [ex.sets && `${ex.sets}s`, ex.reps && `${ex.reps}r`, ex.rpe && `RPE ${ex.rpe}`].filter(Boolean).join(' / ')
       ctx.fillText(details, W - 80, y + 32)
@@ -205,7 +217,7 @@ function renderWorkoutArt(canvas, workoutData, style) {
 
   if (exercises.length > maxExercises) {
     ctx.textAlign = 'center'
-    ctx.font = '600 14px Inter, sans-serif'
+    ctx.font = `600 14px ${sansFamily()}`
     ctx.fillStyle = s.muted
     ctx.fillText(`+${exercises.length - maxExercises} more exercises`, W / 2, listY + listHeight - 10)
   }
@@ -222,7 +234,7 @@ function renderWorkoutArt(canvas, workoutData, style) {
     ctx.stroke()
 
     ctx.textAlign = 'center'
-    ctx.font = '900 italic 20px Inter, sans-serif'
+    ctx.font = `900 italic 20px ${sansFamily()}`
     ctx.fillStyle = s.accent
     ctx.fillText('PERSONAL BEST ACHIEVED', W / 2, bannerY + 38)
   }
@@ -235,13 +247,13 @@ function renderWorkoutArt(canvas, workoutData, style) {
 
   if (username) {
     ctx.textAlign = 'left'
-    ctx.font = '700 16px Inter, sans-serif'
+    ctx.font = `700 16px ${sansFamily()}`
     ctx.fillStyle = s.text
     ctx.fillText(`@${username}`, 70, footerY + 32)
   }
 
   ctx.textAlign = 'right'
-  ctx.font = '600 14px Inter, sans-serif'
+  ctx.font = `600 14px ${sansFamily()}`
   ctx.fillStyle = s.muted
   ctx.fillText('arctivate.app', W - 70, footerY + 32)
 

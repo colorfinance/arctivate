@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabaseClient'
+import { refreshMe } from '../lib/me'
 import { useRouter } from 'next/router'
 import Avatar from '../components/Avatar'
 import { startChallengeWith, STARTER_TASKS } from '../lib/newChallenge'
@@ -112,6 +113,7 @@ export default function Onboarding() {
     } catch {}
     // Straight to the challenge you just started -- that is the thing you
     // just did. Every other entry point lands on Today.
+    refreshMe()
     setTimeout(() => router.push('/challenges'), 2000)
   }
 

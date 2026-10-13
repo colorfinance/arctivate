@@ -46,8 +46,8 @@ module.exports = {
         arc: 'var(--ease)',
       },
       fontFamily: {
-        sans: ['Inter', ...defaultTheme.fontFamily.sans],
-        mono: ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
+        sans: ['var(--font-inter)', 'Inter', ...defaultTheme.fontFamily.sans],
+        mono: ['var(--font-mono)', 'JetBrains Mono', ...defaultTheme.fontFamily.mono],
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',

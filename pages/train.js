@@ -290,15 +290,16 @@ export default function Train() {
         }
         setCurrentUserId(user.id)
 
-        // CHECK ONBOARDING STATUS
-        const { data: profile } = await supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single()
-
+        // The onboarding check goes out with everything else rather than
+        // ahead of it; someone who has not finished is sent on either way.
+        const [{ data: profile }] = await Promise.all([
+            supabase.from('profiles').select('completed_onboarding').eq('id', user.id).single(),
+            fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id), fetchLastSets(user.id), fetchWorkoutsForDate(user.id, localDateStr()),
+        ])
         if (profile && profile.completed_onboarding === false) {
             router.push('/onboarding')
             return
         }
-
-        await Promise.all([fetchProfile(), fetchExercises(), fetchWorkoutHistory(user.id), fetchLastSets(user.id), fetchWorkoutsForDate(user.id, localDateStr())])
         setIsLoading(false)
     }
     load()
@@ -546,11 +547,14 @@ export default function Train() {
 
       const ids = workouts.map((w) => w.id)
       fetchWorkoutPhotos(userId, ids)
-      const { data: exs } = await supabase
-        .from('daily_workout_exercises')
-        .select('*')
-        .in('daily_workout_id', ids)
-        .order('position', { ascending: true })
+      // The exercises, what you have logged against them, and whether each
+      // workout is ticked off: three reads that only need the workout ids, so
+      // they go out together.
+      const [{ data: exs }, doneRes, compRes] = await Promise.all([
+        supabase.from('daily_workout_exercises').select('*').in('daily_workout_id', ids).order('position', { ascending: true }),
+        supabase.from('workout_logs').select('daily_workout_exercise_id').eq('user_id', userId).in('daily_workout_id', ids),
+        supabase.from('workout_completions').select('daily_workout_id').eq('user_id', userId).eq('date', day).in('daily_workout_id', ids),
+      ])
 
       const grouped = workouts.map((w) => ({
         ...w,
@@ -560,29 +564,12 @@ export default function Train() {
       // Auto-open when there's just one; otherwise let the user tap to expand.
       setExpandedWorkouts(new Set(grouped.length === 1 ? [grouped[0].id] : []))
 
-      // Determine which prescribed movements are already done.
-      try {
-        const { data: doneLogs } = await supabase
-          .from('workout_logs')
-          .select('daily_workout_exercise_id')
-          .eq('user_id', userId)
-          .in('daily_workout_id', ids)
-
-        if (doneLogs) {
-          setCompletedPrescribed(new Set(doneLogs.map((l) => l.daily_workout_exercise_id).filter(Boolean)))
-        }
-      } catch {}
-
-      // Which whole workouts are ticked off on this day (defensive if missing).
-      try {
-        const { data: comps } = await supabase
-          .from('workout_completions')
-          .select('daily_workout_id')
-          .eq('user_id', userId)
-          .eq('date', day)
-          .in('daily_workout_id', ids)
-        setCompletedWorkouts(new Set((comps || []).map((c) => c.daily_workout_id)))
-      } catch {}
+      // Which prescribed movements are already done, and which whole workouts
+      // are ticked off on this day.
+      if (doneRes?.data) {
+        setCompletedPrescribed(new Set(doneRes.data.map((l) => l.daily_workout_exercise_id).filter(Boolean)))
+      }
+      setCompletedWorkouts(new Set((compRes?.data || []).map((c) => c.daily_workout_id)))
     } catch {}
   }
 
@@ -1741,43 +1728,60 @@ export default function Train() {
 
             {/* Each workout is a card of plain text: what it is and how it
                 goes. Tap it to open the workout, where every exercise has its
-                own Log and PB. */}
+                own Log and PB. Done is on the card too, for a class or a run
+                where there is nothing to log. */}
             {todayWorkouts.map((workout, wIdx) => {
                 const done = completedWorkouts.has(workout.id)
                 const count = (workout.exercises || []).length
                 const loggedCount = (workout.exercises || []).filter(ex => completedPrescribed.has(ex.id)).length
                 return (
-                    <motion.button
+                    <motion.div
                         key={workout.id}
-                        type="button"
-                        onClick={() => setOpenWorkoutId(workout.id)}
                         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + wIdx * 0.04 }}
-                        className={`w-full text-left rounded-container border p-5 transition-colors ${done ? 'bg-arc-success/[0.06] border-arc-success/30' : 'bg-arc-surface2/60 border-white/[0.06] hover:border-white/15'}`}
+                        className={`rounded-container border overflow-hidden transition-colors ${done ? 'bg-arc-success/[0.06] border-arc-success/30' : 'bg-arc-surface2/60 border-white/[0.06]'}`}
                     >
-                        <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setOpenWorkoutId(workout.id)}
+                            aria-label={`Open ${workout.title}`}
+                            className="w-full text-left p-5 pb-4"
+                        >
                             <span className={`t-label ${workout.owner_id ? 'text-arc-accent' : 'text-arc-cyan'}`}>
                                 {workout.owner_id ? 'Your workout' : (todayWorkouts.length > 1 ? `Workout ${wIdx + 1}` : (selectedDate === localDateStr() ? "Today's workout" : 'Workout'))}
                             </span>
-                            <span className="flex-1" />
-                            {done && <span className="t-caption font-bold text-arc-success">✓ Done</span>}
-                        </div>
-                        <h2 className="t-title mt-1 text-white" style={{ fontSize: 20 }}>{workout.title}</h2>
-                        {workout.description && (
-                            <p className="t-body text-white/80 whitespace-pre-line mt-1.5 line-clamp-6">{workout.description}</p>
-                        )}
-                        <div className="mt-3 flex items-center gap-2 t-caption font-bold text-arc-muted">
-                            <span>
-                                {count === 0
-                                    ? 'Open to log it'
-                                    : loggedCount > 0
-                                        ? `${loggedCount} of ${count} exercises logged`
-                                        : `${count} exercise${count === 1 ? '' : 's'}`}
+                            <h2 className={`t-title mt-1 ${done ? 'text-arc-muted' : 'text-white'}`} style={{ fontSize: 20 }}>{workout.title}</h2>
+                            {workout.description && (
+                                <p className="t-body text-white/80 whitespace-pre-line mt-1.5 line-clamp-6">{workout.description}</p>
+                            )}
+                            <span className="mt-3 flex items-center gap-2 t-caption font-bold text-arc-muted">
+                                <span>
+                                    {count === 0
+                                        ? 'Nothing to log'
+                                        : loggedCount > 0
+                                            ? `${loggedCount} of ${count} exercises logged`
+                                            : `${count} exercise${count === 1 ? '' : 's'} to log`}
+                                </span>
+                                <span className="flex-1" />
+                                <span className="text-arc-accent">Open</span>
+                                <ArrowRightIcon size={12} />
                             </span>
-                            <span className="flex-1" />
-                            <span className="text-arc-accent">Open</span>
-                            <ArrowRightIcon size={12} />
+                        </button>
+                        <div className="px-5 pb-5">
+                            <button
+                                type="button"
+                                onClick={() => toggleWorkoutComplete(workout)}
+                                aria-pressed={done}
+                                className={`w-full h-12 rounded-control border-2 flex items-center justify-center gap-2 text-[15px] font-bold transition-colors ${done ? 'bg-arc-success border-arc-success text-black' : 'border-white/15 text-white hover:border-arc-accent'}`}
+                            >
+                                {done ? (
+                                    <>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                                        Done
+                                    </>
+                                ) : 'Mark as done'}
+                            </button>
                         </div>
-                    </motion.button>
+                    </motion.div>
                 )
             })}
 

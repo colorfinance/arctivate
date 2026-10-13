@@ -7,7 +7,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { loadMe } from '../lib/me'
 import Avatar from './Avatar'
 
 export default function ProfileButton({ size = 32 }) {
@@ -18,10 +18,7 @@ export default function ProfileButton({ size = 32 }) {
     let active = true
     const load = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-        const { data } = await supabase
-          .from('profiles').select('username, avatar_url').eq('id', user.id).single()
+        const data = await loadMe()
         if (active) setMe(data || null)
       } catch {}
     }

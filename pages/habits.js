@@ -90,7 +90,28 @@ export default function Habits() {
       // 1. Fetch Challenge Info & Points
       // select('*') so a missing presets_seeded_for (028 not applied) can't
       // break the page.
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+      // The reads that do not depend on each other go out together. They used
+      // to run one after another, each waiting for the last to come back.
+      const today = getTodayStr()
+      const weekStart = getWeekStartStr()
+      // On a Monday the day you can still fix belongs to last week, so reach
+      // back to whichever is earlier.
+      const openFrom = backfillFrom(today)
+      // Coach challenges only stay up for 24 hours after they're posted.
+      const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const [
+        { data: profile },
+        chRes,
+        chLogRes,
+        habitsRes,
+        { data: logsData },
+      ] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('challenges').select('*').eq('is_active', true).gte('created_at', cutoff24h).order('created_at', { ascending: true }),
+        supabase.from('challenge_logs').select('challenge_id').eq('user_id', user.id).eq('date', today),
+        supabase.from('habits').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
+        supabase.from('habit_logs').select('habit_id, date').eq('user_id', user.id).gte('date', openFrom < weekStart ? openFrom : weekStart),
+      ])
 
       if (profile && profile.completed_onboarding === false) {
         router.push('/onboarding')
@@ -132,35 +153,11 @@ export default function Habits() {
 
       // Admin-published challenges + today's completions (defensive: the
       // tables may not exist yet on older DBs).
-      const today0 = getTodayStr()
-      try {
-        // Coach challenges only stay up for 24 hours after they're posted.
-        const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-        const { data: chData } = await supabase
-          .from('challenges')
-          .select('*')
-          .eq('is_active', true)
-          .gte('created_at', cutoff24h)
-          .order('created_at', { ascending: true })
-        setChallenges(chData || [])
+      // Admin-published challenges (the tables may not exist on older DBs).
+      setChallenges(chRes?.data || [])
+      setChallengeLogs(new Set(chLogRes?.data?.map(l => l.challenge_id) || []))
 
-        const { data: chLogs } = await supabase
-          .from('challenge_logs')
-          .select('challenge_id')
-          .eq('user_id', user.id)
-          .eq('date', today0)
-        setChallengeLogs(new Set(chLogs?.map(l => l.challenge_id) || []))
-      } catch {
-        setChallenges([])
-      }
-
-      // 2. Fetch Habits
-      let { data: habitsData } = await supabase
-        .from('habits')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-      habitsData = habitsData || []
+      let habitsData = habitsRes?.data || []
 
       // Seed the challenge preset habits once per challenge start (also covers
       // an admin reset, which bumps the start date so presets refresh).
@@ -235,16 +232,6 @@ export default function Habits() {
 
       // 3. Fetch this week's logs (covers daily = today and weekly = any day
       // since Monday).
-      const today = getTodayStr()
-      const weekStart = getWeekStartStr()
-      // On a Monday the day you can still fix belongs to last week, so reach
-      // back to whichever is earlier.
-      const openFrom = backfillFrom(today)
-      const { data: logsData } = await supabase
-        .from('habit_logs')
-        .select('habit_id, date')
-        .eq('user_id', user.id)
-        .gte('date', openFrom < weekStart ? openFrom : weekStart)
 
       const freqById = new Map(habitsData.map(h => [h.id, h.frequency || 'daily']))
       const todaySet = new Set()
@@ -290,8 +277,9 @@ export default function Habits() {
       // permission, so check separately -- otherwise members sit with alarms
       // set that can never fire, which is exactly what was happening.
 
-      // Fetch progress photos + weigh-in history
-      await fetchWeightLogs(user.id)
+      // Weigh-in history only prefills the weigh-in sheet, so it does not
+      // hold the page.
+      fetchWeightLogs(user.id)
     } catch {
       // swallow
     } finally {
